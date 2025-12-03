@@ -55,17 +55,18 @@ check_dependencies() {
     fi
     print_success "Docker gefunden: $(docker --version)"
     
-    # Check Docker Compose
-    if docker compose version &> /dev/null; then
-        DOCKER_COMPOSE_CMD="docker compose"
-    elif command -v docker-compose &> /dev/null; then
+    # Check Docker Compose (ältere Version zuerst prüfen)
+    if command -v docker-compose &> /dev/null; then
         DOCKER_COMPOSE_CMD="docker-compose"
+        print_success "Docker Compose gefunden (docker-compose)"
+    elif docker compose version &> /dev/null; then
+        DOCKER_COMPOSE_CMD="docker compose"
+        print_success "Docker Compose gefunden (docker compose)"
     else
         print_error "Docker Compose ist nicht installiert!"
         echo "Bitte installieren Sie Docker Compose"
         exit 1
     fi
-    print_success "Docker Compose gefunden"
     
     echo ""
 }
