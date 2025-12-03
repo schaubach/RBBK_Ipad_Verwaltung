@@ -1,8 +1,8 @@
 #!/bin/bash
 
 ###############################################################################
-# iPad-Verwaltungssystem - Installations- und Setup-Script
-# Version: 2.1 (mit RBAC-Unterstützung und verbesserter Fehlerbehandlung)
+# iPad-Verwaltungssystem - Installations-Script
+# Version: 3.0 - Vereinfacht und optimiert
 ###############################################################################
 
 set -e  # Bei Fehler abbrechen
@@ -22,7 +22,7 @@ NC='\033[0m' # No Color
 print_header() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
     echo -e "${BLUE}    iPad-Verwaltungssystem - Installation${NC}"
-    echo -e "${BLUE}    Version 2.0 mit RBAC${NC}"
+    echo -e "${BLUE}    Version 3.0 mit RBAC${NC}"
     echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
     echo ""
 }
@@ -43,446 +43,213 @@ print_success() {
     echo -e "${GREEN}✓${NC} $1"
 }
 
+# Prüfe System-Voraussetzungen
 check_dependencies() {
     print_step "Überprüfe System-Voraussetzungen..."
     
     # Check Docker
     if ! command -v docker &> /dev/null; then
         print_error "Docker ist nicht installiert!"
-        echo "Installation: https://docs.docker.com/get-docker/"
+        echo "Bitte installieren Sie Docker: https://docs.docker.com/get-docker/"
         exit 1
     fi
-    print_success "Docker gefunden: $(docker --version | cut -d' ' -f3)"
+    print_success "Docker gefunden: $(docker --version)"
     
-    # Check Docker Compose (v1 oder v2)
-    if command -v docker-compose &> /dev/null; then
-        DOCKER_COMPOSE_CMD="docker-compose"
-        print_success "Docker Compose gefunden: $(docker-compose --version | cut -d' ' -f4)"
-    elif docker compose version &> /dev/null; then
+    # Check Docker Compose
+    if docker compose version &> /dev/null; then
         DOCKER_COMPOSE_CMD="docker compose"
-        print_success "Docker Compose gefunden: $(docker compose version --short)"
+    elif command -v docker-compose &> /dev/null; then
+        DOCKER_COMPOSE_CMD="docker-compose"
     else
         print_error "Docker Compose ist nicht installiert!"
-        echo "Installation: https://docs.docker.com/compose/install/"
+        echo "Bitte installieren Sie Docker Compose"
         exit 1
     fi
-    
-    # Check Python
-    if ! command -v python3 &> /dev/null; then
-        print_warning "Python3 nicht gefunden, wird aber für lokale Entwicklung empfohlen"
-    else
-        print_success "Python gefunden: $(python3 --version | cut -d' ' -f2)"
-    fi
+    print_success "Docker Compose gefunden"
     
     echo ""
 }
 
-check_existing_installation() {
-    print_step "Prüfe auf vorherige Installation..."
-    
-    local has_containers=false
-    local has_volumes=false
-    local has_env_files=false
-    
-    # Prüfe auf laufende/existierende Container (auch gestoppte)
-    if docker ps -a 2>/dev/null | grep -q "ipad\|mongodb"; then
-        has_containers=true
-        print_warning "Existierende Container gefunden"
-    fi
-    
-    # Prüfe auf Docker Volumes
-    if docker volume ls | grep -q "ipad\|mongodb"; then
-        has_volumes=true
-        print_warning "Existierende Docker-Volumes gefunden"
-    fi
-    
-    # Prüfe auf .env Dateien
-    if [ -f "./backend/.env" ] || [ -f "./frontend/.env" ]; then
-        has_env_files=true
-        print_warning "Existierende .env-Dateien gefunden"
-    fi
-    
-    # Wenn keine vorherige Installation gefunden wurde
-    if [ "$has_containers" = false ] && [ "$has_volumes" = false ] && [ "$has_env_files" = false ]; then
-        print_success "Keine vorherige Installation gefunden"
-        echo ""
-        return 0
-    fi
-    
-    # Vorherige Installation gefunden - Benutzer fragen
-    echo ""
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}    ⚠  VORHERIGE INSTALLATION GEFUNDEN${NC}"
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
-    echo ""
-    
-    if [ "$has_containers" = true ]; then
-        echo -e "${YELLOW}Gefundene Container:${NC}"
-        docker ps -a --filter "name=ipad\|mongodb\|nginx" --format "  - {{.Names}} ({{.Status}})"
-        echo ""
-    fi
-    
-    if [ "$has_volumes" = true ]; then
-        echo -e "${YELLOW}Gefundene Volumes:${NC}"
-        docker volume ls --filter "name=ipad\|mongodb" --format "  - {{.Name}}"
-        echo ""
-    fi
-    
-    if [ "$has_env_files" = true ]; then
-        echo -e "${YELLOW}Gefundene Konfigurationsdateien:${NC}"
-        [ -f "./backend/.env" ] && echo "  - backend/.env"
-        [ -f "./frontend/.env" ] && echo "  - frontend/.env"
-        echo ""
-    fi
-    
-    echo -e "${RED}WARNUNG: Das Löschen entfernt alle Daten (iPads, Schüler, Zuordnungen, Verträge)!${NC}"
-    echo ""
-    echo "Optionen:"
-    echo "  1) Alte Installation löschen und neu installieren"
-    echo "  2) Backup erstellen, dann löschen und neu installieren"
-    echo "  3) Installation abbrechen"
-    echo ""
-    read -p "Ihre Wahl (1/2/3): " choice
-    
-    case $choice in
-        1)
-            print_step "Lösche alte Installation..."
-            cleanup_installation false
-            print_success "Alte Installation gelöscht"
-            echo ""
-            ;;
-        2)
-            print_step "Erstelle Backup..."
-            create_backup
-            print_step "Lösche alte Installation..."
-            cleanup_installation false
-            print_success "Backup erstellt und alte Installation gelöscht"
-            echo ""
-            ;;
-        3)
-            echo ""
-            print_warning "Installation abgebrochen"
-            exit 0
-            ;;
-        *)
-            print_error "Ungültige Auswahl"
-            exit 1
-            ;;
-    esac
-}
-
-create_backup() {
-    local backup_dir="./backup_$(date +%Y%m%d_%H%M%S)"
-    mkdir -p "$backup_dir"
-    
-    # Backup .env Dateien
-    if [ -f "./backend/.env" ]; then
-        cp ./backend/.env "$backup_dir/backend.env.bak"
-        print_success "Backend .env gesichert"
-    fi
-    
-    if [ -f "./frontend/.env" ]; then
-        cp ./frontend/.env "$backup_dir/frontend.env.bak"
-        print_success "Frontend .env gesichert"
-    fi
-    
-    # MongoDB Backup wenn Container läuft
-    if docker ps | grep -q mongodb; then
-        print_step "Sichere MongoDB-Daten..."
-        docker exec mongodb mongodump --out /tmp/mongodb_backup 2>/dev/null || true
-        docker cp mongodb:/tmp/mongodb_backup "$backup_dir/mongodb_backup" 2>/dev/null || true
-        print_success "MongoDB-Daten gesichert"
-    fi
-    
-    echo ""
-    echo -e "${GREEN}Backup erstellt in: ${backup_dir}${NC}"
-    echo ""
-}
-
-cleanup_installation() {
-    local silent=$1
-    
-    # Stoppe und entferne Container in einem Schritt
-    [ "$silent" = false ] && print_step "Stoppe und entferne existierende Container..."
-    
-    # Versuche docker-compose down
-    if [ -d "config" ]; then
-        cd config 2>/dev/null && $DOCKER_COMPOSE_CMD down -v 2>/dev/null || true
-        cd .. 2>/dev/null || true
-    fi
-    
-    # Entferne Container direkt (auch wenn gestoppt)
-    # Suche nach allen Containern mit ipad, mongodb oder config im Namen
-    local containers=$(docker ps -a -q --filter "name=ipad" --filter "name=mongodb" --filter "name=config" 2>/dev/null)
-    if [ ! -z "$containers" ]; then
-        docker rm -f $containers 2>/dev/null || true
-    fi
-    
-    [ "$silent" = false ] && print_success "Container entfernt"
-    
-    # Entferne Volumes (Datenverlust!)
-    [ "$silent" = false ] && print_step "Entferne Volumes..."
-    local volumes=$(docker volume ls -q --filter "name=ipad" --filter "name=mongodb" --filter "name=config" 2>/dev/null)
-    if [ ! -z "$volumes" ]; then
-        docker volume rm $volumes 2>/dev/null || true
-    fi
-    [ "$silent" = false ] && print_success "Volumes entfernt"
-    
-    # Entferne Images (optional)
-    [ "$silent" = false ] && print_step "Entferne alte Images..."
-    local images=$(docker images -q --filter "reference=*ipad*" --filter "reference=config*" 2>/dev/null)
-    if [ ! -z "$images" ]; then
-        docker rmi -f $images 2>/dev/null || true
-    fi
-    [ "$silent" = false ] && print_success "Images entfernt"
-}
-
+# Prüfe Projektstruktur
 check_project_structure() {
     print_step "Überprüfe Projektstruktur..."
     
-    # Prüfe ob wichtige Verzeichnisse existieren
     local missing_dirs=()
     
-    [ ! -d "./backend" ] && missing_dirs+=("backend")
-    [ ! -d "./frontend" ] && missing_dirs+=("frontend")
-    [ ! -d "./config" ] && missing_dirs+=("config")
+    [ ! -d "frontend" ] && missing_dirs+=("frontend")
+    [ ! -d "backend" ] && missing_dirs+=("backend")
+    [ ! -d "config" ] && missing_dirs+=("config")
     
     if [ ${#missing_dirs[@]} -gt 0 ]; then
         print_error "Fehlende Verzeichnisse: ${missing_dirs[*]}"
-        echo ""
-        echo "Sie befinden sich wahrscheinlich im falschen Verzeichnis!"
-        echo "Aktuelles Verzeichnis: $(pwd)"
-        echo ""
-        echo "Bitte wechseln Sie in das Hauptverzeichnis des Projekts:"
-        echo "  cd /pfad/zum/projekt"
-        echo "  ./install.sh"
         exit 1
     fi
     
-    print_success "Projektstruktur OK"
+    [ ! -f "backend/server.py" ] && print_error "backend/server.py fehlt!" && exit 1
+    [ ! -f "frontend/package.json" ] && print_error "frontend/package.json fehlt!" && exit 1
+    [ ! -f "config/docker-compose.yml" ] && print_error "config/docker-compose.yml fehlt!" && exit 1
+    
+    print_success "Projektstruktur ist vollständig"
     echo ""
 }
 
+# Setup Umgebungsvariablen
 setup_environment() {
-    print_step "Erstelle Umgebungsvariablen..."
+    print_step "Setup Umgebungsvariablen..."
     
     # Backend .env
-    if [ ! -f "./backend/.env" ]; then
-        print_warning "Backend .env nicht gefunden, erstelle neue..."
-        
-        # Stelle sicher, dass das Verzeichnis existiert
-        mkdir -p ./backend
-        
-        SECRET_KEY=$(openssl rand -hex 32)
-        cat > ./backend/.env <<EOF
-# MongoDB Configuration
-MONGO_URL=mongodb://mongodb:27017/
-IPAD_DB_NAME=iPadDatabase
-
-# Security
-SECRET_KEY=${SECRET_KEY}
+    if [ ! -f "backend/.env" ]; then
+        print_warning "backend/.env fehlt - wird erstellt..."
+        cat > backend/.env << EOF
+MONGO_URL=mongodb://mongodb:27017/ipad_management
+SECRET_KEY=$(openssl rand -hex 32)
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-# Application
-DEBUG=False
 EOF
-        print_success "Backend .env erstellt mit sicherem SECRET_KEY"
+        print_success "backend/.env erstellt"
     else
-        print_success "Backend .env bereits vorhanden"
+        print_success "backend/.env bereits vorhanden"
     fi
     
     # Frontend .env
-    if [ ! -f "./frontend/.env" ]; then
-        print_warning "Frontend .env nicht gefunden, erstelle neue..."
-        
-        # Stelle sicher, dass das Verzeichnis existiert
-        mkdir -p ./frontend
-        
-        cat > ./frontend/.env <<EOF
-# Backend API URL
+    if [ ! -f "frontend/.env" ]; then
+        print_warning "frontend/.env fehlt - wird erstellt..."
+        cat > frontend/.env << EOF
 REACT_APP_BACKEND_URL=http://localhost:8001
 EOF
-        print_success "Frontend .env erstellt"
+        print_success "frontend/.env erstellt"
     else
-        print_success "Frontend .env bereits vorhanden"
+        print_success "frontend/.env bereits vorhanden"
     fi
     
     echo ""
 }
 
+# Baue Docker Container
 build_containers() {
-    print_step "Baue Docker-Container..."
+    print_step "Baue Docker Container..."
+    echo "Das kann einige Minuten dauern..."
+    echo ""
     
-    if [ -f "./config/docker-compose.yml" ]; then
-        # Prüfe auf Container-Konflikte und entferne sie automatisch
-        local conflicting_containers=$(docker ps -a -q --filter "name=ipad" --filter "name=mongodb" --filter "name=config" 2>/dev/null)
-        if [ ! -z "$conflicting_containers" ]; then
-            print_warning "Entferne existierende Container vor dem Build..."
-            docker rm -f $conflicting_containers 2>/dev/null || true
-        fi
-        
-        cd config
-        # Build MIT Cache (spart RAM und Zeit)
-        # --no-cache nur bei Problemen nötig
-        print_step "Hinweis: Verwende Build-Cache für bessere Performance..."
-        $DOCKER_COMPOSE_CMD build
-        cd ..
-        print_success "Docker-Container erfolgreich gebaut"
+    cd config
+    
+    if $DOCKER_COMPOSE_CMD build; then
+        print_success "Container erfolgreich gebaut"
     else
-        print_error "docker-compose.yml nicht gefunden!"
+        print_error "Fehler beim Bauen der Container"
         exit 1
     fi
     
+    cd ..
     echo ""
 }
 
+# Starte Services
 start_services() {
     print_step "Starte Services..."
     
     cd config
-    $DOCKER_COMPOSE_CMD up -d
+    
+    if $DOCKER_COMPOSE_CMD up -d; then
+        print_success "Services gestartet"
+    else
+        print_error "Fehler beim Starten der Services"
+        exit 1
+    fi
+    
     cd ..
+    echo ""
+}
+
+# Warte auf Services
+wait_for_services() {
+    print_step "Warte auf Services..."
     
-    print_success "Services gestartet"
+    echo -n "Warte auf MongoDB"
+    for i in {1..30}; do
+        if docker exec ipad-mongodb mongosh --eval "db.adminCommand('ping')" &> /dev/null; then
+            echo ""
+            print_success "MongoDB ist bereit"
+            break
+        fi
+        echo -n "."
+        sleep 2
+    done
     
-    # Warte auf Services
-    print_step "Warte auf Service-Initialisierung..."
-    sleep 10
+    echo -n "Warte auf Backend"
+    for i in {1..30}; do
+        if curl -s http://localhost:8001/health &> /dev/null; then
+            echo ""
+            print_success "Backend ist bereit"
+            break
+        fi
+        echo -n "."
+        sleep 2
+    done
+    
+    echo -n "Warte auf Frontend"
+    for i in {1..30}; do
+        if curl -s http://localhost:3000 &> /dev/null; then
+            echo ""
+            print_success "Frontend ist bereit"
+            break
+        fi
+        echo -n "."
+        sleep 2
+    done
     
     echo ""
 }
 
+# Initialisiere Datenbank mit Admin-User
 init_database() {
-    print_step "Initialisiere Datenbank und Admin-Benutzer..."
+    print_step "Initialisiere Datenbank..."
     
-    # Warte auf MongoDB
-    sleep 5
+    # Prüfe ob Admin-User bereits existiert
+    ADMIN_EXISTS=$(docker exec ipad-mongodb mongosh ipad_management --quiet --eval "db.users.countDocuments({username: 'admin'})")
     
-    # Versuche Admin-Setup über API
-    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8001/api/auth/setup 2>/dev/null)
-    
-    if [ "$RESPONSE" = "200" ]; then
-        print_success "Admin-Benutzer über API erstellt"
+    if [ "$ADMIN_EXISTS" -gt 0 ]; then
+        print_success "Admin-User bereits vorhanden"
     else
-        print_warning "API-Setup nicht verfügbar, setze über Docker..."
-    fi
-    
-    # Stelle sicher, dass Admin korrekt konfiguriert ist (mit admin123)
-    print_step "Konfiguriere Admin-Benutzer..."
-    cd config
-    $DOCKER_COMPOSE_CMD exec -T backend python << 'PYEOF' 2>/dev/null || print_warning "Admin-Konfiguration übersprungen"
-import asyncio
-from motor.motor_asyncio import AsyncIOMotorClient
-from passlib.context import CryptContext
-from datetime import datetime, timezone
-import uuid
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-async def setup_admin():
-    try:
-        client = AsyncIOMotorClient("mongodb://admin:ipad_admin_2024@mongodb:27017/iPadDatabase?authSource=admin")
-        db = client["iPadDatabase"]
+        print_warning "Erstelle Admin-User..."
         
-        # Prüfe ob Admin existiert
-        admin = await db.users.find_one({"username": "admin"})
-        
-        if admin:
-            # Update Admin mit korrektem Passwort und Rolle
-            await db.users.update_one(
-                {"username": "admin"},
-                {"$set": {
-                    "password_hash": pwd_context.hash("admin123"),
-                    "role": "admin",
-                    "is_active": True,
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }}
-            )
-        else:
-            # Erstelle neuen Admin
-            admin = {
-                "id": str(uuid.uuid4()),
+        # Erstelle Admin-User über Backend-API
+        RESPONSE=$(curl -s -X POST http://localhost:8001/api/auth/register \
+            -H "Content-Type: application/json" \
+            -d '{
                 "username": "admin",
-                "password_hash": pwd_context.hash("admin123"),
-                "role": "admin",
-                "is_active": True,
-                "created_by": None,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }
-            await db.users.insert_one(admin)
+                "email": "admin@ipad-system.local",
+                "password": "admin123",
+                "role": "admin"
+            }')
         
-        print("Admin configured successfully")
-        client.close()
-    except Exception as e:
-        print(f"Error: {e}")
-
-asyncio.run(setup_admin())
-PYEOF
-    cd ..
-    
-    print_success "Admin-Benutzer konfiguriert"
-    echo ""
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
-    echo -e "${YELLOW}    Standard-Login-Daten:${NC}"
-    echo -e "${YELLOW}    Benutzername: admin${NC}"
-    echo -e "${YELLOW}    Passwort: admin123${NC}"
-    echo -e "${YELLOW}    Rolle: Administrator${NC}"
-    echo -e "${YELLOW}    ${NC}"
-    echo -e "${RED}    ⚠ WICHTIG: Ändern Sie das Passwort nach dem ersten Login!${NC}"
-    echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
-    
-    echo ""
-}
-
-run_migration() {
-    print_step "Führe RBAC-Datenmigration aus..."
-    
-    if [ -f "./backend/migrate_rbac.py" ]; then
-        cd config
-        $DOCKER_COMPOSE_CMD exec -T backend python migrate_rbac.py || {
-            print_warning "Migration konnte nicht automatisch ausgeführt werden"
-            echo "Führen Sie manuell aus: cd config && $DOCKER_COMPOSE_CMD exec backend python migrate_rbac.py"
-        }
-        cd ..
-        print_success "Datenmigration abgeschlossen"
-    else
-        print_warning "Migrations-Script nicht gefunden, übersprungen"
+        if echo "$RESPONSE" | grep -q "id"; then
+            print_success "Admin-User erstellt"
+        else
+            print_warning "Admin-User konnte nicht über API erstellt werden"
+            print_warning "Erstelle direkt in Datenbank..."
+            
+            # Fallback: Direkt in Datenbank erstellen
+            docker exec ipad-mongodb mongosh ipad_management --eval "
+                db.users.insertOne({
+                    id: 'admin-$(date +%s)',
+                    username: 'admin',
+                    email: 'admin@ipad-system.local',
+                    hashed_password: '\$2b\$12\$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5aCPnZPxfNPxe',
+                    role: 'admin',
+                    is_active: true,
+                    created_at: new Date()
+                })
+            " &> /dev/null
+            
+            print_success "Admin-User direkt in Datenbank erstellt"
+        fi
     fi
     
     echo ""
 }
 
-check_health() {
-    print_step "Überprüfe Service-Status..."
-    
-    # Backend Health Check
-    BACKEND_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8001/api/auth/setup)
-    if [ "$BACKEND_RESPONSE" = "200" ]; then
-        print_success "Backend läuft auf http://localhost:8001"
-    else
-        print_error "Backend antwortet nicht korrekt (HTTP $BACKEND_RESPONSE)"
-    fi
-    
-    # Frontend Health Check
-    FRONTEND_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000)
-    if [ "$FRONTEND_RESPONSE" = "200" ]; then
-        print_success "Frontend läuft auf http://localhost:3000"
-    else
-        print_warning "Frontend lädt noch... (HTTP $FRONTEND_RESPONSE)"
-    fi
-    
-    # MongoDB Health Check
-    if docker ps | grep -q mongodb; then
-        print_success "MongoDB-Container läuft"
-    else
-        print_error "MongoDB-Container läuft nicht!"
-    fi
-    
-    echo ""
-}
-
+# Zeige finale Informationen
 print_final_info() {
     echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
@@ -502,11 +269,16 @@ print_final_info() {
     echo -e "${RED}⚠  WICHTIG: Ändern Sie das Admin-Passwort nach dem ersten Login!${NC}"
     echo ""
     echo -e "${BLUE}Nützliche Befehle:${NC}"
-    echo -e "  In config-Verzeichnis wechseln: ${YELLOW}cd config${NC}"
-    echo -e "  Status anzeigen:     ${YELLOW}$DOCKER_COMPOSE_CMD ps${NC}"
-    echo -e "  Logs anzeigen:       ${YELLOW}$DOCKER_COMPOSE_CMD logs -f${NC}"
-    echo -e "  Services stoppen:    ${YELLOW}$DOCKER_COMPOSE_CMD down${NC}"
-    echo -e "  Services neu starten:${YELLOW}$DOCKER_COMPOSE_CMD restart${NC}"
+    echo -e "  In config-Verzeichnis:   ${YELLOW}cd config${NC}"
+    echo -e "  Status anzeigen:         ${YELLOW}$DOCKER_COMPOSE_CMD ps${NC}"
+    echo -e "  Logs anzeigen:           ${YELLOW}$DOCKER_COMPOSE_CMD logs -f${NC}"
+    echo -e "  Backend-Logs:            ${YELLOW}$DOCKER_COMPOSE_CMD logs -f backend${NC}"
+    echo -e "  Frontend-Logs:           ${YELLOW}$DOCKER_COMPOSE_CMD logs -f frontend${NC}"
+    echo -e "  Services stoppen:        ${YELLOW}$DOCKER_COMPOSE_CMD down${NC}"
+    echo -e "  Services neu starten:    ${YELLOW}$DOCKER_COMPOSE_CMD restart${NC}"
+    echo ""
+    echo -e "${BLUE}Deployment auf Produktions-Server:${NC}"
+    echo -e "  Script verwenden:        ${YELLOW}./deploy-smart.sh${NC}"
     echo ""
     echo -e "${BLUE}RBAC-Funktionen:${NC}"
     echo -e "  • Multi-User-Unterstützung mit Rollenzuweisung"
@@ -515,9 +287,7 @@ print_final_info() {
     echo -e "  • Admins sehen alle Systemdaten"
     echo ""
     echo -e "${BLUE}Dokumentation:${NC}"
-    echo -e "  Deployment:   ${GREEN}docs/DEPLOYMENT.md${NC}"
-    echo -e "  Development:  ${GREEN}docs/DEVELOPMENT.md${NC}"
-    echo -e "  README:       ${GREEN}README.md${NC}"
+    echo -e "  Vollständige Doku:       ${GREEN}ENTWICKLERDOKUMENTATION.md${NC}"
     echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
     echo ""
@@ -530,7 +300,6 @@ main() {
     # Prüfungen
     check_dependencies
     check_project_structure
-    check_existing_installation
     
     # Setup
     setup_environment
@@ -539,42 +308,15 @@ main() {
     build_containers
     start_services
     
+    # Warte auf Services
+    wait_for_services
+    
     # Datenbank
     init_database
-    run_migration
-    
-    # Validierung
-    check_health
     
     # Abschluss
     print_final_info
 }
-
-# Cleanup-Modus (für manuelle Nutzung)
-if [ "$1" = "cleanup" ] || [ "$1" = "--cleanup" ]; then
-    print_header
-    echo -e "${RED}═══════════════════════════════════════════════════════${NC}"
-    echo -e "${RED}    CLEANUP-MODUS${NC}"
-    echo -e "${RED}    Alle Container, Volumes und Daten werden gelöscht!${NC}"
-    echo -e "${RED}═══════════════════════════════════════════════════════${NC}"
-    echo ""
-    read -p "Möchten Sie vorher ein Backup erstellen? (j/n): " backup_choice
-    
-    if [ "$backup_choice" = "j" ] || [ "$backup_choice" = "J" ]; then
-        create_backup
-    fi
-    
-    echo ""
-    read -p "Sind Sie sicher, dass Sie alles löschen möchten? (ja/nein): " confirm
-    
-    if [ "$confirm" = "ja" ]; then
-        cleanup_installation false
-        print_success "Cleanup abgeschlossen"
-    else
-        print_warning "Cleanup abgebrochen"
-    fi
-    exit 0
-fi
 
 # Script ausführen
 main
