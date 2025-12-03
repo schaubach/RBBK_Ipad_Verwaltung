@@ -5,6 +5,14 @@
 # Version: 3.0 - Vereinfacht und optimiert
 ###############################################################################
 
+# Prüfe ob das Script mit Bash ausgeführt wird
+if [ -z "$BASH_VERSION" ]; then
+    echo "FEHLER: Dieses Script benötigt Bash!"
+    echo "Bitte verwende: bash $0"
+    echo "Oder: sudo bash $0"
+    exit 1
+fi
+
 set -e  # Bei Fehler abbrechen
 
 # Stelle sicher, dass wir im Skript-Verzeichnis sind
