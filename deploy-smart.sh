@@ -150,10 +150,10 @@ if [ "$BUILD_FRONTEND" = true ]; then
     echo "   📦 Baue Frontend..."
     if [ "$NO_CACHE" = true ]; then
         echo "      (ohne Cache - yarn install läuft neu)"
-        docker-compose build --no-cache frontend
+        $DOCKER_COMPOSE_CMD build --no-cache frontend
     else
         echo "      (mit Cache - yarn install wird gecached)"
-        docker-compose build frontend
+        $DOCKER_COMPOSE_CMD build frontend
     fi
     
     if [ $? -ne 0 ]; then
