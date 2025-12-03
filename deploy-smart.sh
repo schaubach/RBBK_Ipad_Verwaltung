@@ -133,10 +133,10 @@ if [ "$BUILD_BACKEND" = true ]; then
     echo "   📦 Baue Backend..."
     if [ "$NO_CACHE" = true ]; then
         echo "      (ohne Cache - pip install läuft neu)"
-        docker-compose build --no-cache backend
+        $DOCKER_COMPOSE_CMD build --no-cache backend
     else
         echo "      (mit Cache)"
-        docker-compose build backend
+        $DOCKER_COMPOSE_CMD build backend
     fi
     
     if [ $? -ne 0 ]; then
