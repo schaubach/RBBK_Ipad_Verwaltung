@@ -5,6 +5,14 @@
 # Entfernt alle Docker-Container, Volumes und optional Daten
 ###############################################################################
 
+# Prüfe ob das Script mit Bash ausgeführt wird
+if [ -z "$BASH_VERSION" ]; then
+    echo "FEHLER: Dieses Script benötigt Bash!"
+    echo "Bitte verwende: bash $0"
+    echo "Oder: sudo bash $0"
+    exit 1
+fi
+
 # Farben für Ausgabe
 RED='\033[0;31m'
 GREEN='\033[0;32m'
