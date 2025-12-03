@@ -215,7 +215,7 @@ init_database() {
     print_step "Initialisiere Datenbank..."
     
     # Prüfe ob Admin-User bereits existiert
-    ADMIN_EXISTS=$(docker exec ipad-mongodb mongosh ipad_management --quiet --eval "db.users.countDocuments({username: 'admin'})")
+    ADMIN_EXISTS=$(docker exec ipad_mongodb mongosh ipad_management --quiet --eval "db.users.countDocuments({username: 'admin'})")
     
     if [ "$ADMIN_EXISTS" -gt 0 ]; then
         print_success "Admin-User bereits vorhanden"
