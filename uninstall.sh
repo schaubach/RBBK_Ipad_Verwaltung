@@ -39,13 +39,15 @@ print_error() {
     echo -e "${RED}✗${NC} $1"
 }
 
-# Docker Compose Befehl ermitteln
-if docker compose version &> /dev/null; then
-    DOCKER_COMPOSE_CMD="docker compose"
-elif command -v docker-compose &> /dev/null; then
+# Docker Compose Befehl ermitteln (ältere Version zuerst prüfen)
+if command -v docker-compose &> /dev/null; then
     DOCKER_COMPOSE_CMD="docker-compose"
+    echo "Verwende: docker-compose (alte Version)"
+elif docker compose version &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker compose"
+    echo "Verwende: docker compose (neue Version)"
 else
-    print_error "Docker Compose ist nicht installiert!"
+    echo -e "${RED}✗${NC} Docker Compose ist nicht installiert!"
     exit 1
 fi
 
