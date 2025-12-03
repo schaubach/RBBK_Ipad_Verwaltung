@@ -4,6 +4,13 @@
 # System-Check: Prüft ob das iPad-System vollständig deinstalliert wurde
 ###############################################################################
 
+# Prüfe ob das Script mit Bash ausgeführt wird
+if [ -z "$BASH_VERSION" ]; then
+    echo "FEHLER: Dieses Script benötigt Bash!"
+    echo "Bitte verwende: bash $0"
+    exit 1
+fi
+
 echo "════════════════════════════════════════════════════════"
 echo "  🔍 System-Check: iPad-Verwaltungssystem"
 echo "════════════════════════════════════════════════════════"
