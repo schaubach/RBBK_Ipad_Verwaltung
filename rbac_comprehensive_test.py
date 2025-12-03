@@ -21,7 +21,7 @@ import pandas as pd
 from datetime import datetime
 
 # Configuration
-BASE_URL = "https://ipad-manager-1.preview.emergentagent.com/api"
+BASE_URL = "https://edudevice-1.preview.emergentagent.com/api"
 ADMIN_CREDENTIALS = {"username": "admin", "password": "admin123"}
 
 class RBACComprehensiveTester:
@@ -490,7 +490,7 @@ class RBACComprehensiveTester:
         print("Testing RBAC functionality with real data as requested:")
         print("- Admin: username=admin, password=admin123")
         print(f"- Test User: username={self.test_username}, password=test123, role=user")
-        print("- Backend URL: https://ipad-manager-1.preview.emergentagent.com")
+        print("- Backend URL: https://edudevice-1.preview.emergentagent.com")
         print("=" * 80)
         
         # Test 1: Admin Login & Authentication

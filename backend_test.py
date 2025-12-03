@@ -22,7 +22,7 @@ import pandas as pd
 from datetime import datetime
 
 # Configuration
-BASE_URL = "https://ipad-manager-1.preview.emergentagent.com/api"
+BASE_URL = "https://edudevice-1.preview.emergentagent.com/api"
 ADMIN_CREDENTIALS = {"username": "admin", "password": "admin123"}
 
 class RBACTester:
