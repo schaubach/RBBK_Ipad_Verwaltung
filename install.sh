@@ -239,7 +239,7 @@ init_database() {
             print_warning "Erstelle direkt in Datenbank..."
             
             # Fallback: Direkt in Datenbank erstellen
-            docker exec ipad-mongodb mongosh ipad_management --eval "
+            docker exec ipad_mongodb mongosh ipad_management --eval "
                 db.users.insertOne({
                     id: 'admin-$(date +%s)',
                     username: 'admin',
