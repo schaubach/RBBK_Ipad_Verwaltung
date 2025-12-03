@@ -17,49 +17,49 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
 print_header() {
-    echo -e "${RED}═══════════════════════════════════════════════════════${NC}"
-    echo -e "${RED}    iPad-Verwaltungssystem - DEINSTALLATION${NC}"
-    echo -e "${RED}═══════════════════════════════════════════════════════${NC}"
+    printf "${RED}═══════════════════════════════════════════════════════${NC}\n"
+    printf "${RED}    iPad-Verwaltungssystem - DEINSTALLATION${NC}\n"
+    printf "${RED}═══════════════════════════════════════════════════════${NC}\n"
     echo ""
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠${NC} $1"
+    printf "${YELLOW}⚠${NC} $1\n"
 }
 
 print_step() {
-    echo -e "${GREEN}➜${NC} $1"
+    printf "${GREEN}➜${NC} $1\n"
 }
 
 print_success() {
-    echo -e "${GREEN}✓${NC} $1"
+    printf "${GREEN}✓${NC} $1\n"
 }
 
 print_error() {
-    echo -e "${RED}✗${NC} $1"
+    printf "${RED}✗${NC} $1\n"
 }
 
 # Docker Compose Befehl ermitteln (ältere Version zuerst prüfen)
 if command -v docker-compose &> /dev/null; then
     DOCKER_COMPOSE_CMD="docker-compose"
-    echo "Verwende: docker-compose (alte Version)"
+    print_step "Verwende: docker-compose (alte Version)"
 elif docker compose version &> /dev/null; then
     DOCKER_COMPOSE_CMD="docker compose"
-    echo "Verwende: docker compose (neue Version)"
+    print_step "Verwende: docker compose (neue Version)"
 else
-    echo -e "${RED}✗${NC} Docker Compose ist nicht installiert!"
+    print_error "Docker Compose ist nicht installiert!"
     exit 1
 fi
 
 print_header
 
-echo -e "${RED}ACHTUNG: Diese Aktion wird folgendes löschen:${NC}"
+printf "${RED}ACHTUNG: Diese Aktion wird folgendes löschen:${NC}\n"
 echo ""
 echo "  1. Alle Docker-Container (frontend, backend, mongodb, nginx)"
 echo "  2. Alle Docker-Volumes (MongoDB-Daten)"
 echo "  3. Optional: .env-Dateien"
 echo ""
-echo -e "${YELLOW}Alle Daten (iPads, Schüler, Zuweisungen, Benutzer) gehen verloren!${NC}"
+printf "${YELLOW}Alle Daten (iPads, Schüler, Zuweisungen, Benutzer) gehen verloren!${NC}\n"
 echo ""
 
 # Sicherheitsabfrage
@@ -75,26 +75,30 @@ echo ""
 print_step "Starte Deinstallation..."
 echo ""
 
-# Stoppe alle Container
+# Stoppe alle Container - im config Verzeichnis
 print_step "Stoppe alle Container..."
-cd config
-$DOCKER_COMPOSE_CMD down
-cd ..
+if [ -d "config" ]; then
+    (cd config && $DOCKER_COMPOSE_CMD down) || print_warning "Konnte Container nicht stoppen"
+else
+    print_warning "config-Verzeichnis nicht gefunden, überspringe"
+fi
 print_success "Container gestoppt"
 
-# Lösche Container und Volumes
+# Lösche Container und Volumes - im config Verzeichnis
 print_step "Lösche Container und Volumes..."
-cd config
-$DOCKER_COMPOSE_CMD down -v
-cd ..
+if [ -d "config" ]; then
+    (cd config && $DOCKER_COMPOSE_CMD down -v) || print_warning "Konnte Volumes nicht löschen"
+else
+    print_warning "config-Verzeichnis nicht gefunden, überspringe"
+fi
 print_success "Container und Volumes gelöscht"
 
 # Lösche spezifische Container falls sie noch existieren
 print_step "Prüfe auf verbleibende Container..."
-CONTAINERS=$(docker ps -a --filter "name=ipad-" --format "{{.Names}}")
+CONTAINERS=$(docker ps -a --filter "name=ipad-" --format "{{.Names}}" 2>/dev/null)
 if [ -n "$CONTAINERS" ]; then
     echo "Lösche verbleibende Container: $CONTAINERS"
-    docker rm -f $CONTAINERS 2>/dev/null || true
+    echo "$CONTAINERS" | xargs docker rm -f 2>/dev/null || true
     print_success "Verbleibende Container gelöscht"
 else
     print_success "Keine verbleibenden Container gefunden"
@@ -102,10 +106,10 @@ fi
 
 # Lösche spezifische Volumes
 print_step "Prüfe auf verbleibende Volumes..."
-VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}")
+VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null)
 if [ -n "$VOLUMES" ]; then
     echo "Lösche Volumes: $VOLUMES"
-    docker volume rm $VOLUMES 2>/dev/null || true
+    echo "$VOLUMES" | xargs docker volume rm 2>/dev/null || true
     print_success "Volumes gelöscht"
 else
     print_success "Keine Volumes gefunden"
@@ -117,7 +121,7 @@ read -p "Möchten Sie auch die Docker-Images löschen? (j/n): " delete_images
 
 if [ "$delete_images" = "j" ] || [ "$delete_images" = "J" ]; then
     print_step "Lösche Docker-Images..."
-    docker images --filter "reference=config-*" --format "{{.Repository}}:{{.Tag}}" | xargs -r docker rmi -f 2>/dev/null || true
+    docker images --filter "reference=config-*" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null | xargs -r docker rmi -f 2>/dev/null || true
     print_success "Images gelöscht"
 fi
 
@@ -146,16 +150,16 @@ fi
 
 # Finale Zusammenfassung
 echo ""
-echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}    ✓ Deinstallation erfolgreich abgeschlossen!${NC}"
-echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
+printf "${GREEN}═══════════════════════════════════════════════════════${NC}\n"
+printf "${GREEN}    ✓ Deinstallation erfolgreich abgeschlossen!${NC}\n"
+printf "${GREEN}═══════════════════════════════════════════════════════${NC}\n"
 echo ""
-echo -e "${BLUE}Das System wurde vollständig entfernt.${NC}"
+printf "${BLUE}Das System wurde vollständig entfernt.${NC}\n"
 echo ""
-echo -e "${BLUE}Für eine Neuinstallation:${NC}"
-echo -e "  ${YELLOW}./install.sh${NC}"
+printf "${BLUE}Für eine Neuinstallation:${NC}\n"
+printf "  ${YELLOW}./install.sh${NC}\n"
 echo ""
-echo -e "${BLUE}Projektdateien:${NC}"
-echo -e "  Die Anwendungsdateien (Code) wurden ${GREEN}NICHT${NC} gelöscht."
-echo -e "  Nur die Docker-Container und Daten wurden entfernt."
+printf "${BLUE}Projektdateien:${NC}\n"
+printf "  Die Anwendungsdateien (Code) wurden ${GREEN}NICHT${NC} gelöscht.\n"
+printf "  Nur die Docker-Container und Daten wurden entfernt.\n"
 echo ""
