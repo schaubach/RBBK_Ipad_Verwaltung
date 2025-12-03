@@ -111,7 +111,7 @@ echo ""
 
 # Schritt 1: Container stoppen
 echo "🛑 [1/5] Stoppe alle Container..."
-docker-compose down
+$DOCKER_COMPOSE_CMD down
 echo "✅ Container gestoppt"
 echo ""
 
