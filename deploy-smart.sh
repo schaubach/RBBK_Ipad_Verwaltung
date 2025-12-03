@@ -168,7 +168,7 @@ echo ""
 
 # Schritt 4: Container starten
 echo "🚀 [4/5] Starte alle Container..."
-docker-compose up -d
+$DOCKER_COMPOSE_CMD up -d
 echo "✅ Container gestartet"
 echo ""
 
