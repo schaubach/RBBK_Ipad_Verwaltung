@@ -4,6 +4,14 @@
 # Erkennt automatisch, was geändert wurde und baut nur das Nötige
 # Verwendung: sudo bash deploy-smart.sh
 
+# Prüfe ob das Script mit Bash ausgeführt wird
+if [ -z "$BASH_VERSION" ]; then
+    echo "FEHLER: Dieses Script benötigt Bash!"
+    echo "Bitte verwende: bash $0"
+    echo "Oder: sudo bash $0"
+    exit 1
+fi
+
 echo "════════════════════════════════════════════════════════"
 echo "  🚀 Smart Deployment - Frontend + Backend"
 echo "════════════════════════════════════════════════════════"
