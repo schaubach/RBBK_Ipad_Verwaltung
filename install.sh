@@ -176,7 +176,7 @@ wait_for_services() {
     
     echo -n "Warte auf MongoDB"
     for i in {1..30}; do
-        if docker exec ipad-mongodb mongosh --eval "db.adminCommand('ping')" &> /dev/null; then
+        if docker exec ipad_mongodb mongosh --eval "db.adminCommand('ping')" &> /dev/null; then
             echo ""
             print_success "MongoDB ist bereit"
             break
