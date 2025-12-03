@@ -7,8 +7,14 @@ Ein webbasiertes System zur Verwaltung von iPads, Schülern und Zuweisungen mit 
 ### Installation
 
 ```bash
-./install.sh
+# Mit Root-Rechten:
+sudo bash install.sh
+
+# Oder ohne sudo (wenn Benutzer in docker-Gruppe):
+bash install.sh
 ```
+
+**⚠️ WICHTIG:** Verwende `bash` statt `sh`! Das Script benötigt Bash-Features.
 
 Das System wird automatisch installiert und gestartet:
 - Frontend: http://localhost:3000
