@@ -9,6 +9,19 @@ echo "  🚀 Smart Deployment - Frontend + Backend"
 echo "════════════════════════════════════════════════════════"
 echo ""
 
+# Docker Compose Befehl ermitteln
+if command -v docker-compose &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker-compose"
+    echo "ℹ️  Verwende: docker-compose (alte Version)"
+elif docker compose version &> /dev/null; then
+    DOCKER_COMPOSE_CMD="docker compose"
+    echo "ℹ️  Verwende: docker compose (neue Version)"
+else
+    echo "❌ Fehler: Docker Compose ist nicht installiert!"
+    exit 1
+fi
+echo ""
+
 # Finde das richtige Verzeichnis
 # Prüfe zuerst, ob wir im Hauptverzeichnis sind (wo config/ als Unterverzeichnis liegt)
 if [ -d "./config" ]; then
