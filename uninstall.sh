@@ -39,25 +39,14 @@ print_error() {
     printf "${RED}✗${NC} $1\n"
 }
 
-# Docker Compose Befehl ermitteln (ältere Version zuerst prüfen)
-if command -v docker-compose &> /dev/null; then
-    DOCKER_COMPOSE_CMD="docker-compose"
-    print_step "Verwende: docker-compose (alte Version)"
-elif docker compose version &> /dev/null; then
-    DOCKER_COMPOSE_CMD="docker compose"
-    print_step "Verwende: docker compose (neue Version)"
-else
-    print_error "Docker Compose ist nicht installiert!"
-    exit 1
-fi
-
 print_header
 
 printf "${RED}ACHTUNG: Diese Aktion wird folgendes löschen:${NC}\n"
 echo ""
 echo "  1. Alle Docker-Container (frontend, backend, mongodb, nginx)"
 echo "  2. Alle Docker-Volumes (MongoDB-Daten)"
-echo "  3. Optional: .env-Dateien"
+echo "  3. Alle Docker-Images vom Projekt"
+echo "  4. Optional: .env-Dateien"
 echo ""
 printf "${YELLOW}Alle Daten (iPads, Schüler, Zuweisungen, Benutzer) gehen verloren!${NC}\n"
 echo ""
@@ -72,47 +61,62 @@ if [ "$confirm" != "ja" ]; then
 fi
 
 echo ""
-print_step "Starte Deinstallation..."
+print_step "Starte vollständige Deinstallation..."
 echo ""
 
-# Stoppe alle Container - im config Verzeichnis
-print_step "Stoppe alle Container..."
-if [ -d "config" ]; then
-    (cd config && $DOCKER_COMPOSE_CMD down) || print_warning "Konnte Container nicht stoppen"
-else
-    print_warning "config-Verzeichnis nicht gefunden, überspringe"
-fi
-print_success "Container gestoppt"
+# Zeige was gefunden wurde
+print_step "Suche nach iPad-System Ressourcen..."
+CONTAINERS=$(docker ps -a --filter "name=ipad" --format "{{.Names}}" 2>/dev/null | tr '\n' ' ')
+VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null | tr '\n' ' ')
+IMAGES=$(docker images --filter "reference=config-*" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null | tr '\n' ' ')
 
-# Lösche Container und Volumes - im config Verzeichnis
-print_step "Lösche Container und Volumes..."
-if [ -d "config" ]; then
-    (cd config && $DOCKER_COMPOSE_CMD down -v) || print_warning "Konnte Volumes nicht löschen"
-else
-    print_warning "config-Verzeichnis nicht gefunden, überspringe"
-fi
-print_success "Container und Volumes gelöscht"
-
-# Lösche spezifische Container falls sie noch existieren
-print_step "Prüfe auf verbleibende Container..."
-CONTAINERS=$(docker ps -a --filter "name=ipad-" --format "{{.Names}}" 2>/dev/null)
 if [ -n "$CONTAINERS" ]; then
-    echo "Lösche verbleibende Container: $CONTAINERS"
-    echo "$CONTAINERS" | xargs docker rm -f 2>/dev/null || true
-    print_success "Verbleibende Container gelöscht"
+    echo "   Gefundene Container: $CONTAINERS"
 else
-    print_success "Keine verbleibenden Container gefunden"
+    echo "   Keine Container gefunden"
 fi
 
-# Lösche spezifische Volumes
-print_step "Prüfe auf verbleibende Volumes..."
-VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null)
 if [ -n "$VOLUMES" ]; then
-    echo "Lösche Volumes: $VOLUMES"
-    echo "$VOLUMES" | xargs docker volume rm 2>/dev/null || true
-    print_success "Volumes gelöscht"
+    echo "   Gefundene Volumes: $VOLUMES"
 else
-    print_success "Keine Volumes gefunden"
+    echo "   Keine Volumes gefunden"
+fi
+
+if [ -n "$IMAGES" ]; then
+    echo "   Gefundene Images: $IMAGES"
+else
+    echo "   Keine Images gefunden"
+fi
+echo ""
+
+# Stoppe alle Container
+print_step "Stoppe alle laufenden Container..."
+RUNNING_CONTAINERS=$(docker ps --filter "name=ipad" --format "{{.Names}}" 2>/dev/null)
+if [ -n "$RUNNING_CONTAINERS" ]; then
+    echo "$RUNNING_CONTAINERS" | xargs docker stop 2>/dev/null || true
+    print_success "Container gestoppt"
+else
+    print_success "Keine laufenden Container gefunden"
+fi
+
+# Lösche alle Container
+print_step "Lösche alle Container..."
+ALL_CONTAINERS=$(docker ps -a --filter "name=ipad" --format "{{.Names}}" 2>/dev/null)
+if [ -n "$ALL_CONTAINERS" ]; then
+    echo "$ALL_CONTAINERS" | xargs docker rm -f 2>/dev/null || true
+    print_success "Container gelöscht: $ALL_CONTAINERS"
+else
+    print_success "Keine Container zu löschen"
+fi
+
+# Lösche alle Volumes
+print_step "Lösche alle Volumes..."
+ALL_VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null)
+if [ -n "$ALL_VOLUMES" ]; then
+    echo "$ALL_VOLUMES" | xargs docker volume rm -f 2>/dev/null || true
+    print_success "Volumes gelöscht: $ALL_VOLUMES"
+else
+    print_success "Keine Volumes zu löschen"
 fi
 
 # Frage ob Images auch gelöscht werden sollen
@@ -121,8 +125,13 @@ read -p "Möchten Sie auch die Docker-Images löschen? (j/n): " delete_images
 
 if [ "$delete_images" = "j" ] || [ "$delete_images" = "J" ]; then
     print_step "Lösche Docker-Images..."
-    docker images --filter "reference=config-*" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null | xargs -r docker rmi -f 2>/dev/null || true
-    print_success "Images gelöscht"
+    ALL_IMAGES=$(docker images --filter "reference=config-*" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null)
+    if [ -n "$ALL_IMAGES" ]; then
+        echo "$ALL_IMAGES" | xargs docker rmi -f 2>/dev/null || true
+        print_success "Images gelöscht"
+    else
+        print_success "Keine Images zu löschen"
+    fi
 fi
 
 # Frage ob .env Dateien gelöscht werden sollen
@@ -131,8 +140,8 @@ read -p "Möchten Sie auch die .env-Dateien löschen? (j/n): " delete_env
 
 if [ "$delete_env" = "j" ] || [ "$delete_env" = "J" ]; then
     print_step "Lösche .env-Dateien..."
-    rm -f backend/.env
-    rm -f frontend/.env
+    rm -f backend/.env 2>/dev/null || true
+    rm -f frontend/.env 2>/dev/null || true
     print_success ".env-Dateien gelöscht"
 else
     print_warning ".env-Dateien wurden behalten"
@@ -144,20 +153,40 @@ read -p "Möchten Sie eine vollständige Docker-System-Bereinigung durchführen?
 
 if [ "$cleanup_docker" = "j" ] || [ "$cleanup_docker" = "J" ]; then
     print_step "Führe Docker System Cleanup durch..."
-    docker system prune -f
+    docker system prune -f 2>/dev/null || true
     print_success "Docker System bereinigt"
+fi
+
+# Führe finalen Check durch
+echo ""
+print_step "Führe finalen Check durch..."
+REMAINING_CONTAINERS=$(docker ps -a --filter "name=ipad" --format "{{.Names}}" 2>/dev/null)
+REMAINING_VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null)
+
+if [ -z "$REMAINING_CONTAINERS" ] && [ -z "$REMAINING_VOLUMES" ]; then
+    print_success "Alle Ressourcen erfolgreich entfernt!"
+else
+    if [ -n "$REMAINING_CONTAINERS" ]; then
+        print_warning "Noch vorhandene Container: $REMAINING_CONTAINERS"
+    fi
+    if [ -n "$REMAINING_VOLUMES" ]; then
+        print_warning "Noch vorhandene Volumes: $REMAINING_VOLUMES"
+    fi
 fi
 
 # Finale Zusammenfassung
 echo ""
 printf "${GREEN}═══════════════════════════════════════════════════════${NC}\n"
-printf "${GREEN}    ✓ Deinstallation erfolgreich abgeschlossen!${NC}\n"
+printf "${GREEN}    ✓ Deinstallation abgeschlossen!${NC}\n"
 printf "${GREEN}═══════════════════════════════════════════════════════${NC}\n"
 echo ""
-printf "${BLUE}Das System wurde vollständig entfernt.${NC}\n"
+printf "${BLUE}Das System wurde entfernt.${NC}\n"
 echo ""
 printf "${BLUE}Für eine Neuinstallation:${NC}\n"
 printf "  ${YELLOW}./install.sh${NC}\n"
+echo ""
+printf "${BLUE}Status prüfen:${NC}\n"
+printf "  ${YELLOW}./check-system.sh${NC}\n"
 echo ""
 printf "${BLUE}Projektdateien:${NC}\n"
 printf "  Die Anwendungsdateien (Code) wurden ${GREEN}NICHT${NC} gelöscht.\n"
