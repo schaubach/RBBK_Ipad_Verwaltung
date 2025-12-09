@@ -502,12 +502,95 @@ const IPadsManagement = () => {
   const [selectedIPads, setSelectedIPads] = useState([]);
   const [deleting, setDeleting] = useState(false);
   
-  // Filtered iPads
+  // Filtered and sorted iPads
   const filteredIPads = ipads.filter(ipad => {
     const itnrMatch = !itnrFilter || ipad.itnr?.toLowerCase().includes(itnrFilter.toLowerCase());
     const snrMatch = !snrFilter || ipad.snr?.toLowerCase().includes(snrFilter.toLowerCase());
     return itnrMatch && snrMatch;
+  }).sort((a, b) => {
+    if (!sortField) return 0;
+    
+    let aVal = a[sortField] || '';
+    let bVal = b[sortField] || '';
+    
+    // Handle assigned status (boolean)
+    if (sortField === 'assigned') {
+      aVal = a.current_assignment_id ? 1 : 0;
+      bVal = b.current_assignment_id ? 1 : 0;
+    }
+    
+    // String comparison
+    if (typeof aVal === 'string') {
+      aVal = aVal.toLowerCase();
+      bVal = bVal.toLowerCase();
+    }
+    
+    if (sortDirection === 'asc') {
+      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+    } else {
+      return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+    }
   });
+  
+  // Sort handler
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+  
+  // Batch delete handlers
+  const toggleIPadSelection = (ipadId) => {
+    setSelectedIPads(prev =>
+      prev.includes(ipadId)
+        ? prev.filter(id => id !== ipadId)
+        : [...prev, ipadId]
+    );
+  };
+  
+  const toggleAllIPads = () => {
+    if (selectedIPads.length === filteredIPads.length) {
+      setSelectedIPads([]);
+    } else {
+      setSelectedIPads(filteredIPads.map(ipad => ipad.id));
+    }
+  };
+  
+  const handleBatchDelete = async () => {
+    if (selectedIPads.length === 0) return;
+    
+    if (!window.confirm(`Möchten Sie wirklich ${selectedIPads.length} iPad(s) löschen?`)) {
+      return;
+    }
+    
+    setDeleting(true);
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const ipadId of selectedIPads) {
+      try {
+        await api.delete(`/ipads/${ipadId}`);
+        successCount++;
+      } catch (error) {
+        errorCount++;
+        console.error(`Failed to delete iPad ${ipadId}:`, error);
+      }
+    }
+    
+    setDeleting(false);
+    setSelectedIPads([]);
+    
+    if (successCount > 0) {
+      toast.success(`${successCount} iPad(s) erfolgreich gelöscht`);
+      loadIPads();
+    }
+    if (errorCount > 0) {
+      toast.error(`${errorCount} iPad(s) konnten nicht gelöscht werden`);
+    }
+  };
 
   const loadIPads = async () => {
     setLoading(true);
