@@ -970,6 +970,7 @@ const IPadsManagement = () => {
                           {!ipad.current_assignment_id && (
                             <div className="relative">
                               <Input
+                                id={`ipad-search-${ipad.id}`}
                                 type="text"
                                 placeholder="Schüler suchen..."
                                 className="w-48"
@@ -978,7 +979,10 @@ const IPadsManagement = () => {
                                 onChange={(e) => setStudentSearchQuery(e.target.value)}
                               />
                               {activeAutocomplete === `ipad-${ipad.id}` && (
-                                <div className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-96 overflow-auto">
+                                <div className="fixed z-[100] w-48 bg-white border rounded-md shadow-lg max-h-96 overflow-auto" style={{
+                                  top: `${document.getElementById(`ipad-search-${ipad.id}`)?.getBoundingClientRect().bottom + 4}px`,
+                                  left: `${document.getElementById(`ipad-search-${ipad.id}`)?.getBoundingClientRect().left}px`
+                                }}>
                                   {availableStudents
                                     .filter(s => 
                                       !studentSearchQuery || 
