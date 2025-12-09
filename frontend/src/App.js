@@ -2579,7 +2579,7 @@ const AssignmentsManagement = () => {
           {selectedAssignments.length > 0 && (
             <div className="mb-4">
               <Button
-                onClick={handleBatchDissolve}
+                onClick={openBatchDissolveDialog}
                 variant="destructive"
                 disabled={dissolving}
               >
