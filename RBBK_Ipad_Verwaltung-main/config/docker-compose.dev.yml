@@ -1,0 +1,15 @@
+version: '3.8'
+
+# DEVELOPMENT VERSION - Exponiert alle Ports direkt
+# Verwendung: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  backend:
+    ports:
+      - "0.0.0.0:8001:8001"  # Backend direkt erreichbar
+  
+  nginx:
+    ports:
+      - "0.0.0.0:80:80"      # Nginx HTTP
+      - "0.0.0.0:443:443"    # Nginx HTTPS
+      - "0.0.0.0:3000:80"    # Alternative: Frontend über Port 3000

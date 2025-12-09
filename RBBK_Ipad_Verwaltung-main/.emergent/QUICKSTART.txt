@@ -1,0 +1,76 @@
+═══════════════════════════════════════════════════════════
+  iPad-Verwaltungssystem - Quick Start Guide
+═══════════════════════════════════════════════════════════
+
+📋 PROJEKT-INFO
+  Name: iPad-Verwaltungssystem für Schulen
+  Tech: React + FastAPI + MongoDB + Nginx
+  Status: Produktionsreif
+  Sprache: Deutsch (UI), Englisch (Code)
+
+🚀 INSTALLATION (3 BEFEHLE)
+  1. bash check-system.sh
+  2. sudo bash install.sh
+  3. bash troubleshoot-access.sh
+
+🌐 ZUGRIFF
+  Frontend: http://localhost (Port 80)
+  Backend:  http://localhost:8001
+  API Docs: http://localhost:8001/docs
+
+🔑 LOGIN
+  User: admin
+  Pass: admin123
+  ⚠️ Nach erstem Login ändern!
+
+📁 WICHTIGE DATEIEN
+  .emergent/PROJECT_INFO.md      - Projekt-Details
+  .emergent/SETUP_GUIDE.md       - Setup-Anleitung  
+  .emergent/KNOWN_ISSUES.md      - Probleme & Lösungen
+  ENTWICKLERDOKUMENTATION.md     - Vollständige Doku
+  README.md                      - Kurzübersicht
+
+🔧 SCRIPTS
+  install.sh            - Installation
+  uninstall.sh          - Deinstallation
+  deploy-smart.sh       - Smart Deployment
+  check-system.sh       - System-Status
+  debug-frontend.sh     - Frontend-Debug
+  troubleshoot-access.sh - Zugriffs-Check
+
+⚠️ WICHTIG
+  - Immer 'bash' verwenden, NIE 'sh'
+  - Container heißen ipad_* (mit Unterstrich)
+  - Port 80 muss frei sein (oder 8080 verwenden)
+  - Docker Compose: alte/neue Version auto-erkannt
+
+🐛 BEI PROBLEMEN
+  1. bash check-system.sh
+  2. bash troubleshoot-access.sh
+  3. docker logs ipad_backend
+  4. Siehe .emergent/KNOWN_ISSUES.md
+
+📦 CONTAINER
+  ipad_mongodb         - Datenbank
+  ipad_backend         - FastAPI
+  ipad_frontend_build  - React Build
+  ipad_nginx           - Reverse Proxy
+
+🔄 NEUINSTALLATION
+  sudo bash uninstall.sh  (alle Fragen: j)
+  sudo bash install.sh
+
+📊 ARCHITEKTUR
+  Client → Nginx (80) → Frontend (static)
+                     → Backend (API /api/)
+                     → MongoDB
+
+💡 TIPPS
+  - Bei Port-80-Problem: 8080 verwenden
+  - Browser-Cache leeren: Strg+Shift+R
+  - App.js ist 3500+ Zeilen (vorsichtig editieren!)
+  - Vor Änderungen: bash check-system.sh
+
+═══════════════════════════════════════════════════════════
+  Lies .emergent/PROJECT_INFO.md für Details!
+═══════════════════════════════════════════════════════════
