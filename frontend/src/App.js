@@ -2086,23 +2086,18 @@ const AssignmentsManagement = () => {
     }
   };
 
-  const handleDissolveAssignment = async (assignment) => {
-    console.log('🔥 DISSOLUTION FUNCTION CALLED!');
-    
-    // Simple, working confirmation with setTimeout
-    toast.info(`Zuordnung ${assignment.student_name} auflösen? Klicken Sie nochmal in 2 Sekunden um zu bestätigen.`);
-    
-    // Add a flag to require double-click
-    const now = Date.now();
-    if (!assignment._lastClick || (now - assignment._lastClick) > 3000) {
-      assignment._lastClick = now;
-      return; // First click - just show warning
-    }
+  const handleDissolveAssignment = (assignment) => {
+    setAssignmentToDelete(assignment);
+    setDeleteDialogOpen(true);
+  };
+  
+  const confirmDissolveAssignment = async () => {
+    if (!assignmentToDelete) return;
     
     try {
       toast.info('Löse Zuordnung auf...');
       
-      const response = await fetch(`${API_BASE_URL}/assignments/${assignment.id}`, {
+      const response = await fetch(`${API_BASE_URL}/assignments/${assignmentToDelete.id}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -2121,6 +2116,9 @@ const AssignmentsManagement = () => {
     } catch (error) {
       console.error('❌ Exception:', error);
       toast.error(`Fehler: ${error.message}`);
+    } finally {
+      setDeleteDialogOpen(false);
+      setAssignmentToDelete(null);
     }
   };
 
