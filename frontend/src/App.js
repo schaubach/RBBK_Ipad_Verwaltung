@@ -1605,61 +1605,17 @@ const StudentsManagement = () => {
                             <Eye className="h-4 w-4" />
                           </Button>
                           {!student.current_assignment_id && (
-                            <div className="relative">
-                              <Input
-                                id={`student-search-${student.id}`}
-                                type="text"
-                                placeholder="iPad suchen (ITNr)..."
-                                className="w-48"
-                                onFocus={() => setActiveAutocomplete(`student-${student.id}`)}
-                                onBlur={() => setTimeout(() => setActiveAutocomplete(null), 200)}
-                                onChange={(e) => setIpadSearchQuery(e.target.value)}
-                              />
-                              {activeAutocomplete === `student-${student.id}` && (() => {
-                                const inputEl = document.getElementById(`student-search-${student.id}`);
-                                const rect = inputEl?.getBoundingClientRect();
-                                const dropdownMaxHeight = 384; // max-h-96 = 384px
-                                const spaceBelow = window.innerHeight - rect.bottom - 8;
-                                const spaceAbove = rect.top - 8;
-                                const showAbove = spaceBelow < 150 && spaceAbove > spaceBelow;
-                                
-                                return (
-                                  <div className="fixed z-[100] w-48 bg-white border rounded-md shadow-lg overflow-auto" style={{
-                                    bottom: showAbove ? `${window.innerHeight - rect.top}px` : 'auto',
-                                    top: showAbove ? 'auto' : `${rect.bottom + 4}px`,
-                                    left: `${rect.left}px`,
-                                    maxHeight: showAbove ? `${spaceAbove}px` : `${Math.min(dropdownMaxHeight, spaceBelow)}px`
-                                  }}>
-                                  {availableIPads
-                                    .filter(ipad => 
-                                      !ipadSearchQuery || 
-                                      ipad.itnr.toLowerCase().includes(ipadSearchQuery.toLowerCase())
-                                    )
-                                    .map((ipad) => (
-                                      <div
-                                        key={ipad.id}
-                                        className="px-3 py-2 cursor-pointer hover:bg-gray-100"
-                                        onClick={() => {
-                                          handleManualIPadAssignment(student.id, ipad.id);
-                                          setActiveAutocomplete(null);
-                                          setIpadSearchQuery('');
-                                        }}
-                                      >
-                                        {ipad.itnr} <span className="text-gray-500">({ipad.status})</span>
-                                      </div>
-                                    ))}
-                                  {availableIPads.filter(ipad => 
-                                    !ipadSearchQuery || 
-                                    ipad.itnr.toLowerCase().includes(ipadSearchQuery.toLowerCase())
-                                  ).length === 0 && (
-                                    <div className="px-3 py-2 text-gray-500 text-sm">
-                                      Keine iPads gefunden
-                                    </div>
-                                  )}
-                                  </div>
-                                );
-                              })()}
-                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSearchDialogStudentId(student.id);
+                                setSearchDialogOpen(true);
+                                setIpadSearchQuery('');
+                              }}
+                            >
+                              iPad zuordnen
+                            </Button>
                           )}
                           <Button 
                             variant="outline" 
