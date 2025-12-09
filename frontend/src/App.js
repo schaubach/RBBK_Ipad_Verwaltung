@@ -1123,6 +1123,11 @@ const StudentsManagement = () => {
   // Batch delete states
   const [selectedStudents, setSelectedStudents] = useState([]);
   
+  // Delete dialog states
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [studentToDelete, setStudentToDelete] = useState(null);
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+  
   // Filtered and sorted students
   const filteredStudents = students.filter(student => {
     const vornMatch = !studentVornameFilter || 
