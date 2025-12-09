@@ -503,6 +503,11 @@ const IPadsManagement = () => {
   const [selectedIPads, setSelectedIPads] = useState([]);
   const [deleting, setDeleting] = useState(false);
   
+  // Delete dialog states
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [ipadToDelete, setIPadToDelete] = useState(null);
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+  
   // Filtered and sorted iPads
   const filteredIPads = ipads.filter(ipad => {
     const itnrMatch = !itnrFilter || ipad.itnr?.toLowerCase().includes(itnrFilter.toLowerCase());
