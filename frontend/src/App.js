@@ -2687,6 +2687,26 @@ const AssignmentsManagement = () => {
         </CardContent>
       </Card>
       
+      {/* Delete Assignment Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Zuordnung auflösen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich die Zuordnung von <strong>{assignmentToDelete?.student_name}</strong> zum iPad <strong>{assignmentToDelete?.itnr}</strong> auflösen?
+              <br /><br />
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDissolveAssignment} className="bg-red-600 hover:bg-red-700">
+              Zuordnung auflösen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* Contract Viewer Modal */}
       {selectedContractId && (
         <ContractViewer 
@@ -2694,8 +2714,6 @@ const AssignmentsManagement = () => {
           onClose={() => setSelectedContractId(null)} 
         />
       )}
-      
-      {/* Confirmation dialog removed for testing */}
     </div>
   );
 };
