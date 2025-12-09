@@ -491,8 +491,9 @@ const IPadsManagement = () => {
   const [itnrFilter, setItnrFilter] = useState('');
   const [snrFilter, setSnrFilter] = useState('');
   
-  // Autocomplete states
-  const [activeAutocomplete, setActiveAutocomplete] = useState(null);
+  // Autocomplete states (now dialog-based)
+  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [searchDialogIpadId, setSearchDialogIpadId] = useState(null);
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   
   // Sort states
