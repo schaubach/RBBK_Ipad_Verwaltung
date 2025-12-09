@@ -981,15 +981,17 @@ const IPadsManagement = () => {
                               {activeAutocomplete === `ipad-${ipad.id}` && (() => {
                                 const inputEl = document.getElementById(`ipad-search-${ipad.id}`);
                                 const rect = inputEl?.getBoundingClientRect();
-                                const dropdownHeight = 384; // max-h-96 = 384px
-                                const spaceBelow = window.innerHeight - rect.bottom;
-                                const showAbove = spaceBelow < dropdownHeight && rect.top > dropdownHeight;
+                                const dropdownMaxHeight = 384; // max-h-96 = 384px
+                                const spaceBelow = window.innerHeight - rect.bottom - 8;
+                                const spaceAbove = rect.top - 8;
+                                const showAbove = spaceBelow < 150 && spaceAbove > spaceBelow;
                                 
                                 return (
-                                  <div className="fixed z-[100] w-48 bg-white border rounded-md shadow-lg max-h-96 overflow-auto" style={{
-                                    top: showAbove ? `${rect.top - Math.min(dropdownHeight, rect.top - 8)}px` : `${rect.bottom + 4}px`,
+                                  <div className="fixed z-[100] w-48 bg-white border rounded-md shadow-lg overflow-auto" style={{
+                                    bottom: showAbove ? `${window.innerHeight - rect.top}px` : 'auto',
+                                    top: showAbove ? 'auto' : `${rect.bottom + 4}px`,
                                     left: `${rect.left}px`,
-                                    maxHeight: showAbove ? `${rect.top - 8}px` : `${spaceBelow - 8}px`
+                                    maxHeight: showAbove ? `${spaceAbove}px` : `${Math.min(dropdownMaxHeight, spaceBelow)}px`
                                   }}>
                                   {availableStudents
                                     .filter(s => 
