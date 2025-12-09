@@ -826,6 +826,19 @@ const IPadsManagement = () => {
             )}
           </div>
           
+          {/* Batch Delete Button */}
+          {selectedIPads.length > 0 && (
+            <div className="mb-4">
+              <Button
+                onClick={handleBatchDelete}
+                variant="destructive"
+                disabled={deleting}
+              >
+                {deleting ? 'Lösche...' : `${selectedIPads.length} iPad(s) löschen`}
+              </Button>
+            </div>
+          )}
+          
           {loading ? (
             <div className="text-center py-8">Lade iPads...</div>
           ) : ipads.length === 0 ? (
@@ -837,17 +850,80 @@ const IPadsManagement = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>ITNr</TableHead>
-                    <TableHead>SNr</TableHead>
-                    <TableHead>Typ</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Zugewiesen</TableHead>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={selectedIPads.length === filteredIPads.length && filteredIPads.length > 0}
+                        onCheckedChange={toggleAllIPads}
+                      />
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('itnr')}
+                    >
+                      <div className="flex items-center gap-1">
+                        ITNr
+                        {sortField === 'itnr' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('snr')}
+                    >
+                      <div className="flex items-center gap-1">
+                        SNr
+                        {sortField === 'snr' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('typ')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Typ
+                        {sortField === 'typ' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('status')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Status
+                        {sortField === 'status' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('assigned')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Zugewiesen
+                        {sortField === 'assigned' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
                     <TableHead>Aktionen</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredIPads.map((ipad) => (
                     <TableRow key={ipad.id} className={getRowClassName(ipad.status)}>
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedIPads.includes(ipad.id)}
+                          onCheckedChange={() => toggleIPadSelection(ipad.id)}
+                          disabled={ipad.current_assignment_id}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">{ipad.itnr}</TableCell>
                       <TableCell>{ipad.snr || 'N/A'}</TableCell>
                       <TableCell>{ipad.typ || 'N/A'}</TableCell>
