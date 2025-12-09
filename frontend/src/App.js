@@ -971,7 +971,7 @@ const IPadsManagement = () => {
                                 onChange={(e) => setStudentSearchQuery(e.target.value)}
                               />
                               {activeAutocomplete === `ipad-${ipad.id}` && (
-                                <div className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-auto">
+                                <div className="absolute z-50 w-full mt-1 bg-white border rounded-md shadow-lg max-h-96 overflow-auto">
                                   {availableStudents
                                     .filter(s => 
                                       !studentSearchQuery || 
