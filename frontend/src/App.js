@@ -2571,6 +2571,12 @@ const AssignmentsManagement = () => {
                       key={assignment.id} 
                       className={`hover:bg-gray-50 ${assignment.contract_warning && !assignment.warning_dismissed ? 'bg-orange-50 border-l-4 border-orange-400' : ''}`}
                     >
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedAssignments.includes(assignment.id)}
+                          onCheckedChange={() => toggleAssignmentSelection(assignment.id)}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           {assignment.contract_warning && !assignment.warning_dismissed && (
