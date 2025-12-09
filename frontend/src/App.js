@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from './components/ui/alert';
 import { Badge } from './components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
+import { Checkbox } from './components/ui/checkbox';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { Upload, Users, Tablet, FileText, Settings as SettingsIcon, LogOut, Eye, Download, Trash2, ExternalLink, Shield, AlertTriangle, X, User, Edit, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
