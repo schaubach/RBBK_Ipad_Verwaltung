@@ -565,13 +565,12 @@ const IPadsManagement = () => {
     }
   };
   
-  const handleBatchDelete = async () => {
+  const openBatchDeleteDialog = () => {
     if (selectedIPads.length === 0) return;
-    
-    if (!window.confirm(`Möchten Sie wirklich ${selectedIPads.length} iPad(s) löschen?`)) {
-      return;
-    }
-    
+    setBatchDeleteDialogOpen(true);
+  };
+  
+  const handleBatchDelete = async () => {
     setDeleting(true);
     let successCount = 0;
     let errorCount = 0;
