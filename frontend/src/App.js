@@ -1925,6 +1925,11 @@ const AssignmentsManagement = () => {
     applyFilters();
   }, [assignments, vornameFilter, nachnameFilter, klasseFilter, itnrFilter]);
 
+  // Apply sorting when filters or sort changes
+  useEffect(() => {
+    applySorting();
+  }, [filteredAssignments, sortField, sortDirection]);
+
   const applyFilters = async () => {
     console.log('=== APPLYING FILTERS ===');
     console.log('Vorname filter:', vornameFilter);
@@ -1977,6 +1982,89 @@ const AssignmentsManagement = () => {
     }
     
     console.log('=== FILTER APPLICATION END ===');
+  };
+  
+  const applySorting = () => {
+    if (!sortField) return;
+    
+    const sorted = [...filteredAssignments].sort((a, b) => {
+      let aVal = a[sortField] || '';
+      let bVal = b[sortField] || '';
+      
+      // String comparison
+      if (typeof aVal === 'string') {
+        aVal = aVal.toLowerCase();
+        bVal = bVal.toLowerCase();
+      }
+      
+      if (sortDirection === 'asc') {
+        return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+      } else {
+        return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+      }
+    });
+    
+    setFilteredAssignments(sorted);
+  };
+  
+  // Sort handler
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+  
+  // Batch delete handlers
+  const toggleAssignmentSelection = (assignmentId) => {
+    setSelectedAssignments(prev =>
+      prev.includes(assignmentId)
+        ? prev.filter(id => id !== assignmentId)
+        : [...prev, assignmentId]
+    );
+  };
+  
+  const toggleAllAssignments = () => {
+    if (selectedAssignments.length === filteredAssignments.length) {
+      setSelectedAssignments([]);
+    } else {
+      setSelectedAssignments(filteredAssignments.map(assignment => assignment.id));
+    }
+  };
+  
+  const handleBatchDissolve = async () => {
+    if (selectedAssignments.length === 0) return;
+    
+    if (!window.confirm(`Möchten Sie wirklich ${selectedAssignments.length} Zuordnung(en) auflösen?`)) {
+      return;
+    }
+    
+    setDissolving(true);
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const assignmentId of selectedAssignments) {
+      try {
+        await api.delete(`/assignments/${assignmentId}`);
+        successCount++;
+      } catch (error) {
+        errorCount++;
+        console.error(`Failed to dissolve assignment ${assignmentId}:`, error);
+      }
+    }
+    
+    setDissolving(false);
+    setSelectedAssignments([]);
+    
+    if (successCount > 0) {
+      toast.success(`${successCount} Zuordnung(en) erfolgreich aufgelöst`);
+      loadAllData();
+    }
+    if (errorCount > 0) {
+      toast.error(`${errorCount} Zuordnung(en) konnten nicht aufgelöst werden`);
+    }
   };
 
   const handleAutoAssign = async () => {
