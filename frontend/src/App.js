@@ -1057,6 +1057,61 @@ const IPadsManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
       
+      {/* Student Search Dialog */}
+      <AlertDialog open={searchDialogOpen} onOpenChange={setSearchDialogOpen}>
+        <AlertDialogContent className="max-w-2xl max-h-[80vh]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Schüler zuordnen</AlertDialogTitle>
+            <AlertDialogDescription>
+              Wählen Sie einen Schüler für die Zuordnung aus.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="Schüler suchen (Name oder Klasse)..."
+              value={studentSearchQuery}
+              onChange={(e) => setStudentSearchQuery(e.target.value)}
+              className="mb-4"
+              autoFocus
+            />
+            <div className="max-h-96 overflow-auto border rounded-md">
+              {availableStudents
+                .filter(s => 
+                  !studentSearchQuery || 
+                  s.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
+                  s.klasse.toLowerCase().includes(studentSearchQuery.toLowerCase())
+                )
+                .map((student) => (
+                  <div
+                    key={student.id}
+                    className="px-4 py-3 cursor-pointer hover:bg-gray-100 border-b last:border-b-0"
+                    onClick={() => {
+                      handleManualAssignment(searchDialogIpadId, student.id);
+                      setSearchDialogOpen(false);
+                      setStudentSearchQuery('');
+                    }}
+                  >
+                    <div className="font-medium">{student.name}</div>
+                    <div className="text-sm text-gray-500">Klasse: {student.klasse}</div>
+                  </div>
+                ))}
+              {availableStudents.filter(s => 
+                !studentSearchQuery || 
+                s.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
+                s.klasse.toLowerCase().includes(studentSearchQuery.toLowerCase())
+              ).length === 0 && (
+                <div className="px-4 py-8 text-center text-gray-500">
+                  Keine Schüler gefunden
+                </div>
+              )}
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setStudentSearchQuery('')}>Abbrechen</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* iPad Detail Viewer Modal */}
       {selectedIPadId && (
         <IPadDetailViewer 
