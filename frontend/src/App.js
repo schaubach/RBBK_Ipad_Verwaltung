@@ -1481,6 +1481,12 @@ const StudentsManagement = () => {
                 <TableBody>
                   {filteredStudents.map((student) => (
                     <TableRow key={student.id} className="hover:bg-gray-50">
+                      <TableCell>
+                        <Checkbox
+                          checked={selectedStudents.includes(student.id)}
+                          onCheckedChange={() => toggleStudentSelection(student.id)}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">
                         {student.sus_vorn} {student.sus_nachn}
                       </TableCell>
