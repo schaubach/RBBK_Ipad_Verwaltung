@@ -1693,6 +1693,59 @@ const StudentsManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
       
+      {/* iPad Search Dialog */}
+      <AlertDialog open={searchDialogOpen} onOpenChange={setSearchDialogOpen}>
+        <AlertDialogContent className="max-w-2xl max-h-[80vh]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>iPad zuordnen</AlertDialogTitle>
+            <AlertDialogDescription>
+              Wählen Sie ein iPad für die Zuordnung aus.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="iPad suchen (ITNr)..."
+              value={ipadSearchQuery}
+              onChange={(e) => setIpadSearchQuery(e.target.value)}
+              className="mb-4"
+              autoFocus
+            />
+            <div className="max-h-96 overflow-auto border rounded-md">
+              {availableIPads
+                .filter(ipad => 
+                  !ipadSearchQuery || 
+                  ipad.itnr.toLowerCase().includes(ipadSearchQuery.toLowerCase())
+                )
+                .map((ipad) => (
+                  <div
+                    key={ipad.id}
+                    className="px-4 py-3 cursor-pointer hover:bg-gray-100 border-b last:border-b-0"
+                    onClick={() => {
+                      handleManualIPadAssignment(searchDialogStudentId, ipad.id);
+                      setSearchDialogOpen(false);
+                      setIpadSearchQuery('');
+                    }}
+                  >
+                    <div className="font-medium">{ipad.itnr}</div>
+                    <div className="text-sm text-gray-500">Status: {ipad.status}</div>
+                  </div>
+                ))}
+              {availableIPads.filter(ipad => 
+                !ipadSearchQuery || 
+                ipad.itnr.toLowerCase().includes(ipadSearchQuery.toLowerCase())
+              ).length === 0 && (
+                <div className="px-4 py-8 text-center text-gray-500">
+                  Keine iPads gefunden
+                </div>
+              )}
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIpadSearchQuery('')}>Abbrechen</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* Student Detail Viewer Modal */}
       {selectedStudentId && (
         <StudentDetailViewer 
