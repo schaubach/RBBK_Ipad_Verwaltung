@@ -2122,57 +2122,6 @@ const AssignmentsManagement = () => {
     }
   };
 
-  const handleBatchDissolve = async (dissolveAll = false) => {
-    const count = dissolveAll ? assignments.length : filteredAssignments.length;
-    const type = dissolveAll ? "ALLE" : "gefilterte";
-    
-    // Build confirmation message
-    const message = `⚠️ WARNUNG: Sie sind dabei ${count} ${type} Zuordnung(en) aufzulösen!\n\nDies kann NICHT rückgängig gemacht werden.\n\nMöchten Sie fortfahren?`;
-    
-    if (!window.confirm(message)) {
-      return;
-    }
-    
-    // Second confirmation
-    const secondConfirm = window.confirm(`🚨 LETZTE BESTÄTIGUNG\n\n${count} Zuordnung(en) werden aufgelöst:\n- iPads werden auf "verfügbar" gesetzt\n- Schüler werden freigegeben\n- Verträge werden inaktiv\n\nWirklich fortfahren?`);
-    
-    if (!secondConfirm) {
-      return;
-    }
-    
-    try {
-      setDissolving(true);
-      toast.info(`Löse ${count} Zuordnung(en) auf...`);
-      
-      // Build filter parameters
-      const filterParams = {};
-      
-      if (dissolveAll) {
-        filterParams.all = true;
-      } else {
-        // Apply current filters
-        if (vornameFilter) filterParams.sus_vorn = vornameFilter;
-        if (nachnameFilter) filterParams.sus_nachn = nachnameFilter;
-        if (klasseFilter) filterParams.sus_kl = klasseFilter;
-        if (itnrFilter) filterParams.itnr = itnrFilter;
-      }
-      
-      // Call batch dissolve endpoint
-      const response = await api.post('/assignments/batch-dissolve', filterParams);
-      
-      toast.success(`✅ ${response.data.dissolved_count} Zuordnung(en) erfolgreich aufgelöst!`);
-      
-      // Reload data
-      await loadAllData();
-      
-    } catch (error) {
-      console.error('Batch dissolve error:', error);
-      toast.error(error.response?.data?.detail || 'Fehler beim Auflösen der Zuordnungen');
-    } finally {
-      setDissolving(false);
-    }
-  };
-
   const handleViewContract = (assignment) => {
     if (assignment.contract_id) {
       setSelectedContractId(assignment.contract_id);
