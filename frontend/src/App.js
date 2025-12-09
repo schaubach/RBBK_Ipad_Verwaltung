@@ -1190,13 +1190,12 @@ const StudentsManagement = () => {
     }
   };
   
-  const handleBatchDelete = async () => {
+  const openBatchDeleteDialog = () => {
     if (selectedStudents.length === 0) return;
-    
-    if (!window.confirm(`Möchten Sie wirklich ${selectedStudents.length} Schüler löschen?`)) {
-      return;
-    }
-    
+    setBatchDeleteDialogOpen(true);
+  };
+  
+  const handleBatchDelete = async () => {
     setDeleting(true);
     let successCount = 0;
     let errorCount = 0;
@@ -1221,6 +1220,11 @@ const StudentsManagement = () => {
     if (errorCount > 0) {
       toast.error(`${errorCount} Schüler konnten nicht gelöscht werden`);
     }
+  };
+  
+  const confirmBatchDeleteStudents = async () => {
+    setBatchDeleteDialogOpen(false);
+    await handleBatchDelete();
   };
 
   const loadStudents = async () => {
