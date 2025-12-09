@@ -675,21 +675,16 @@ const IPadsManagement = () => {
     }
   };
 
-  const handleDeleteIPad = async (ipad) => {
-    // Double-click confirmation
-    const confirmed = window.confirm(
-      `⚠️ WARNUNG: iPad ${ipad.itnr} wirklich löschen?\n\n` +
-      `Dies löscht:\n` +
-      `- Das iPad permanent\n` +
-      `- Alle Zuordnungs-Historie\n` +
-      `- Alle zugehörigen Verträge\n\n` +
-      `Dies kann NICHT rückgängig gemacht werden!`
-    );
-    
-    if (!confirmed) return;
+  const handleDeleteIPad = (ipad) => {
+    setIPadToDelete(ipad);
+    setDeleteDialogOpen(true);
+  };
+  
+  const confirmDeleteIPad = async () => {
+    if (!ipadToDelete) return;
     
     try {
-      const response = await api.delete(`/ipads/${ipad.id}`);
+      const response = await api.delete(`/ipads/${ipadToDelete.id}`);
       
       if (response && response.data) {
         const msg = response.data.message || 'iPad gelöscht';
@@ -704,7 +699,15 @@ const IPadsManagement = () => {
     } catch (error) {
       console.error('Delete iPad error:', error);
       toast.error(error.response?.data?.detail || 'Fehler beim Löschen des iPads');
+    } finally {
+      setDeleteDialogOpen(false);
+      setIPadToDelete(null);
     }
+  };
+  
+  const confirmBatchDeleteIPads = async () => {
+    setBatchDeleteDialogOpen(false);
+    await handleBatchDelete();
   };
 
 
