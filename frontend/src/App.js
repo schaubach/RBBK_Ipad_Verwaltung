@@ -1019,8 +1019,9 @@ const IPadsManagement = () => {
                                       Keine Schüler gefunden
                                     </div>
                                   )}
-                                </div>
-                              )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                           {!ipad.current_assignment_id && (
