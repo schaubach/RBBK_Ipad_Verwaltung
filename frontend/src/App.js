@@ -1054,7 +1054,14 @@ const StudentsManagement = () => {
   const [studentNachnameFilter, setStudentNachnameFilter] = useState('');
   const [studentKlasseFilter, setStudentKlasseFilter] = useState('');
   
-  // Filtered students
+  // Sort states
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
+  
+  // Batch delete states
+  const [selectedStudents, setSelectedStudents] = useState([]);
+  
+  // Filtered and sorted students
   const filteredStudents = students.filter(student => {
     const vornMatch = !studentVornameFilter || 
       student.sus_vorn?.toLowerCase().includes(studentVornameFilter.toLowerCase());
@@ -1064,7 +1071,90 @@ const StudentsManagement = () => {
       student.sus_kl?.toLowerCase().includes(studentKlasseFilter.toLowerCase());
     
     return vornMatch && nachMatch && klMatch;
+  }).sort((a, b) => {
+    if (!sortField) return 0;
+    
+    let aVal = a[sortField] || '';
+    let bVal = b[sortField] || '';
+    
+    // Handle assigned status (boolean)
+    if (sortField === 'assigned') {
+      aVal = a.current_assignment_id ? 1 : 0;
+      bVal = b.current_assignment_id ? 1 : 0;
+    }
+    
+    // String comparison
+    if (typeof aVal === 'string') {
+      aVal = aVal.toLowerCase();
+      bVal = bVal.toLowerCase();
+    }
+    
+    if (sortDirection === 'asc') {
+      return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+    } else {
+      return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+    }
   });
+  
+  // Sort handler
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+  
+  // Batch delete handlers
+  const toggleStudentSelection = (studentId) => {
+    setSelectedStudents(prev =>
+      prev.includes(studentId)
+        ? prev.filter(id => id !== studentId)
+        : [...prev, studentId]
+    );
+  };
+  
+  const toggleAllStudents = () => {
+    if (selectedStudents.length === filteredStudents.length) {
+      setSelectedStudents([]);
+    } else {
+      setSelectedStudents(filteredStudents.map(student => student.id));
+    }
+  };
+  
+  const handleBatchDelete = async () => {
+    if (selectedStudents.length === 0) return;
+    
+    if (!window.confirm(`Möchten Sie wirklich ${selectedStudents.length} Schüler löschen?`)) {
+      return;
+    }
+    
+    setDeleting(true);
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const studentId of selectedStudents) {
+      try {
+        await api.delete(`/students/${studentId}`);
+        successCount++;
+      } catch (error) {
+        errorCount++;
+        console.error(`Failed to delete student ${studentId}:`, error);
+      }
+    }
+    
+    setDeleting(false);
+    setSelectedStudents([]);
+    
+    if (successCount > 0) {
+      toast.success(`${successCount} Schüler erfolgreich gelöscht`);
+      loadStudents();
+    }
+    if (errorCount > 0) {
+      toast.error(`${errorCount} Schüler konnten nicht gelöscht werden`);
+    }
+  };
 
   const loadStudents = async () => {
     setLoading(true);
