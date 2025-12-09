@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:4.4
+    container_name: ipad_mongodb
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ipad_admin_2024
+      MONGO_INITDB_DATABASE: iPadDatabase
+    volumes:
+      - mongodb_data:/data/db
+      - ../mongo-init:/docker-entrypoint-initdb.d
+    ports:
+      - "0.0.0.0:27017:27017"
+    networks:
+      - ipad_network
+    command: mongod --auth --bind_ip_all
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: ipad_backend
+    restart: unless-stopped
+    environment:
+      - MONGO_URL=mongodb://admin:ipad_admin_2024@mongodb:27017/iPadDatabase?authSource=admin
+      - SECRET_KEY=your-super-secret-key-change-this-in-production
+      - IPAD_DB_NAME=iPadDatabase
+    volumes:
+      - ../backend:/app
+      - backend_uploads:/app/uploads
+    ports:
+      - "0.0.0.0:8001:8001"
+    depends_on:
+      - mongodb
+    networks:
+      - ipad_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/auth/setup"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_BACKEND_URL=
+    container_name: ipad_frontend_build
+    volumes:
+      - frontend_build:/app/build
+    networks:
+      - ipad_network
+
+  nginx:
+    image: nginx:alpine
+    container_name: ipad_nginx
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    volumes:
+      - ../nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ../nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - frontend_build:/usr/share/nginx/html
+      - ../nginx/ssl:/etc/nginx/ssl
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - ipad_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  mongodb_data:
+    driver: local
+  backend_uploads:
+    driver: local
+  frontend_build:
+    driver: local
+
+networks:
+  ipad_network:
+    driver: bridge
