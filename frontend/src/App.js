@@ -2163,13 +2163,12 @@ const AssignmentsManagement = () => {
     }
   };
   
-  const handleBatchDissolve = async () => {
+  const openBatchDissolveDialog = () => {
     if (selectedAssignments.length === 0) return;
-    
-    if (!window.confirm(`Möchten Sie wirklich ${selectedAssignments.length} Zuordnung(en) auflösen?`)) {
-      return;
-    }
-    
+    setBatchDeleteDialogOpen(true);
+  };
+  
+  const handleBatchDissolve = async () => {
     setDissolving(true);
     let successCount = 0;
     let errorCount = 0;
@@ -2194,6 +2193,11 @@ const AssignmentsManagement = () => {
     if (errorCount > 0) {
       toast.error(`${errorCount} Zuordnung(en) konnten nicht aufgelöst werden`);
     }
+  };
+  
+  const confirmBatchDissolve = async () => {
+    setBatchDeleteDialogOpen(false);
+    await handleBatchDissolve();
   };
 
   const handleAutoAssign = async () => {
