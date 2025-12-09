@@ -494,6 +494,14 @@ const IPadsManagement = () => {
   const [activeAutocomplete, setActiveAutocomplete] = useState(null);
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   
+  // Sort states
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
+  
+  // Batch delete states
+  const [selectedIPads, setSelectedIPads] = useState([]);
+  const [deleting, setDeleting] = useState(false);
+  
   // Filtered iPads
   const filteredIPads = ipads.filter(ipad => {
     const itnrMatch = !itnrFilter || ipad.itnr?.toLowerCase().includes(itnrFilter.toLowerCase());
