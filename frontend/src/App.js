@@ -1033,6 +1033,60 @@ const IPadsManagement = () => {
         </CardContent>
       </Card>
 
+      {/* Delete iPad Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>iPad löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich das iPad <strong>{ipadToDelete?.itnr}</strong> löschen?
+              <br /><br />
+              <strong>Dies löscht:</strong>
+              <ul className="list-disc list-inside mt-2">
+                <li>Das iPad permanent</li>
+                <li>Alle Zuordnungs-Historie</li>
+                <li>Alle zugehörigen Verträge</li>
+              </ul>
+              <br />
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteIPad} className="bg-red-600 hover:bg-red-700">
+              iPad löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Batch Delete iPads Confirmation Dialog */}
+      <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{selectedIPads.length} iPad(s) löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich <strong>{selectedIPads.length} iPad(s)</strong> löschen?
+              <br /><br />
+              <strong>Dies löscht:</strong>
+              <ul className="list-disc list-inside mt-2">
+                <li>Die iPads permanent</li>
+                <li>Alle Zuordnungs-Historien</li>
+                <li>Alle zugehörigen Verträge</li>
+              </ul>
+              <br />
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmBatchDeleteIPads} className="bg-red-600 hover:bg-red-700">
+              {selectedIPads.length} iPad(s) löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* iPad Detail Viewer Modal */}
       {selectedIPadId && (
         <IPadDetailViewer 
