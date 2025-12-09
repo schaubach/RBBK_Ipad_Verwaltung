@@ -1640,6 +1640,62 @@ const StudentsManagement = () => {
         </CardContent>
       </Card>
 
+      {/* Delete Student Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Schüler löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich den Schüler <strong>{studentToDelete?.sus_vorn} {studentToDelete?.sus_nachn}</strong> löschen?
+              <br /><br />
+              <strong>Dies löscht:</strong>
+              <ul className="list-disc list-inside mt-2">
+                <li>Den Schüler permanent</li>
+                <li>Alle Zuordnungs-Historie</li>
+                <li>Alle zugehörigen Verträge</li>
+                <li>Gibt zugeordnetes iPad frei</li>
+              </ul>
+              <br />
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteStudent} className="bg-red-600 hover:bg-red-700">
+              Schüler löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Batch Delete Students Confirmation Dialog */}
+      <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{selectedStudents.length} Schüler löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich <strong>{selectedStudents.length} Schüler</strong> löschen?
+              <br /><br />
+              <strong>Für jeden Schüler wird gelöscht:</strong>
+              <ul className="list-disc list-inside mt-2">
+                <li>Alle Zuordnungen</li>
+                <li>Alle Verträge</li>
+                <li>Komplette Historie</li>
+                <li>iPads werden freigegeben</li>
+              </ul>
+              <br />
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmBatchDeleteStudents} className="bg-red-600 hover:bg-red-700">
+              {selectedStudents.length} Schüler löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* Student Detail Viewer Modal */}
       {selectedStudentId && (
         <StudentDetailViewer 
