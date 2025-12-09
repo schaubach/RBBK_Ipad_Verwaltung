@@ -1883,6 +1883,13 @@ const AssignmentsManagement = () => {
   const [nachnameFilter, setNachnameFilter] = useState('');
   const [klasseFilter, setKlasseFilter] = useState('');
   const [itnrFilter, setItnrFilter] = useState('');
+  
+  // Sort states
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState('asc');
+  
+  // Batch delete states
+  const [selectedAssignments, setSelectedAssignments] = useState([]);
 
   const loadAllData = async () => {
     try {
