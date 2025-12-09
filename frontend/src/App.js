@@ -1386,26 +1386,6 @@ const StudentsManagement = () => {
             
             {/* Action Buttons */}
             <div className="flex gap-2 flex-wrap">
-              <Button 
-                onClick={() => handleBatchDeleteStudents(true)}
-                disabled={deleting || students.length === 0}
-                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                {deleting ? 'Lösche...' : `Alle Schüler löschen (${students.length})`}
-              </Button>
-              
-              {(studentVornameFilter || studentNachnameFilter || studentKlasseFilter) && filteredStudents.length > 0 && (
-                <Button 
-                  onClick={() => handleBatchDeleteStudents(false)}
-                  disabled={deleting}
-                  className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  {deleting ? 'Lösche...' : `Gefilterte Schüler löschen (${filteredStudents.length})`}
-                </Button>
-              )}
-              
               {(studentVornameFilter || studentNachnameFilter || studentKlasseFilter) && (
                 <Button 
                   onClick={() => {
@@ -1421,6 +1401,19 @@ const StudentsManagement = () => {
             </div>
           </div>
           
+          {/* Batch Delete Button */}
+          {selectedStudents.length > 0 && (
+            <div className="mb-4">
+              <Button
+                onClick={handleBatchDelete}
+                variant="destructive"
+                disabled={deleting}
+              >
+                {deleting ? 'Lösche...' : `${selectedStudents.length} Schüler löschen`}
+              </Button>
+            </div>
+          )}
+          
           {loading ? (
             <div className="text-center py-8">Lade Schüler...</div>
           ) : students.length === 0 ? (
@@ -1432,10 +1425,56 @@ const StudentsManagement = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Klasse</TableHead>
-                    <TableHead>iPad-Status</TableHead>
-                    <TableHead>Erstellt am</TableHead>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={selectedStudents.length === filteredStudents.length && filteredStudents.length > 0}
+                        onCheckedChange={toggleAllStudents}
+                      />
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('sus_nachn')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Name
+                        {sortField === 'sus_nachn' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('sus_kl')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Klasse
+                        {sortField === 'sus_kl' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('assigned')}
+                    >
+                      <div className="flex items-center gap-1">
+                        iPad-Status
+                        {sortField === 'assigned' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('created_at')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Erstellt am
+                        {sortField === 'created_at' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
                     <TableHead>Aktionen</TableHead>
                   </TableRow>
                 </TableHeader>
