@@ -969,63 +969,17 @@ const IPadsManagement = () => {
                             <Eye className="h-4 w-4" />
                           </Button>
                           {!ipad.current_assignment_id && (
-                            <div className="relative">
-                              <Input
-                                id={`ipad-search-${ipad.id}`}
-                                type="text"
-                                placeholder="Schüler suchen..."
-                                className="w-48"
-                                onFocus={() => setActiveAutocomplete(`ipad-${ipad.id}`)}
-                                onBlur={() => setTimeout(() => setActiveAutocomplete(null), 200)}
-                                onChange={(e) => setStudentSearchQuery(e.target.value)}
-                              />
-                              {activeAutocomplete === `ipad-${ipad.id}` && (() => {
-                                const inputEl = document.getElementById(`ipad-search-${ipad.id}`);
-                                const rect = inputEl?.getBoundingClientRect();
-                                const dropdownMaxHeight = 384; // max-h-96 = 384px
-                                const spaceBelow = window.innerHeight - rect.bottom - 8;
-                                const spaceAbove = rect.top - 8;
-                                const showAbove = spaceBelow < 150 && spaceAbove > spaceBelow;
-                                
-                                return (
-                                  <div className="fixed z-[100] w-48 bg-white border rounded-md shadow-lg overflow-auto" style={{
-                                    bottom: showAbove ? `${window.innerHeight - rect.top}px` : 'auto',
-                                    top: showAbove ? 'auto' : `${rect.bottom + 4}px`,
-                                    left: `${rect.left}px`,
-                                    maxHeight: showAbove ? `${spaceAbove}px` : `${Math.min(dropdownMaxHeight, spaceBelow)}px`
-                                  }}>
-                                  {availableStudents
-                                    .filter(s => 
-                                      !studentSearchQuery || 
-                                      s.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
-                                      s.klasse.toLowerCase().includes(studentSearchQuery.toLowerCase())
-                                    )
-                                    .map((student) => (
-                                      <div
-                                        key={student.id}
-                                        className="px-3 py-2 cursor-pointer hover:bg-gray-100"
-                                        onClick={() => {
-                                          handleManualAssignment(ipad.id, student.id);
-                                          setActiveAutocomplete(null);
-                                          setStudentSearchQuery('');
-                                        }}
-                                      >
-                                        {student.name} <span className="text-gray-500">({student.klasse})</span>
-                                      </div>
-                                    ))}
-                                  {availableStudents.filter(s => 
-                                    !studentSearchQuery || 
-                                    s.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
-                                    s.klasse.toLowerCase().includes(studentSearchQuery.toLowerCase())
-                                  ).length === 0 && (
-                                    <div className="px-3 py-2 text-gray-500 text-sm">
-                                      Keine Schüler gefunden
-                                    </div>
-                                  )}
-                                  </div>
-                                );
-                              })()}
-                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSearchDialogIpadId(ipad.id);
+                                setSearchDialogOpen(true);
+                                setStudentSearchQuery('');
+                              }}
+                            >
+                              Schüler zuordnen
+                            </Button>
                           )}
                           {!ipad.current_assignment_id && (
                             <Button 
