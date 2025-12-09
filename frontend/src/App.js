@@ -2015,9 +2015,10 @@ const AssignmentsManagement = () => {
   // Batch delete states
   const [selectedAssignments, setSelectedAssignments] = useState([]);
   
-  // Delete dialog state
+  // Delete dialog states
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [assignmentToDelete, setAssignmentToDelete] = useState(null);
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
 
   const loadAllData = async () => {
     try {
