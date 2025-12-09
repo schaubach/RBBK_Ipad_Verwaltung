@@ -1891,6 +1891,10 @@ const AssignmentsManagement = () => {
   
   // Batch delete states
   const [selectedAssignments, setSelectedAssignments] = useState([]);
+  
+  // Delete dialog state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [assignmentToDelete, setAssignmentToDelete] = useState(null);
 
   const loadAllData = async () => {
     try {
