@@ -1273,24 +1273,18 @@ const StudentsManagement = () => {
     }
   };
 
-  const handleDeleteStudent = async (student) => {
-    // Confirmation dialog
-    const confirmed = window.confirm(
-      `⚠️ WARNUNG: Schüler ${student.sus_vorn} ${student.sus_nachn} wirklich löschen?\n\n` +
-      `Dies löscht:\n` +
-      `- Den Schüler permanent\n` +
-      `- Alle Zuordnungs-Historie\n` +
-      `- Alle zugehörigen Verträge\n` +
-      `- Gibt zugeordnetes iPad frei\n\n` +
-      `Dies kann NICHT rückgängig gemacht werden!`
-    );
-    
-    if (!confirmed) return;
+  const handleDeleteStudent = (student) => {
+    setStudentToDelete(student);
+    setDeleteDialogOpen(true);
+  };
+  
+  const confirmDeleteStudent = async () => {
+    if (!studentToDelete) return;
 
     try {
       toast.info('Lösche Schüler und alle zugehörigen Daten...');
       
-      const response = await api.delete(`/students/${student.id}`);
+      const response = await api.delete(`/students/${studentToDelete.id}`);
       
       if (response && response.data) {
         const msg = response.data.message || 'Schüler gelöscht';
@@ -1308,6 +1302,9 @@ const StudentsManagement = () => {
     } catch (error) {
       console.error('Delete student error:', error);
       toast.error(error.response?.data?.detail || 'Fehler beim Löschen des Schülers');
+    } finally {
+      setDeleteDialogOpen(false);
+      setStudentToDelete(null);
     }
   };
 
