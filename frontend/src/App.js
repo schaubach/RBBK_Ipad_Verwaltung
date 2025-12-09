@@ -1473,7 +1473,7 @@ const StudentsManagement = () => {
           {selectedStudents.length > 0 && (
             <div className="mb-4">
               <Button
-                onClick={handleBatchDelete}
+                onClick={openBatchDeleteDialog}
                 variant="destructive"
                 disabled={deleting}
               >
