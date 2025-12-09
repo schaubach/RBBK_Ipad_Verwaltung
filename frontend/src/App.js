@@ -978,11 +978,19 @@ const IPadsManagement = () => {
                                 onBlur={() => setTimeout(() => setActiveAutocomplete(null), 200)}
                                 onChange={(e) => setStudentSearchQuery(e.target.value)}
                               />
-                              {activeAutocomplete === `ipad-${ipad.id}` && (
-                                <div className="fixed z-[100] w-48 bg-white border rounded-md shadow-lg max-h-96 overflow-auto" style={{
-                                  top: `${document.getElementById(`ipad-search-${ipad.id}`)?.getBoundingClientRect().bottom + 4}px`,
-                                  left: `${document.getElementById(`ipad-search-${ipad.id}`)?.getBoundingClientRect().left}px`
-                                }}>
+                              {activeAutocomplete === `ipad-${ipad.id}` && (() => {
+                                const inputEl = document.getElementById(`ipad-search-${ipad.id}`);
+                                const rect = inputEl?.getBoundingClientRect();
+                                const dropdownHeight = 384; // max-h-96 = 384px
+                                const spaceBelow = window.innerHeight - rect.bottom;
+                                const showAbove = spaceBelow < dropdownHeight && rect.top > dropdownHeight;
+                                
+                                return (
+                                  <div className="fixed z-[100] w-48 bg-white border rounded-md shadow-lg max-h-96 overflow-auto" style={{
+                                    top: showAbove ? `${rect.top - Math.min(dropdownHeight, rect.top - 8)}px` : `${rect.bottom + 4}px`,
+                                    left: `${rect.left}px`,
+                                    maxHeight: showAbove ? `${rect.top - 8}px` : `${spaceBelow - 8}px`
+                                  }}>
                                   {availableStudents
                                     .filter(s => 
                                       !studentSearchQuery || 
