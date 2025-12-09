@@ -2491,17 +2491,22 @@ const AssignmentsManagement = () => {
                   {exporting ? 'Exportiere...' : `Gefilterte Zuordnungen exportieren (${filteredAssignments.length})`}
                 </Button>
                 
-                <Button 
-                  onClick={() => handleBatchDissolve(false)}
-                  disabled={dissolving}
-                  className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white"
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  {dissolving ? 'Löse auf...' : `Gefilterte Zuordnungen lösen (${filteredAssignments.length})`}
-                </Button>
               </>
             )}
           </div>
+          
+          {/* Batch Delete Button */}
+          {selectedAssignments.length > 0 && (
+            <div className="mb-4">
+              <Button
+                onClick={handleBatchDissolve}
+                variant="destructive"
+                disabled={dissolving}
+              >
+                {dissolving ? 'Löse auf...' : `${selectedAssignments.length} Zuordnung(en) auflösen`}
+              </Button>
+            </div>
+          )}
 
           {loading ? (
             <div className="text-center py-8">Lade Zuordnungen...</div>
@@ -2517,9 +2522,45 @@ const AssignmentsManagement = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>iPad ITNr</TableHead>
-                    <TableHead>Schüler (Klasse)</TableHead>
-                    <TableHead>Zugewiesen am</TableHead>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={selectedAssignments.length === filteredAssignments.length && filteredAssignments.length > 0}
+                        onCheckedChange={toggleAllAssignments}
+                      />
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('itnr')}
+                    >
+                      <div className="flex items-center gap-1">
+                        iPad ITNr
+                        {sortField === 'itnr' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('student_name')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Schüler (Klasse)
+                        {sortField === 'student_name' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('assigned_at')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Zugewiesen am
+                        {sortField === 'assigned_at' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
                     <TableHead>Vertrag</TableHead>
                     <TableHead>Aktionen</TableHead>
                   </TableRow>
