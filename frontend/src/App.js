@@ -1641,8 +1641,9 @@ const StudentsManagement = () => {
                                       Keine iPads gefunden
                                     </div>
                                   )}
-                                </div>
-                              )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           )}
                           <Button 
