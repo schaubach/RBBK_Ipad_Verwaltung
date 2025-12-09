@@ -2764,6 +2764,33 @@ const AssignmentsManagement = () => {
         </CardContent>
       </Card>
       
+      {/* Batch Dissolve Assignments Confirmation Dialog */}
+      <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{selectedAssignments.length} Zuordnung(en) auflösen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich <strong>{selectedAssignments.length} Zuordnung(en)</strong> auflösen?
+              <br /><br />
+              <strong>Dies führt dazu:</strong>
+              <ul className="list-disc list-inside mt-2">
+                <li>iPads werden auf "verfügbar" gesetzt</li>
+                <li>Schüler werden freigegeben</li>
+                <li>Verträge werden inaktiv</li>
+              </ul>
+              <br />
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmBatchDissolve} className="bg-red-600 hover:bg-red-700">
+              {selectedAssignments.length} Zuordnung(en) auflösen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* Delete Assignment Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
