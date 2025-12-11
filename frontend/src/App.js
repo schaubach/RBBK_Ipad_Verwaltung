@@ -1364,6 +1364,30 @@ const StudentsManagement = () => {
     setBatchDeleteDialogOpen(false);
     await handleBatchDelete();
   };
+  
+  const handleCreateStudent = async () => {
+    if (!newStudentData.sus_vorn || !newStudentData.sus_nachn) {
+      toast.error('Vorname und Nachname sind Pflichtfelder');
+      return;
+    }
+    
+    setCreating(true);
+    try {
+      const response = await api.post('/students', newStudentData);
+      toast.success('Schüler erfolgreich angelegt!');
+      setCreateDialogOpen(false);
+      setNewStudentData({
+        sus_vorn: '', sus_nachn: '', sus_kl: '', 
+        sus_geb: '', sus_str: '', sus_ort: ''
+      });
+      loadStudents();
+    } catch (error) {
+      console.error('Create student error:', error);
+      toast.error(error.response?.data?.detail || 'Fehler beim Anlegen des Schülers');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const loadStudents = async () => {
     setLoading(true);
