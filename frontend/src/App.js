@@ -1040,6 +1040,69 @@ const IPadsManagement = () => {
         </CardContent>
       </Card>
 
+      {/* Create iPad Dialog */}
+      <AlertDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <AlertDialogContent className="max-w-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Neues iPad anlegen</AlertDialogTitle>
+            <AlertDialogDescription>
+              Geben Sie die Daten für das neue iPad ein.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="itnr">ITNr *</Label>
+              <Input
+                id="itnr"
+                placeholder="z.B. 12345"
+                value={newIPadData.itnr}
+                onChange={(e) => setNewIPadData({...newIPadData, itnr: e.target.value})}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="snr">SNr *</Label>
+              <Input
+                id="snr"
+                placeholder="z.B. ABC123XYZ"
+                value={newIPadData.snr}
+                onChange={(e) => setNewIPadData({...newIPadData, snr: e.target.value})}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="typ">Typ (optional)</Label>
+              <Input
+                id="typ"
+                placeholder="z.B. iPad Pro 11"
+                value={newIPadData.typ}
+                onChange={(e) => setNewIPadData({...newIPadData, typ: e.target.value})}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="status">Status</Label>
+              <Select 
+                value={newIPadData.status} 
+                onValueChange={(value) => setNewIPadData({...newIPadData, status: value})}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ok">OK</SelectItem>
+                  <SelectItem value="defekt">Defekt</SelectItem>
+                  <SelectItem value="gestohlen">Gestohlen</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCreateIPad} disabled={creating}>
+              {creating ? 'Erstelle...' : 'iPad anlegen'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* Delete iPad Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
