@@ -1254,6 +1254,18 @@ const StudentsManagement = () => {
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
   
+  // Create dialog states
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newStudentData, setNewStudentData] = useState({
+    sus_vorn: '',
+    sus_nachn: '',
+    sus_kl: '',
+    sus_geb: '',
+    sus_str: '',
+    sus_ort: ''
+  });
+  const [creating, setCreating] = useState(false);
+  
   // Filtered and sorted students
   const filteredStudents = students.filter(student => {
     const vornMatch = !studentVornameFilter || 
