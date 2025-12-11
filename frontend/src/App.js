@@ -509,6 +509,16 @@ const IPadsManagement = () => {
   const [ipadToDelete, setIPadToDelete] = useState(null);
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
   
+  // Create dialog states
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [newIPadData, setNewIPadData] = useState({
+    itnr: '',
+    snr: '',
+    typ: '',
+    status: 'ok'
+  });
+  const [creating, setCreating] = useState(false);
+  
   // Filtered and sorted iPads
   const filteredIPads = ipads.filter(ipad => {
     const itnrMatch = !itnrFilter || ipad.itnr?.toLowerCase().includes(itnrFilter.toLowerCase());
