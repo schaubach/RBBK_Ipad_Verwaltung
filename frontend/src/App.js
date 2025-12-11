@@ -1779,6 +1779,84 @@ const StudentsManagement = () => {
         </CardContent>
       </Card>
 
+      {/* Create Student Dialog */}
+      <AlertDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <AlertDialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Neuen Schüler anlegen</AlertDialogTitle>
+            <AlertDialogDescription>
+              Geben Sie die Daten für den neuen Schüler ein. Pflichtfelder sind markiert mit *.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="sus_vorn">Vorname *</Label>
+                <Input
+                  id="sus_vorn"
+                  placeholder="Max"
+                  value={newStudentData.sus_vorn}
+                  onChange={(e) => setNewStudentData({...newStudentData, sus_vorn: e.target.value})}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="sus_nachn">Nachname *</Label>
+                <Input
+                  id="sus_nachn"
+                  placeholder="Mustermann"
+                  value={newStudentData.sus_nachn}
+                  onChange={(e) => setNewStudentData({...newStudentData, sus_nachn: e.target.value})}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="sus_kl">Klasse</Label>
+                <Input
+                  id="sus_kl"
+                  placeholder="z.B. 10a"
+                  value={newStudentData.sus_kl}
+                  onChange={(e) => setNewStudentData({...newStudentData, sus_kl: e.target.value})}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="sus_geb">Geburtsdatum</Label>
+                <Input
+                  id="sus_geb"
+                  placeholder="TT.MM.JJJJ"
+                  value={newStudentData.sus_geb}
+                  onChange={(e) => setNewStudentData({...newStudentData, sus_geb: e.target.value})}
+                />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="sus_str">Straße</Label>
+              <Input
+                id="sus_str"
+                placeholder="Musterstraße 123"
+                value={newStudentData.sus_str}
+                onChange={(e) => setNewStudentData({...newStudentData, sus_str: e.target.value})}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="sus_ort">Ort</Label>
+              <Input
+                id="sus_ort"
+                placeholder="12345 Musterstadt"
+                value={newStudentData.sus_ort}
+                onChange={(e) => setNewStudentData({...newStudentData, sus_ort: e.target.value})}
+              />
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={handleCreateStudent} disabled={creating}>
+              {creating ? 'Erstelle...' : 'Schüler anlegen'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* Delete Student Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
