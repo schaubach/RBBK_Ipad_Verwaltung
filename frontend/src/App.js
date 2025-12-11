@@ -34,6 +34,25 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Response Interceptor für automatischen Logout bei Session-Ablauf
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      // Token abgelaufen oder ungültig
+      localStorage.removeItem('token');
+      localStorage.removeItem('username');
+      localStorage.removeItem('role');
+      
+      // Zur Login-Seite weiterleiten (durch App-State-Reset)
+      window.dispatchEvent(new CustomEvent('session-expired'));
+      
+      toast.error('Ihre Session ist abgelaufen. Bitte melden Sie sich erneut an.');
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Login Component
 const Login = ({ onLogin }) => {
   const [username, setUsername] = useState('');
