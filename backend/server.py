@@ -934,6 +934,48 @@ async def upload_ipads(file: UploadFile = File(...), current_user: dict = Depend
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
+
+@api_router.post("/ipads", response_model=iPad)
+async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_user)):
+    """Manuell ein neues iPad anlegen"""
+    try:
+        # Validate required fields
+        if not ipad_data.get('itnr') or not ipad_data.get('snr'):
+            raise HTTPException(status_code=400, detail="ITNr und SNr sind erforderlich")
+        
+        # Check if iPad already exists for this user
+        existing = await db.ipads.find_one({
+            "itnr": ipad_data['itnr'], 
+            "user_id": current_user["id"]
+        })
+        if existing:
+            raise HTTPException(status_code=400, detail=f"iPad mit ITNr {ipad_data['itnr']} existiert bereits")
+        
+        # Create iPad object
+        ipad = iPad(
+            user_id=current_user["id"],
+            itnr=ipad_data['itnr'],
+            snr=ipad_data['snr'],
+            karton=ipad_data.get('karton', ''),
+            pencil=ipad_data.get('pencil', ''),
+            typ=ipad_data.get('typ', ''),
+            ansch_jahr=ipad_data.get('ansch_jahr', ''),
+            ausleihe_datum=ipad_data.get('ausleihe_datum', ''),
+            status=ipad_data.get('status', 'ok')
+        )
+        
+        ipad_dict = prepare_for_mongo(ipad.dict())
+        result = await db.ipads.insert_one(ipad_dict)
+        
+        # Fetch and return created iPad
+        created_ipad = await db.ipads.find_one({"_id": result.inserted_id})
+        return iPad(**parse_from_mongo(created_ipad))
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Anlegen: {str(e)}")
+
 @api_router.get("/ipads", response_model=List[iPad])
 async def get_ipads(current_user: dict = Depends(get_current_user)):
     # Apply user filter
