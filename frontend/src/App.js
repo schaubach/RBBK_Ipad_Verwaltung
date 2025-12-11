@@ -4691,6 +4691,17 @@ function App() {
       setCurrentUsername(savedUsername || '');
     }
     setLoading(false);
+    
+    // Listener für automatischen Logout bei Session-Ablauf
+    const handleSessionExpired = () => {
+      handleLogout();
+    };
+    
+    window.addEventListener('session-expired', handleSessionExpired);
+    
+    return () => {
+      window.removeEventListener('session-expired', handleSessionExpired);
+    };
   }, []);
 
   const handleLogin = (role, username) => {
