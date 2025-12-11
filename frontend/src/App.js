@@ -719,6 +719,27 @@ const IPadsManagement = () => {
     setBatchDeleteDialogOpen(false);
     await handleBatchDelete();
   };
+  
+  const handleCreateIPad = async () => {
+    if (!newIPadData.itnr || !newIPadData.snr) {
+      toast.error('ITNr und SNr sind Pflichtfelder');
+      return;
+    }
+    
+    setCreating(true);
+    try {
+      const response = await api.post('/ipads', newIPadData);
+      toast.success('iPad erfolgreich angelegt!');
+      setCreateDialogOpen(false);
+      setNewIPadData({ itnr: '', snr: '', typ: '', status: 'ok' });
+      loadIPads();
+    } catch (error) {
+      console.error('Create iPad error:', error);
+      toast.error(error.response?.data?.detail || 'Fehler beim Anlegen des iPads');
+    } finally {
+      setCreating(false);
+    }
+  };
 
 
   const getStatusColor = (status) => {
