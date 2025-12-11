@@ -1108,6 +1108,59 @@ async def upload_students(file: UploadFile = File(...), current_user: dict = Dep
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
+
+@api_router.post("/students", response_model=Student)
+async def create_student(student_data: dict, current_user: dict = Depends(get_current_user)):
+    """Manuell einen neuen Schüler anlegen"""
+    try:
+        # Validate required fields
+        if not student_data.get('sus_vorn') or not student_data.get('sus_nachn'):
+            raise HTTPException(status_code=400, detail="Vorname und Nachname sind erforderlich")
+        
+        # Check if student already exists for this user
+        existing = await db.students.find_one({
+            "sus_vorn": student_data['sus_vorn'],
+            "sus_nachn": student_data['sus_nachn'],
+            "user_id": current_user["id"]
+        })
+        if existing:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Schüler {student_data['sus_vorn']} {student_data['sus_nachn']} existiert bereits"
+            )
+        
+        # Create Student object
+        student = Student(
+            user_id=current_user["id"],
+            sus_vorn=student_data['sus_vorn'],
+            sus_nachn=student_data['sus_nachn'],
+            sus_kl=student_data.get('sus_kl', ''),
+            sus_geb=student_data.get('sus_geb', ''),
+            sus_str=student_data.get('sus_str', ''),
+            sus_ort=student_data.get('sus_ort', ''),
+            sus_tel=student_data.get('sus_tel', ''),
+            sor1_vorn=student_data.get('sor1_vorn', ''),
+            sor1_nachn=student_data.get('sor1_nachn', ''),
+            sor1_tel=student_data.get('sor1_tel', ''),
+            sor1_mail=student_data.get('sor1_mail', ''),
+            sor2_vorn=student_data.get('sor2_vorn', ''),
+            sor2_nachn=student_data.get('sor2_nachn', ''),
+            sor2_tel=student_data.get('sor2_tel', ''),
+            sor2_mail=student_data.get('sor2_mail', '')
+        )
+        
+        student_dict = prepare_for_mongo(student.dict())
+        result = await db.students.insert_one(student_dict)
+        
+        # Fetch and return created student
+        created_student = await db.students.find_one({"_id": result.inserted_id})
+        return Student(**parse_from_mongo(created_student))
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Anlegen: {str(e)}")
+
 @api_router.get("/students", response_model=List[Student])
 async def get_students(current_user: dict = Depends(get_current_user)):
     # Apply user filter
