@@ -1576,10 +1576,16 @@ const StudentsManagement = () => {
 
       <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Schüler verwalten ({students.length})
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Schüler verwalten ({students.length})
+            </CardTitle>
+            <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Neuen Schüler anlegen
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {/* Filter Section */}
