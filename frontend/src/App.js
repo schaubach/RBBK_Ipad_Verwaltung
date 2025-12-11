@@ -1096,7 +1096,10 @@ const IPadsManagement = () => {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction onClick={handleCreateIPad} disabled={creating}>
+            <AlertDialogAction 
+              onClick={handleCreateIPad} 
+              disabled={creating || !newIPadData.itnr || !newIPadData.snr}
+            >
               {creating ? 'Erstelle...' : 'iPad anlegen'}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1850,7 +1853,10 @@ const StudentsManagement = () => {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction onClick={handleCreateStudent} disabled={creating}>
+            <AlertDialogAction 
+              onClick={handleCreateStudent} 
+              disabled={creating || !newStudentData.sus_vorn || !newStudentData.sus_nachn}
+            >
               {creating ? 'Erstelle...' : 'Schüler anlegen'}
             </AlertDialogAction>
           </AlertDialogFooter>
