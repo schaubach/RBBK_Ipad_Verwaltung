@@ -824,10 +824,16 @@ const IPadsManagement = () => {
 
       <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Tablet className="h-5 w-5" />
-            iPads verwalten ({ipads.length})
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Tablet className="h-5 w-5" />
+              iPads verwalten ({ipads.length})
+            </CardTitle>
+            <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Neues iPad anlegen
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {/* Filter Section */}
