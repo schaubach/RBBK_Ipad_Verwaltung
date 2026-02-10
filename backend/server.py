@@ -1177,18 +1177,30 @@ async def get_students(current_user: dict = Depends(get_current_user)):
 
 @api_router.get("/students/available-for-assignment")
 async def get_available_students(current_user: dict = Depends(get_current_user)):
-    """Get students without current iPad assignment"""
+    """Get students that can still receive iPads (haven't reached MAX_IPADS_PER_STUDENT limit)"""
     user_filter = await get_user_filter(current_user)
-    students = await db.students.find({
-        **user_filter,
-        "current_assignment_id": None
-    }, {"_id": 0}).to_list(length=None)
+    students = await db.students.find(user_filter, {"_id": 0}).to_list(length=None)
     
-    return [{
-        "id": s["id"],
-        "name": f"{s['sus_vorn']} {s['sus_nachn']}",
-        "klasse": s.get("sus_kl", "N/A")
-    } for s in students]
+    # Filter students who haven't reached the limit
+    available_students = []
+    for student in students:
+        # Count active assignments for this student
+        assignment_count = await db.assignments.count_documents({
+            "student_id": student["id"],
+            "is_active": True
+        })
+        
+        if assignment_count < MAX_IPADS_PER_STUDENT:
+            available_students.append({
+                "id": student["id"],
+                "name": f"{student['sus_vorn']} {student['sus_nachn']}",
+                "klasse": student.get("sus_kl", "N/A"),
+                "current_ipads": assignment_count,
+                "max_ipads": MAX_IPADS_PER_STUDENT
+            })
+    
+    return available_students
+
 
 @api_router.get("/students/{student_id}")
 async def get_student_details(student_id: str, current_user: dict = Depends(get_current_user)):
