@@ -2183,13 +2183,10 @@ async def dissolve_assignment(assignment_id: str, current_user: dict = Depends(g
         }}
     )
     
-    # Update student
+    # Student update - no current_assignment_id field anymore (1:n relationship)
     await db.students.update_one(
         {"id": assignment["student_id"]},
-        {"$set": {
-            "current_assignment_id": None,
-            "updated_at": datetime.now(timezone.utc).isoformat()
-        }}
+        {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
     )
     
     return {"message": "Assignment dissolved successfully"}
