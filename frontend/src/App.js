@@ -549,10 +549,10 @@ const IPadsManagement = () => {
     let aVal = a[sortField] || '';
     let bVal = b[sortField] || '';
     
-    // Handle assigned status (boolean)
+    // Handle assigned status (boolean -> number for 1:n)
     if (sortField === 'assigned') {
-      aVal = a.current_assignment_id ? 1 : 0;
-      bVal = b.current_assignment_id ? 1 : 0;
+      aVal = a.assignment_count || 0;
+      bVal = b.assignment_count || 0;
     }
     
     // String comparison
@@ -1304,10 +1304,10 @@ const StudentsManagement = () => {
     let aVal = a[sortField] || '';
     let bVal = b[sortField] || '';
     
-    // Handle assigned status (boolean)
+    // Handle assigned status (boolean -> number for 1:n)
     if (sortField === 'assigned') {
-      aVal = a.current_assignment_id ? 1 : 0;
-      bVal = b.current_assignment_id ? 1 : 0;
+      aVal = a.assignment_count || 0;
+      bVal = b.assignment_count || 0;
     }
     
     // String comparison
