@@ -1546,13 +1546,10 @@ async def manual_assign(
         assignment_dict = prepare_for_mongo(assignment.dict())
         await db.assignments.insert_one(assignment_dict)
         
-        # Update student
+        # Student update removed - no current_assignment_id field anymore (1:n relationship)
         await db.students.update_one(
             {"id": student["id"]},
-            {"$set": {
-                "current_assignment_id": assignment.id,
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }}
+            {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
         )
         
         # Update iPad - keep its current status (ok/defekt/gestohlen)
