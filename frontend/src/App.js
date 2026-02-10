@@ -1768,19 +1768,20 @@ const StudentsManagement = () => {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          {!student.current_assignment_id && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSearchDialogStudentId(student.id);
-                                setSearchDialogOpen(true);
-                                setIpadSearchQuery('');
-                              }}
-                            >
-                              iPad zuordnen
-                            </Button>
-                          )}
+                          {/* Schüler kann bis zu 3 iPads haben */}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSearchDialogStudentId(student.id);
+                              setSearchDialogOpen(true);
+                              setIpadSearchQuery('');
+                            }}
+                            disabled={student.assignment_count >= 3}
+                            title={student.assignment_count >= 3 ? 'Maximum von 3 iPads erreicht' : 'Weiteres iPad zuordnen'}
+                          >
+                            {student.assignment_count >= 3 ? 'Limit erreicht' : 'iPad zuordnen'}
+                          </Button>
                           <Button 
                             variant="outline" 
                             size="sm"
