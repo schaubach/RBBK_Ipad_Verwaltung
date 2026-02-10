@@ -120,6 +120,11 @@ class Student(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
+class StudentWithAssignmentCount(Student):
+    """Student model with assignment count for frontend display"""
+    assignment_count: int = 0
+
+
 class Assignment(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str  # Owner of this assignment
