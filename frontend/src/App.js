@@ -2707,7 +2707,10 @@ const AssignmentsManagement = () => {
     setItnrFilter('');
   };
 
-  const unassignedStudents = students.filter(student => !student.current_assignment_id);
+  // Only students without any iPads for auto-assignment (1:n relationship)
+  const unassignedStudents = students.filter(student => 
+    !student.assignment_count || student.assignment_count === 0
+  );
   // Verfügbare iPads = nicht zugewiesen (unabhängig vom Status ok/defekt/gestohlen)
   const availableIPads = ipads.filter(ipad => !ipad.current_assignment_id);
 
