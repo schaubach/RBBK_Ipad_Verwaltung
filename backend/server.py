@@ -1173,12 +1173,26 @@ async def create_student(student_data: dict, current_user: dict = Depends(get_cu
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fehler beim Anlegen: {str(e)}")
 
-@api_router.get("/students", response_model=List[Student])
+@api_router.get("/students", response_model=List[StudentWithAssignmentCount])
 async def get_students(current_user: dict = Depends(get_current_user)):
     # Apply user filter
     user_filter = await get_user_filter(current_user)
     students = await db.students.find(user_filter).to_list(length=None)
-    return [Student(**parse_from_mongo(student)) for student in students]
+    
+    # Add assignment_count to each student
+    students_with_count = []
+    for student in students:
+        # Count active assignments for this student
+        assignment_count = await db.assignments.count_documents({
+            "student_id": student["id"],
+            "is_active": True
+        })
+        
+        student_dict = parse_from_mongo(student)
+        student_dict["assignment_count"] = assignment_count
+        students_with_count.append(StudentWithAssignmentCount(**student_dict))
+    
+    return students_with_count
 
 @api_router.get("/students/available-for-assignment")
 async def get_available_students(current_user: dict = Depends(get_current_user)):
