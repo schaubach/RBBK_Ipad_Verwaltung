@@ -109,7 +109,9 @@ class Student(BaseModel):
     erz2_str_hnr: Optional[str] = None
     erz2_plz: Optional[str] = None
     erz2_ort: Optional[str] = None
-    current_assignment_id: Optional[str] = None
+    # 1:n relationship - Student can have multiple iPads
+    # Removed: current_assignment_id
+    # Assignments are tracked via Assignment collection
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
