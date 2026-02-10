@@ -1522,9 +1522,16 @@ async def manual_assign(
         if ipad.get("current_assignment_id"):
             raise HTTPException(status_code=400, detail="iPad ist bereits zugewiesen")
         
-        # Check if student already has an iPad
-        if student.get("current_assignment_id"):
-            raise HTTPException(status_code=400, detail="Schüler hat bereits ein iPad zugewiesen")
+        # Check if student already has maximum number of iPads (1:n relationship)
+        student_assignments = await db.assignments.count_documents({
+            "student_id": student["id"],
+            "is_active": True
+        })
+        if student_assignments >= MAX_IPADS_PER_STUDENT:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Schüler hat bereits {MAX_IPADS_PER_STUDENT} iPad(s) zugewiesen (Maximum erreicht)"
+            )
         
         # Create assignment (without contract)
         assignment = Assignment(
