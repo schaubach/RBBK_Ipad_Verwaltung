@@ -538,6 +538,48 @@ const IPadsManagement = () => {
   });
   const [creating, setCreating] = useState(false);
   
+  // Assignment info dialog (click on "Ja" badge to see assigned student)
+  const [assignmentInfoDialogOpen, setAssignmentInfoDialogOpen] = useState(false);
+  const [assignmentInfoIpad, setAssignmentInfoIpad] = useState(null);
+  const [assignmentInfoStudent, setAssignmentInfoStudent] = useState(null);
+  const [assignmentInfoLoading, setAssignmentInfoLoading] = useState(false);
+  
+  // Load assignment info for iPad
+  const loadAssignmentInfo = async (ipad) => {
+    setAssignmentInfoLoading(true);
+    setAssignmentInfoIpad(ipad);
+    setAssignmentInfoDialogOpen(true);
+    try {
+      const response = await api.get(`/ipads/${ipad.id}/history`);
+      if (response.data.current_assignment) {
+        // Get student details
+        const studentResponse = await api.get('/students');
+        const student = studentResponse.data.find(s => s.id === response.data.current_assignment.student_id);
+        setAssignmentInfoStudent({
+          ...student,
+          assignment: response.data.current_assignment
+        });
+      }
+    } catch (error) {
+      toast.error('Fehler beim Laden der Zuordnungsinformationen');
+    } finally {
+      setAssignmentInfoLoading(false);
+    }
+  };
+  
+  // Dissolve assignment from iPad view
+  const dissolveAssignmentFromIPad = async (assignmentId) => {
+    try {
+      await api.delete(`/assignments/${assignmentId}`);
+      toast.success('Zuordnung erfolgreich aufgelöst');
+      setAssignmentInfoDialogOpen(false);
+      setAssignmentInfoStudent(null);
+      loadIPads();
+    } catch (error) {
+      toast.error('Fehler beim Auflösen der Zuordnung');
+    }
+  };
+  
   // Filtered and sorted iPads
   const filteredIPads = ipads.filter(ipad => {
     const itnrMatch = !itnrFilter || ipad.itnr?.toLowerCase().includes(itnrFilter.toLowerCase());
