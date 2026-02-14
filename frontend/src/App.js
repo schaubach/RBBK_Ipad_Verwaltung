@@ -2536,6 +2536,7 @@ const AssignmentsManagement = () => {
   const [selectedContractId, setSelectedContractId] = useState(null);
   const [uploadingContractForAssignment, setUploadingContractForAssignment] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [generatingContracts, setGeneratingContracts] = useState(false);
   
   // Filter states
   const [vornameFilter, setVornameFilter] = useState('');
