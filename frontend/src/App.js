@@ -2940,6 +2940,76 @@ const AssignmentsManagement = () => {
     }
   };
 
+  // Generate contracts for assignments
+  const handleGenerateContracts = async (filtered = false) => {
+    setGeneratingContracts(true);
+    try {
+      // Build query parameters for filtered generation
+      const params = new URLSearchParams();
+      if (filtered) {
+        if (vornameFilter) params.append('sus_vorn', vornameFilter);
+        if (nachnameFilter) params.append('sus_nachn', nachnameFilter);
+        if (klasseFilter) params.append('sus_kl', klasseFilter);
+        if (itnrFilter) params.append('itnr', itnrFilter);
+      }
+      
+      const queryString = params.toString();
+      const url = queryString ? `/assignments/generate-contracts?${queryString}` : '/assignments/generate-contracts';
+      
+      const response = await api.post(url, {}, {
+        responseType: 'blob'
+      });
+      
+      const blob = new Blob([response.data], {
+        type: 'application/zip'
+      });
+      
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      
+      // Get filename from header or use default
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = 'Vertraege.zip';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename=(.+)/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+      
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(link);
+      
+      const successCount = response.headers['x-success-count'] || '?';
+      const message = filtered 
+        ? `${successCount} Verträge für gefilterte Zuordnungen erstellt` 
+        : `${successCount} Verträge erstellt`;
+      toast.success(message);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        toast.error('Keine Zuordnungen für Vertragserstellung gefunden');
+      } else if (error.response?.data) {
+        // Try to read error message from blob
+        const text = await error.response.data.text?.() || 'Unbekannter Fehler';
+        try {
+          const json = JSON.parse(text);
+          toast.error(json.detail || 'Fehler bei der Vertragserstellung');
+        } catch {
+          toast.error('Fehler bei der Vertragserstellung');
+        }
+      } else {
+        toast.error('Fehler bei der Vertragserstellung');
+      }
+      console.error('Contract generation error:', error);
+    } finally {
+      setGeneratingContracts(false);
+    }
+  };
+
   const clearFilters = () => {
     setVornameFilter('');
     setNachnameFilter('');
