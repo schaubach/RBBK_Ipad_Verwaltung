@@ -253,14 +253,18 @@ class TestImport1toN:
     def test_import_merges_same_student(self, api_client):
         """Import should merge rows with same student into single student with multiple iPads"""
         import pandas as pd
+        import time
+        
+        # Use unique identifiers based on timestamp to avoid conflicts
+        ts = int(time.time())
         
         # Create test Excel with same student on multiple rows
         test_data = {
-            'SuSVorn': ['TestStudent1n', 'TestStudent1n'],
+            'SuSVorn': [f'TestStudent{ts}', f'TestStudent{ts}'],
             'SuSNachn': ['ImportTest', 'ImportTest'],
             'SuSKl': ['Test', 'Test'],
-            'ITNr': ['TEST-1N-001', 'TEST-1N-002'],
-            'SNr': ['TESTSN-001', 'TESTSN-002'],
+            'ITNr': [f'TEST-{ts}-001', f'TEST-{ts}-002'],
+            'SNr': [f'TESTSN-{ts}-001', f'TESTSN-{ts}-002'],
             'Typ': ['iPad Test', 'iPad Test']
         }
         df = pd.DataFrame(test_data)
@@ -285,7 +289,7 @@ class TestImport1toN:
         result = response.json()
         print(f"1:n import result: {result['message']}")
         
-        # Should have created 2 iPads but only 1 student (merged)
+        # Should have created 2 iPads and 1 student (merged)
         assert result.get("ipads_created", 0) == 2, \
             f"Expected 2 iPads created, got {result.get('ipads_created', 0)}"
         assert result.get("students_created", 0) == 1, \
@@ -300,7 +304,7 @@ class TestImport1toN:
         assert response.status_code == 200
         
         students = response.json()
-        test_student = next((s for s in students if s['sus_vorn'] == 'TestStudent1n'), None)
+        test_student = next((s for s in students if s['sus_vorn'] == f'TestStudent{ts}'), None)
         
         assert test_student is not None, "Test student not found after import"
         assert test_student.get("assignment_count", 0) == 2, \
@@ -308,7 +312,7 @@ class TestImport1toN:
         
         print(f"✓ Merged student correctly has 2 iPad assignments")
         
-        # Cleanup - delete test student
+        # Cleanup - delete test student (this should also free iPads due to fixed bug)
         response = api_client.delete(f"{BASE_URL}/api/students/{test_student['id']}")
         assert response.status_code == 200, f"Cleanup failed: {response.text}"
         print(f"✓ Cleanup: deleted test student")
@@ -319,14 +323,18 @@ class TestLimitEnforcementOnImport:
     def test_import_respects_limit(self, api_client):
         """Import should skip assignments beyond limit"""
         import pandas as pd
+        import time
+        
+        # Use unique identifiers based on timestamp to avoid conflicts
+        ts = int(time.time())
         
         # Create test Excel with 5 iPads for same student (exceeds limit of 3)
         test_data = {
-            'SuSVorn': ['LimitTest'] * 5,
+            'SuSVorn': [f'LimitTest{ts}'] * 5,
             'SuSNachn': ['Student'] * 5,
             'SuSKl': ['Test'] * 5,
-            'ITNr': [f'LIMIT-TEST-{i}' for i in range(1, 6)],
-            'SNr': [f'LIMITSN-{i}' for i in range(1, 6)],
+            'ITNr': [f'LIMIT-{ts}-{i}' for i in range(1, 6)],
+            'SNr': [f'LIMITSN-{ts}-{i}' for i in range(1, 6)],
             'Typ': ['iPad Test'] * 5
         }
         df = pd.DataFrame(test_data)
@@ -369,10 +377,10 @@ class TestLimitEnforcementOnImport:
         
         print(f"✓ Import correctly enforced limit of {MAX_IPADS_PER_STUDENT} iPads per student")
         
-        # Cleanup - delete test student
+        # Cleanup - delete test student (this should free iPads due to fixed bug)
         response = api_client.get(f"{BASE_URL}/api/students")
         students = response.json()
-        test_student = next((s for s in students if s['sus_vorn'] == 'LimitTest'), None)
+        test_student = next((s for s in students if s['sus_vorn'] == f'LimitTest{ts}'), None)
         
         if test_student:
             response = api_client.delete(f"{BASE_URL}/api/students/{test_student['id']}")
