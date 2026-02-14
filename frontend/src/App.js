@@ -1282,6 +1282,67 @@ const IPadsManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
       
+      {/* Assignment Info Dialog - Shows assigned student when clicking "Ja" badge */}
+      <AlertDialog open={assignmentInfoDialogOpen} onOpenChange={setAssignmentInfoDialogOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Zuordnung für iPad {assignmentInfoIpad?.itnr}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {assignmentInfoLoading ? (
+                <div className="py-4 text-center">Lade Informationen...</div>
+              ) : assignmentInfoStudent ? (
+                <div className="space-y-4 mt-4">
+                  <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Schüler:</span>
+                      <span className="font-medium">{assignmentInfoStudent.sus_vorn} {assignmentInfoStudent.sus_nachn}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Klasse:</span>
+                      <span className="font-medium">{assignmentInfoStudent.sus_kl || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Zugewiesen am:</span>
+                      <span className="font-medium">
+                        {assignmentInfoStudent.assignment?.assigned_at 
+                          ? new Date(assignmentInfoStudent.assignment.assigned_at).toLocaleDateString('de-DE')
+                          : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">iPads des Schülers:</span>
+                      <span className="font-medium">{assignmentInfoStudent.assignment_count || 1}</span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="destructive"
+                    className="w-full"
+                    onClick={() => dissolveAssignmentFromIPad(assignmentInfoStudent.assignment.id)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Zuordnung auflösen
+                  </Button>
+                </div>
+              ) : (
+                <div className="py-4 text-center text-gray-500">
+                  Keine Zuordnung gefunden
+                </div>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setAssignmentInfoDialogOpen(false);
+              setAssignmentInfoStudent(null);
+            }}>
+              Schließen
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* iPad Detail Viewer Modal */}
       {selectedIPadId && (
         <IPadDetailViewer 
