@@ -1445,13 +1445,13 @@ async def delete_student(student_id: str, current_user: dict = Depends(get_curre
     
     student_name = f"{student['sus_vorn']} {student['sus_nachn']}"
     
-    # Step 1: Dissolve active assignment if exists
-    active_assignment = await db.assignments.find_one({
+    # Step 1: Dissolve ALL active assignments (1:n - student can have multiple iPads)
+    active_assignments = await db.assignments.find({
         "student_id": student_id,
         "is_active": True
-    })
+    }).to_list(length=None)
     
-    if active_assignment:
+    for active_assignment in active_assignments:
         # Move contract to inactive if exists
         if active_assignment.get("contract_id"):
             await db.contracts.update_one(
