@@ -28,6 +28,7 @@ from datetime import timedelta
 import magic
 import bleach
 import re
+from contract_generator import create_contracts_from_assignments
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
