@@ -1911,7 +1911,13 @@ const StudentsManagement = () => {
                       </TableCell>
                       <TableCell>{student.sus_kl || 'N/A'}</TableCell>
                       <TableCell>
-                        <Badge className={(student.assignment_count && student.assignment_count > 0) ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                        <Badge 
+                          className={`${(student.assignment_count && student.assignment_count > 0) 
+                            ? 'bg-green-100 text-green-800 cursor-pointer hover:bg-green-200' 
+                            : 'bg-gray-100 text-gray-800'} transition-colors`}
+                          onClick={() => student.assignment_count > 0 && loadStudentIPads(student)}
+                          title={student.assignment_count > 0 ? 'Klicken um zugewiesene iPads anzuzeigen' : ''}
+                        >
                           {student.assignment_count > 0 ? `${student.assignment_count} iPad(s)` : 'Ohne iPad'}
                         </Badge>
                       </TableCell>
