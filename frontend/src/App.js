@@ -1051,7 +1051,13 @@ const IPadsManagement = () => {
                       </TableCell>
                       <TableCell>
                         {ipad.current_assignment_id ? (
-                          <Badge className="bg-blue-100 text-blue-800">Ja</Badge>
+                          <Badge 
+                            className="bg-blue-100 text-blue-800 cursor-pointer hover:bg-blue-200 transition-colors"
+                            onClick={() => loadAssignmentInfo(ipad)}
+                            title="Klicken um zugewiesenen Schüler anzuzeigen"
+                          >
+                            Ja
+                          </Badge>
                         ) : (
                           <Badge className="bg-gray-100 text-gray-800">Nein</Badge>
                         )}
