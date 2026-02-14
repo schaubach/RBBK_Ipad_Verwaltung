@@ -3169,6 +3169,16 @@ const AssignmentsManagement = () => {
               {dissolving ? 'Löse auf...' : `Alle Zuordnungen lösen (${assignments.length})`}
             </Button>
             
+            {/* Contract Generation Buttons */}
+            <Button 
+              onClick={() => handleGenerateContracts(false)}
+              disabled={generatingContracts || assignments.length === 0}
+              className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              {generatingContracts ? 'Erstelle Verträge...' : `Alle Verträge erstellen (${assignments.length})`}
+            </Button>
+            
             {(vornameFilter || nachnameFilter || klasseFilter || itnrFilter) && filteredAssignments.length > 0 && (
               <>
                 <Button 
@@ -3180,6 +3190,14 @@ const AssignmentsManagement = () => {
                   {exporting ? 'Exportiere...' : `Gefilterte Zuordnungen exportieren (${filteredAssignments.length})`}
                 </Button>
                 
+                <Button 
+                  onClick={() => handleGenerateContracts(true)}
+                  disabled={generatingContracts}
+                  className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  {generatingContracts ? 'Erstelle...' : `Gefilterte Verträge erstellen (${filteredAssignments.length})`}
+                </Button>
               </>
             )}
           </div>
