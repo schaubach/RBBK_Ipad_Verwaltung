@@ -2615,7 +2615,14 @@ async def update_global_settings(
 
 @api_router.post("/imports/inventory")
 async def import_inventory(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
-    """Import complete inventory list with iPads and student assignments from Excel file"""
+    """
+    Import complete inventory list with iPads and student assignments from Excel file.
+    
+    Supports 1:n relationships - if a student appears multiple times with different iPads,
+    all iPads will be assigned to that student (up to MAX_IPADS_PER_STUDENT limit).
+    
+    Compatible with both old (1:1) and new (1:n) export formats.
+    """
     try:
         # Validate file type
         if not file.filename.lower().endswith(('.xlsx', '.xls')):
@@ -2648,13 +2655,24 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
         students_created = 0
         students_skipped = 0
         assignments_created = 0
+        assignments_skipped_limit = 0
         error_count = 0
         errors = []
+        
+        # Helper function to safely convert values and handle NaN
+        def safe_str(value):
+            if pd.isna(value) or value is None:
+                return ''
+            str_val = str(value).strip()
+            return '' if str_val == 'nan' else str_val
+        
+        # Cache for students to avoid repeated lookups (key: (vorn, nachn))
+        student_cache = {}
         
         for index, row in df.iterrows():
             try:
                 # Process iPad data
-                itnr = str(row.get('ITNr', '')).strip()
+                itnr = safe_str(row.get('ITNr', ''))
                 if not itnr:
                     continue  # Skip rows without ITNr
                 
@@ -2664,15 +2682,17 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                 if existing_ipad:
                     ipads_skipped += 1
                     ipad_id = existing_ipad["id"]
+                    # Check if iPad is already assigned
+                    ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
                 else:
                     # Create new iPad
                     new_ipad = iPad(
                         user_id=current_user["id"],
                         itnr=itnr,
-                        snr=str(row.get('SNr', '')).strip(),
-                        typ=str(row.get('Typ', '')).strip(),
-                        pencil=str(row.get('Pencil', '')).strip(),
-                        ansch_jahr=str(row.get('AnschJahr', '')).strip(),
+                        snr=safe_str(row.get('SNr', '')),
+                        typ=safe_str(row.get('Typ', '')),
+                        pencil=safe_str(row.get('Pencil', '')),
+                        ansch_jahr=safe_str(row.get('AnschJahr', '')),
                         status="ok"  # Default status for imported iPads
                     )
                     
@@ -2680,66 +2700,80 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                     await db.ipads.insert_one(ipad_dict)
                     ipad_id = new_ipad.id
                     ipads_created += 1
+                    ipad_already_assigned = False
                 
                 # Check if student data exists in row (and is not NaN)
-                sus_vorn_raw = row.get('SuSVorn', '')
-                sus_nachn_raw = row.get('SuSNachn', '')
-                sus_kl_raw = row.get('SuSKl', '')
+                sus_vorn = safe_str(row.get('SuSVorn', ''))
+                sus_nachn = safe_str(row.get('SuSNachn', ''))
+                sus_kl = safe_str(row.get('SuSKl', ''))
                 
-                # Handle NaN values from pandas
-                sus_vorn = str(sus_vorn_raw).strip() if pd.notna(sus_vorn_raw) else ''
-                sus_nachn = str(sus_nachn_raw).strip() if pd.notna(sus_nachn_raw) else ''
-                sus_kl = str(sus_kl_raw).strip() if pd.notna(sus_kl_raw) else ''
-                
-                if sus_vorn and sus_nachn and sus_vorn != 'nan' and sus_nachn != 'nan':  # Student data present and valid
-                    # Check if student already exists for this user (by name + class + user_id)
-                    existing_student = await db.students.find_one({
-                        "sus_vorn": sus_vorn,
-                        "sus_nachn": sus_nachn,
-                        "sus_kl": sus_kl,
-                        "user_id": current_user["id"]
+                if sus_vorn and sus_nachn:  # Student data present and valid
+                    # Use cache key based on name only (not class) for 1:n support
+                    # This allows the same student to receive multiple iPads
+                    cache_key = (sus_vorn, sus_nachn)
+                    
+                    if cache_key in student_cache:
+                        student_id = student_cache[cache_key]
+                        students_skipped += 1
+                    else:
+                        # Check if student already exists for this user (by name only for 1:n)
+                        existing_student = await db.students.find_one({
+                            "sus_vorn": sus_vorn,
+                            "sus_nachn": sus_nachn,
+                            "user_id": current_user["id"]
+                        })
+                        
+                        if existing_student:
+                            students_skipped += 1
+                            student_id = existing_student["id"]
+                        else:
+                            # Create new student with proper NaN handling
+                            new_student = Student(
+                                user_id=current_user["id"],
+                                sname=safe_str(row.get('Sname', '')),
+                                sus_vorn=sus_vorn,
+                                sus_nachn=sus_nachn,
+                                sus_kl=sus_kl,
+                                sus_str_hnr=safe_str(row.get('SuSStrHNr', '')),
+                                sus_plz=safe_str(row.get('SuSPLZ', '')),
+                                sus_ort=safe_str(row.get('SuSOrt', '')),
+                                sus_geb=safe_str(row.get('SuSGeb', '')),
+                                erz1_nachn=safe_str(row.get('Erz1Nachn', '')),
+                                erz1_vorn=safe_str(row.get('Erz1Vorn', '')),
+                                erz1_str_hnr=safe_str(row.get('Erz1StrHNr', '')),
+                                erz1_plz=safe_str(row.get('Erz1PLZ', '')),
+                                erz1_ort=safe_str(row.get('Erz1Ort', '')),
+                                erz2_nachn=safe_str(row.get('Erz2Nachn', '')),
+                                erz2_vorn=safe_str(row.get('Erz2Vorn', '')),
+                                erz2_str_hnr=safe_str(row.get('Erz2StrHNr', '')),
+                                erz2_plz=safe_str(row.get('Erz2PLZ', '')),
+                                erz2_ort=safe_str(row.get('Erz2Ort', ''))
+                            )
+                            
+                            student_dict = prepare_for_mongo(new_student.dict())
+                            await db.students.insert_one(student_dict)
+                            student_id = new_student.id
+                            students_created += 1
+                        
+                        # Cache the student ID
+                        student_cache[cache_key] = student_id
+                    
+                    # Check if iPad is already assigned (skip if so)
+                    if ipad_already_assigned:
+                        continue
+                    
+                    # Check current assignment count for this student (1:n limit)
+                    current_assignment_count = await db.assignments.count_documents({
+                        "student_id": student_id,
+                        "is_active": True
                     })
                     
-                    if existing_student:
-                        students_skipped += 1
-                        student_id = existing_student["id"]
-                    else:
-                        # Helper function to safely convert values and handle NaN
-                        def safe_str(value):
-                            if pd.isna(value) or value is None:
-                                return ''
-                            str_val = str(value).strip()
-                            return '' if str_val == 'nan' else str_val
-                        
-                        # Create new student with proper NaN handling
-                        new_student = Student(
-                            user_id=current_user["id"],
-                            sname=safe_str(row.get('Sname', '')),
-                            sus_vorn=sus_vorn,
-                            sus_nachn=sus_nachn,
-                            sus_kl=sus_kl,
-                            sus_str_hnr=safe_str(row.get('SuSStrHNr', '')),
-                            sus_plz=safe_str(row.get('SuSPLZ', '')),
-                            sus_ort=safe_str(row.get('SuSOrt', '')),
-                            sus_geb=safe_str(row.get('SuSGeb', '')),
-                            erz1_nachn=safe_str(row.get('Erz1Nachn', '')),
-                            erz1_vorn=safe_str(row.get('Erz1Vorn', '')),
-                            erz1_str_hnr=safe_str(row.get('Erz1StrHNr', '')),
-                            erz1_plz=safe_str(row.get('Erz1PLZ', '')),
-                            erz1_ort=safe_str(row.get('Erz1Ort', '')),
-                            erz2_nachn=safe_str(row.get('Erz2Nachn', '')),
-                            erz2_vorn=safe_str(row.get('Erz2Vorn', '')),
-                            erz2_str_hnr=safe_str(row.get('Erz2StrHNr', '')),
-                            erz2_plz=safe_str(row.get('Erz2PLZ', '')),
-                            erz2_ort=safe_str(row.get('Erz2Ort', ''))
-                        )
-                        
-                        student_dict = prepare_for_mongo(new_student.dict())
-                        await db.students.insert_one(student_dict)
-                        student_id = new_student.id
-                        students_created += 1
+                    if current_assignment_count >= MAX_IPADS_PER_STUDENT:
+                        assignments_skipped_limit += 1
+                        errors.append(f"Row {index + 2}: Student {sus_vorn} {sus_nachn} hat bereits {MAX_IPADS_PER_STUDENT} iPads - übersprungen")
+                        continue
                     
-                    # Check if assignment already exists
+                    # Check if assignment already exists for this iPad
                     existing_assignment = await db.assignments.find_one({
                         "ipad_id": ipad_id,
                         "is_active": True
@@ -2747,7 +2781,7 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                     
                     if not existing_assignment:
                         # Create new assignment
-                        ausleibe_datum = str(row.get('AusleiheDatum', '')).strip()
+                        ausleibe_datum = safe_str(row.get('AusleiheDatum', ''))
                         assigned_at = datetime.now(timezone.utc).isoformat()
                         
                         # Try to parse AusleiheDatum if provided
@@ -2781,11 +2815,10 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                             }}
                         )
                         
-                        # Update student assignment reference
+                        # Update student timestamp (no more current_assignment_id in 1:n)
                         await db.students.update_one(
                             {"id": student_id},
                             {"$set": {
-                                "current_assignment_id": new_assignment.id,
                                 "updated_at": datetime.now(timezone.utc).isoformat()
                             }}
                         )
@@ -2810,7 +2843,10 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
         
         # Prepare response
         total_processed = ipads_created + ipads_skipped
-        message = f"Import completed: {ipads_created} iPads created, {ipads_skipped} iPads skipped, {students_created} students created, {students_skipped} students skipped, {assignments_created} assignments created"
+        message = f"Import completed: {ipads_created} iPads created, {ipads_skipped} iPads skipped, {students_created} students created, {students_skipped} students reused, {assignments_created} assignments created"
+        
+        if assignments_skipped_limit > 0:
+            message += f", {assignments_skipped_limit} assignments skipped (limit {MAX_IPADS_PER_STUDENT} iPads/student)"
         
         if error_count > 0:
             message += f", {error_count} errors"
@@ -2823,8 +2859,10 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
             "students_created": students_created,
             "students_skipped": students_skipped,
             "assignments_created": assignments_created,
+            "assignments_skipped_limit": assignments_skipped_limit,
+            "max_ipads_per_student": MAX_IPADS_PER_STUDENT,
             "error_count": error_count,
-            "errors": errors[:10] if errors else []  # Limit error list to first 10
+            "errors": errors[:20] if errors else []  # Limit error list to first 20
         }
         
     except HTTPException:
