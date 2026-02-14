@@ -1397,6 +1397,58 @@ const StudentsManagement = () => {
   });
   const [creating, setCreating] = useState(false);
   
+  // iPad list dialog (click on "X iPad(s)" badge to see assigned iPads)
+  const [ipadListDialogOpen, setIpadListDialogOpen] = useState(false);
+  const [ipadListStudent, setIpadListStudent] = useState(null);
+  const [ipadListData, setIpadListData] = useState([]);
+  const [ipadListLoading, setIpadListLoading] = useState(false);
+  
+  // Load iPads for a student
+  const loadStudentIPads = async (student) => {
+    setIpadListLoading(true);
+    setIpadListStudent(student);
+    setIpadListDialogOpen(true);
+    try {
+      // Get all assignments for this student
+      const assignmentsRes = await api.get('/assignments');
+      const studentAssignments = assignmentsRes.data.filter(
+        a => a.student_id === student.id && a.is_active
+      );
+      
+      // Get iPad details for each assignment
+      const ipadsRes = await api.get('/ipads');
+      const studentIPads = studentAssignments.map(assignment => {
+        const ipad = ipadsRes.data.find(i => i.id === assignment.ipad_id);
+        return {
+          ...ipad,
+          assignment_id: assignment.id,
+          assigned_at: assignment.assigned_at
+        };
+      }).filter(Boolean);
+      
+      setIpadListData(studentIPads);
+    } catch (error) {
+      toast.error('Fehler beim Laden der iPad-Liste');
+    } finally {
+      setIpadListLoading(false);
+    }
+  };
+  
+  // Dissolve single assignment from student view
+  const dissolveAssignmentFromStudent = async (assignmentId) => {
+    try {
+      await api.delete(`/assignments/${assignmentId}`);
+      toast.success('Zuordnung erfolgreich aufgelöst');
+      // Reload iPad list
+      if (ipadListStudent) {
+        loadStudentIPads(ipadListStudent);
+      }
+      loadStudents();
+    } catch (error) {
+      toast.error('Fehler beim Auflösen der Zuordnung');
+    }
+  };
+  
   // Filtered and sorted students
   const filteredStudents = students.filter(student => {
     const vornMatch = !studentVornameFilter || 
