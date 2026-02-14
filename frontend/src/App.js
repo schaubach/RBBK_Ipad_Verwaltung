@@ -2159,6 +2159,74 @@ const StudentsManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
       
+      {/* iPad List Dialog - Shows assigned iPads when clicking "X iPad(s)" badge */}
+      <AlertDialog open={ipadListDialogOpen} onOpenChange={setIpadListDialogOpen}>
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              iPads von {ipadListStudent?.sus_vorn} {ipadListStudent?.sus_nachn}
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                {ipadListLoading ? (
+                  <div className="py-4 text-center">Lade iPad-Liste...</div>
+                ) : ipadListData.length > 0 ? (
+                  <div className="space-y-3 mt-4">
+                    {ipadListData.map((ipad, index) => (
+                      <div key={ipad.id} className="bg-gray-50 p-4 rounded-lg">
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <div className="font-medium text-gray-900">
+                              iPad {index + 1}: {ipad.itnr}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              SNr: {ipad.snr}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              Typ: {ipad.typ || 'N/A'}
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              Zugewiesen am: {ipad.assigned_at 
+                                ? new Date(ipad.assigned_at).toLocaleDateString('de-DE')
+                                : 'N/A'}
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="hover:bg-red-50 hover:text-red-600 hover:border-red-300"
+                            onClick={() => dissolveAssignmentFromStudent(ipad.assignment_id)}
+                            title="Diese Zuordnung auflösen"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="text-xs text-gray-500 text-center mt-2">
+                      {ipadListData.length} von max. 3 iPads zugewiesen
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-4 text-center text-gray-500">
+                    Keine iPads zugewiesen
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => {
+              setIpadListDialogOpen(false);
+              setIpadListData([]);
+              setIpadListStudent(null);
+            }}>
+              Schließen
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* Student Detail Viewer Modal */}
       {selectedStudentId && (
         <StudentDetailViewer 
