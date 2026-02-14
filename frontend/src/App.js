@@ -551,14 +551,18 @@ const IPadsManagement = () => {
     setAssignmentInfoDialogOpen(true);
     try {
       const response = await api.get(`/ipads/${ipad.id}/history`);
-      if (response.data.current_assignment) {
+      // Find the active assignment from the assignments array
+      const activeAssignment = response.data.assignments?.find(a => a.is_active);
+      if (activeAssignment) {
         // Get student details
         const studentResponse = await api.get('/students');
-        const student = studentResponse.data.find(s => s.id === response.data.current_assignment.student_id);
+        const student = studentResponse.data.find(s => s.id === activeAssignment.student_id);
         setAssignmentInfoStudent({
           ...student,
-          assignment: response.data.current_assignment
+          assignment: activeAssignment
         });
+      } else {
+        setAssignmentInfoStudent(null);
       }
     } catch (error) {
       toast.error('Fehler beim Laden der Zuordnungsinformationen');
