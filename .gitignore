@@ -100,3 +100,7 @@ temp/
 # Keep template files
 !backend/templates/
 !backend/templates/Muster.pdf
+-e 
+# Environment files
+*.env
+*.env.*
