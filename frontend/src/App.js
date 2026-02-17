@@ -3954,25 +3954,31 @@ const Settings = () => {
         </CardContent>
       </Card>
 
-      {/* Data Recovery */}
+      {/* Unified Data Import */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
-            Datenwiederherstellung
+            Daten-Import
           </CardTitle>
           <CardDescription>
-            Daten aus einer Sicherungsdatei wiederherstellen
+            Schüler, iPads oder vollständige Datensicherungen importieren
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
-              <h4 className="font-medium text-blue-800 mb-2">Datensicherung importieren</h4>
+              <h4 className="font-medium text-blue-800 mb-2">Excel-Datei importieren</h4>
               <p className="text-sm text-blue-700 mb-4">
-                Importiert eine Excel-Datei mit Schülern, iPads und Zuordnungen. 
-                Die Datei kann Zeilen mit nur Schüler-Daten, nur iPad-Daten oder 
-                vollständige Zuordnungen enthalten. Bereits vorhandene Einträge werden übersprungen.
+                <strong>Flexibler Import:</strong> Sie können verschiedene Datentypen mit einer Datei importieren:
+              </p>
+              <ul className="text-sm text-blue-700 mb-4 list-disc list-inside space-y-1">
+                <li><strong>Nur Schüler:</strong> Excel mit Schüler-Spalten (SuSVorn, SuSNachn, etc.)</li>
+                <li><strong>Nur iPads:</strong> Excel mit iPad-Spalten (ITNr, SNr, etc.)</li>
+                <li><strong>Komplett:</strong> Schüler + iPads + Zuordnungen in einer Datei</li>
+              </ul>
+              <p className="text-sm text-blue-600 mb-4">
+                Bereits vorhandene Einträge werden automatisch übersprungen.
               </p>
               <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center hover:border-blue-500 transition-colors bg-white">
                 <Input
@@ -3981,19 +3987,20 @@ const Settings = () => {
                   onChange={(e) => e.target.files[0] && handleInventoryImport(e.target.files[0])}
                   disabled={importing}
                   className="mb-2"
+                  data-testid="data-import-input"
                 />
                 {importing && (
                   <div className="text-sm text-blue-600">
-                    Datensicherung wird importiert...
+                    Daten werden importiert...
                   </div>
                 )}
               </div>
             </div>
             
             <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded">
-              <strong>Hinweis:</strong> Die Import-Datei muss das gleiche Format wie der Export haben. 
-              Spalten: Sname, SuSNachn, SuSVorn, SuSKl, SuSStrHNr, SuSPLZ, SuSOrt, SuSGeb, 
-              Erz1Nachn, Erz1Vorn, etc., ITNr, SNr, Typ, Pencil, AusleiheDatum
+              <strong>Unterstützte Spalten:</strong> Sname, SuSNachn, SuSVorn, SuSKl, SuSStrHNr, SuSPLZ, SuSOrt, SuSGeb, 
+              Erz1Nachn, Erz1Vorn, Erz1StrHNr, Erz1PLZ, Erz1Ort, Erz2Nachn, Erz2Vorn, Erz2StrHNr, Erz2PLZ, Erz2Ort, 
+              ITNr, SNr, Typ, Pencil, AnschJahr, AusleiheDatum
             </div>
           </div>
         </CardContent>
