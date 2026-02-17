@@ -8,6 +8,10 @@ import api, { API_BASE_URL, SESSION_TIMEOUT, SESSION_WARNING } from './api';
 // Extracted Components
 import Login from './components/auth/Login';
 import IPadDetailViewer from './components/ipads/IPadDetailViewer';
+import ContractsManagement from './components/contracts/ContractsManagement';
+import Settings from './components/settings/Settings';
+import SessionTimer from './components/shared/SessionTimer';
+import UserManagement from './components/users/UserManagement';
 
 // Import UI components
 import { Button } from './components/ui/button';
