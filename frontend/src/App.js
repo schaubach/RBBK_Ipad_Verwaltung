@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
+
+// API Configuration (extracted)
+import api, { API_BASE_URL, SESSION_TIMEOUT, SESSION_WARNING } from './api';
+
+// Extracted Components
+import Login from './components/auth/Login';
+import IPadDetailViewer from './components/ipads/IPadDetailViewer';
 
 // Import UI components
 import { Button } from './components/ui/button';
@@ -18,11 +24,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { Upload, Users, Tablet, FileText, Settings as SettingsIcon, LogOut, Eye, Download, Trash2, ExternalLink, Shield, AlertTriangle, X, User, Edit, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
-
-// Smart API Configuration
-// - Docker/Intranet: Relative URLs (Same-Origin, kein CORS)
-// - Emergent-Preview: Absolute URLs (Cross-Origin, CORS)
-// - Lokale Entwicklung: Direkter Backend-Zugriff
 const getRuntimeURL = typeof window !== 'undefined' && window.getBackendURL ? window.getBackendURL() : null;
 const BACKEND_URL = getRuntimeURL !== null
   ? getRuntimeURL  // Runtime-Konfiguration (Docker/Dev)
