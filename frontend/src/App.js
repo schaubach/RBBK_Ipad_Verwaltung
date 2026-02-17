@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import './App.css';
@@ -18,6 +18,25 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { Upload, Users, Tablet, FileText, Settings as SettingsIcon, LogOut, Eye, Download, Trash2, ExternalLink, Shield, AlertTriangle, X, User, Edit, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+
+// Environment Configuration
+const APP_CONFIG = window.APP_CONFIG || {
+  environment: 'development',
+  isEmergent: false,
+  isProduction: false,
+  isLocalDev: true,
+  sessionTimeout: 30 * 60 * 1000, // 30 minutes
+  sessionWarning: 5 * 60 * 1000,  // 5 minutes before timeout
+  features: {
+    debugMode: true,
+    showEnvironmentBadge: true,
+    enableDetailedErrors: true
+  }
+};
+
+// Session timeout constant (30 minutes)
+const SESSION_TIMEOUT = APP_CONFIG.sessionTimeout || 30 * 60 * 1000;
+const SESSION_WARNING = APP_CONFIG.sessionWarning || 5 * 60 * 1000;
 
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : '/api';
 
@@ -43,6 +62,7 @@ api.interceptors.response.use(
       localStorage.removeItem('token');
       localStorage.removeItem('username');
       localStorage.removeItem('role');
+      localStorage.removeItem('lastActivity');
       
       // Zur Login-Seite weiterleiten (durch App-State-Reset)
       window.dispatchEvent(new CustomEvent('session-expired'));
