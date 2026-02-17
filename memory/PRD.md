@@ -22,7 +22,7 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - **Auth**: JWT mit 30-min Session Timeout
 - **Deployment**: Docker, docker-compose, Nginx (Reverse Proxy mit SSL)
 
-## What's Been Implemented (Latest: Feb 2026)
+## What's Been Implemented
 
 ### Session 1-4 (Previous)
 - Complete CRUD for iPads, Students, Assignments
@@ -32,22 +32,39 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - Security hardening (HTTPS, CSP, session timeout)
 - Docker Compose setup
 
-### Session 5 (Current - Feb 17, 2026)
+### Session 5 (Feb 17, 2026)
 - **Import-Konsolidierung**: 3 redundante Import-Funktionen zu einer zusammengeführt
-  - Entfernt: "Schüler importieren" aus Schüler-Tab
-  - Entfernt: "iPads importieren" aus iPad-Tab
-  - Neu: "Daten-Import" im Einstellungen-Tab (kann Schüler, iPads oder beides importieren)
-- Ungenutzte States und Handler entfernt (uploading, handleUpload)
+- **Backend-Bereinigung**: Ungenutzte Endpoints entfernt (~315 Zeilen)
+- **Frontend-Refactoring KOMPLETT**: App.js von 5174 auf 276 Zeilen reduziert (-95%)
 
-## Prioritized Backlog
+## Neue Projektstruktur (Nach Refactoring)
 
-### P2 - Nice to Have
-- **App.js Refactoring**: Die Datei ist über 3800 Zeilen und sollte in kleinere Komponenten aufgeteilt werden
-  - IPadsManagement.jsx
-  - StudentsManagement.jsx
-  - AssignmentsManagement.jsx
-  - Settings.jsx
-  - ContractsManagement.jsx
+```
+/app/frontend/src/
+├── App.js                 (276 Zeilen) - Nur Routing & Main Layout
+├── api/
+│   └── index.js           (73 Zeilen) - API-Konfiguration
+├── components/
+│   ├── auth/
+│   │   └── Login.jsx      (218 Zeilen)
+│   ├── ipads/
+│   │   ├── IPadDetailViewer.jsx (229 Zeilen)
+│   │   └── IPadsManagement.jsx  (827 Zeilen)
+│   ├── students/
+│   │   ├── StudentDetailViewer.jsx (202 Zeilen)
+│   │   └── StudentsManagement.jsx  (850 Zeilen)
+│   ├── assignments/
+│   │   └── AssignmentsManagement.jsx (917 Zeilen)
+│   ├── contracts/
+│   │   └── ContractsManagement.jsx   (242 Zeilen)
+│   ├── settings/
+│   │   └── Settings.jsx   (521 Zeilen)
+│   ├── shared/
+│   │   ├── ContractViewer.jsx  (96 Zeilen)
+│   │   └── SessionTimer.jsx    (72 Zeilen)
+│   └── users/
+│       └── UserManagement.jsx  (743 Zeilen)
+```
 
 ## API Endpoints
 - `POST /api/imports/inventory` - Unified data import
@@ -66,11 +83,14 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 ## Credentials
 - Admin: `admin` / `admin123`
 
+## Refactoring-Statistik
+| Vorher | Nachher | Reduktion |
+|--------|---------|-----------|
+| App.js: 5174 Zeilen | App.js: 276 Zeilen | -95% |
+| 1 Datei | 13 Dateien | Modulare Struktur |
+
 ## Known Issues
 - None currently
 
-## Files of Reference
-- `/app/frontend/src/App.js` - Main frontend (monolithic, needs refactoring)
-- `/app/backend/server.py` - FastAPI backend
-- `/app/docker-compose.yml` - Production deployment
-- `/app/nginx/` - Nginx configuration with SSL
+## Prioritized Backlog
+- P2: Weitere Modularisierung der größeren Komponenten (IPadsManagement, StudentsManagement, AssignmentsManagement)
