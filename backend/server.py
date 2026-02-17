@@ -2874,7 +2874,7 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
 
 @api_router.get("/exports/inventory")
 async def export_inventory(current_user: dict = Depends(get_current_user)):
-    """Export complete inventory list with all iPads and assigned students"""
+    """Export complete data backup: all students, all iPads, and all assignments (1:n support)"""
     try:
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
@@ -2884,115 +2884,68 @@ async def export_inventory(current_user: dict = Depends(get_current_user)):
         ipad_typ = settings.get("ipad_typ", "Apple iPad") if settings else "Apple iPad"
         pencil = settings.get("pencil", "ohne Apple Pencil") if settings else "ohne Apple Pencil"
         
-        # Get all iPads with their assignments and student data (filtered by user!)
-        pipeline = [
-            # CRITICAL: Add user filter as first stage!
-            {
-                "$match": user_filter
-            },
-            {
-                "$lookup": {
-                    "from": "assignments",
-                    "let": {"ipad_id": "$id", "ipad_user_id": "$user_id"},
-                    "pipeline": [
-                        {
-                            "$match": {
-                                "$expr": {
-                                    "$and": [
-                                        {"$eq": ["$ipad_id", "$$ipad_id"]},
-                                        {"$eq": ["$is_active", True]},
-                                        {"$eq": ["$user_id", "$$ipad_user_id"]}  # Ensure assignment belongs to same user
-                                    ]
-                                }
-                            }
-                        }
-                    ],
-                    "as": "current_assignment"
-                }
-            },
-            {
-                "$lookup": {
-                    "from": "students",
-                    "let": {"student_id": {"$arrayElemAt": ["$current_assignment.student_id", 0]}, "ipad_user_id": "$user_id"},
-                    "pipeline": [
-                        {
-                            "$match": {
-                                "$expr": {
-                                    "$and": [
-                                        {"$eq": ["$id", "$$student_id"]},
-                                        {"$eq": ["$user_id", "$$ipad_user_id"]}  # Ensure student belongs to same user
-                                    ]
-                                }
-                            }
-                        }
-                    ],
-                    "as": "student_data"
-                }
-            }
-        ]
+        # Get all students (filtered by user)
+        all_students = await db.students.find(user_filter).to_list(length=None)
+        students_by_id = {s["id"]: s for s in all_students}
         
-        ipads_with_data = await db.ipads.aggregate(pipeline).to_list(length=None)
+        # Get all iPads (filtered by user)
+        all_ipads = await db.ipads.find(user_filter).to_list(length=None)
+        ipads_by_id = {i["id"]: i for i in all_ipads}
         
-        # Prepare export data
+        # Get all active assignments (filtered by user)
+        all_assignments = await db.assignments.find({**user_filter, "is_active": True}).to_list(length=None)
+        
+        # Track which students and iPads are in assignments
+        students_with_assignments = set()
+        ipads_with_assignments = set()
+        
         export_data = []
         
-        for ipad in ipads_with_data:
-            student = ipad["student_data"][0] if ipad["student_data"] else None
-            assignment = ipad["current_assignment"][0] if ipad["current_assignment"] else None
-            
-            # Format assignment date
+        # Helper function to format birthday
+        def format_birthday(student):
+            if not student or not student.get("sus_geb"):
+                return ""
+            try:
+                geb_str = str(student["sus_geb"]).strip()
+                if not geb_str or geb_str.lower() == 'nan':
+                    return ""
+                if "." in geb_str:
+                    parts = geb_str.split(".")
+                    if len(parts) == 3:
+                        day, month, year = parts
+                        date_obj = datetime(int(year), int(month), int(day))
+                        return date_obj.strftime("%d.%m.%Y")
+                    return geb_str
+                elif "-" in geb_str:
+                    if " " in geb_str:
+                        geb_str = geb_str.split(" ")[0]
+                    date_obj = datetime.strptime(geb_str, "%Y-%m-%d")
+                    return date_obj.strftime("%d.%m.%Y")
+                elif len(geb_str) == 8 and geb_str.isdigit():
+                    date_obj = datetime.strptime(geb_str, "%Y%m%d")
+                    return date_obj.strftime("%d.%m.%Y")
+                elif "/" in geb_str:
+                    parts = geb_str.split("/")
+                    if len(parts) == 3:
+                        day, month, year = parts
+                        date_obj = datetime(int(year), int(month), int(day))
+                        return date_obj.strftime("%d.%m.%Y")
+                return geb_str
+            except:
+                return student.get("sus_geb", "") if student else ""
+        
+        # Helper function to create a row
+        def create_row(student, ipad, assignment):
             ausleibe_datum = ""
             if assignment and assignment.get("assigned_at"):
                 try:
                     assigned_date = datetime.fromisoformat(assignment["assigned_at"].replace('Z', '+00:00'))
                     ausleibe_datum = assigned_date.strftime("%d.%m.%Y")
                 except:
-                    ausleibe_datum = ""
+                    pass
             
-            # Format Geburtstag to DD.MM.YYYY (same logic as assignment export)
-            geburtstag_formatted = ""
-            if student and student.get("sus_geb"):
-                try:
-                    geb_str = str(student["sus_geb"]).strip()
-                    
-                    # Skip if empty or 'nan'
-                    if not geb_str or geb_str.lower() == 'nan':
-                        geburtstag_formatted = ""
-                    # Already in DD.MM.YYYY format - ensure leading zeros
-                    elif "." in geb_str:
-                        parts = geb_str.split(".")
-                        if len(parts) == 3:
-                            try:
-                                day, month, year = parts
-                                date_obj = datetime(int(year), int(month), int(day))
-                                geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
-                            except:
-                                geburtstag_formatted = geb_str
-                    # ISO format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
-                    elif "-" in geb_str:
-                        # Remove time part if present
-                        if " " in geb_str:
-                            geb_str = geb_str.split(" ")[0]
-                        date_obj = datetime.strptime(geb_str, "%Y-%m-%d")
-                        geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
-                    # Compact format: YYYYMMDD
-                    elif len(geb_str) == 8 and geb_str.isdigit():
-                        date_obj = datetime.strptime(geb_str, "%Y%m%d")
-                        geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
-                    # Try parsing as DD/MM/YYYY
-                    elif "/" in geb_str:
-                        parts = geb_str.split("/")
-                        if len(parts) == 3:
-                            day, month, year = parts
-                            date_obj = datetime(int(year), int(month), int(day))
-                            geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
-                    else:
-                        geburtstag_formatted = geb_str
-                except Exception as e:
-                    geburtstag_formatted = student.get("sus_geb", "") if student else ""
-            
-            row = {
-                # Student data (empty if no assignment) - EXACT same order as assignment export
+            return {
+                # Student data
                 "Sname": student.get("sname", "") if student else "",
                 "SuSNachn": student.get("sus_nachn", "") if student else "",
                 "SuSVorn": student.get("sus_vorn", "") if student else "",
@@ -3000,7 +2953,7 @@ async def export_inventory(current_user: dict = Depends(get_current_user)):
                 "SuSStrHNr": student.get("sus_str_hnr", "") if student else "",
                 "SuSPLZ": student.get("sus_plz", "") if student else "",
                 "SuSOrt": student.get("sus_ort", "") if student else "",
-                "SuSGeb": geburtstag_formatted,  # Formatted to DD.MM.YYYY
+                "SuSGeb": format_birthday(student),
                 "Erz1Nachn": student.get("erz1_nachn", "") if student else "",
                 "Erz1Vorn": student.get("erz1_vorn", "") if student else "",
                 "Erz1StrHNr": student.get("erz1_str_hnr", "") if student else "",
@@ -3012,16 +2965,41 @@ async def export_inventory(current_user: dict = Depends(get_current_user)):
                 "Erz2PLZ": student.get("erz2_plz", "") if student else "",
                 "Erz2Ort": student.get("erz2_ort", "") if student else "",
                 
-                # iPad data in EXACT same order as assignment export
-                "Pencil": pencil,
-                "ITNr": ipad.get("itnr", ""),
-                "SNr": ipad.get("snr", ""),
-                "Typ": ipad_typ,
-                "AnschJahr": "",  # Can be added later if needed
+                # iPad data
+                "Pencil": pencil if ipad else "",
+                "ITNr": ipad.get("itnr", "") if ipad else "",
+                "SNr": ipad.get("snr", "") if ipad else "",
+                "Typ": ipad_typ if ipad else "",
+                "AnschJahr": "",
                 "AusleiheDatum": ausleibe_datum,
-                "Rückgabe": ""  # Always empty as requested
+                "Rückgabe": ""
             }
-            export_data.append(row)
+        
+        # 1. Process all assignments (creates rows for students WITH iPads - respects 1:n)
+        for assignment in all_assignments:
+            student_id = assignment.get("student_id")
+            ipad_id = assignment.get("ipad_id")
+            
+            student = students_by_id.get(student_id)
+            ipad = ipads_by_id.get(ipad_id)
+            
+            if student:
+                students_with_assignments.add(student_id)
+            if ipad:
+                ipads_with_assignments.add(ipad_id)
+            
+            # Add row for this assignment (even if student or iPad was deleted)
+            export_data.append(create_row(student, ipad, assignment))
+        
+        # 2. Add students WITHOUT any iPad assignment
+        for student_id, student in students_by_id.items():
+            if student_id not in students_with_assignments:
+                export_data.append(create_row(student, None, None))
+        
+        # 3. Add iPads WITHOUT any assignment
+        for ipad_id, ipad in ipads_by_id.items():
+            if ipad_id not in ipads_with_assignments:
+                export_data.append(create_row(None, ipad, None))
         
         # Create DataFrame and export to Excel
         df = pd.DataFrame(export_data)
@@ -3029,12 +3007,12 @@ async def export_inventory(current_user: dict = Depends(get_current_user)):
         # Create Excel file in memory
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Bestandsliste', index=False)
+            df.to_excel(writer, sheet_name='Datensicherung', index=False)
         
         output.seek(0)
         
         # Return as downloadable file
-        filename = f"bestandsliste_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filename = f"datensicherung_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
         
         return StreamingResponse(
             io.BytesIO(output.read()),
@@ -3043,7 +3021,7 @@ async def export_inventory(current_user: dict = Depends(get_current_user)):
         )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating inventory export: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating data backup: {str(e)}")
 
 # Data protection and cleanup endpoints
 @api_router.post("/data-protection/cleanup-old-data")
