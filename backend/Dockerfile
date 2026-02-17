@@ -36,8 +36,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Anwendung kopieren
 COPY . .
 
-# Upload-Verzeichnis erstellen
-RUN mkdir -p uploads
+# Verzeichnisse erstellen
+RUN mkdir -p uploads templates
 
 # Port freigeben
 EXPOSE 8001
