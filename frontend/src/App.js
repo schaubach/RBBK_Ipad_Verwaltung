@@ -19,26 +19,31 @@ import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { Upload, Users, Tablet, FileText, Settings as SettingsIcon, LogOut, Eye, Download, Trash2, ExternalLink, Shield, AlertTriangle, X, User, Edit, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
-// Environment Configuration
-const APP_CONFIG = window.APP_CONFIG || {
-  environment: 'development',
-  isEmergent: false,
-  isProduction: false,
-  isLocalDev: true,
-  sessionTimeout: 30 * 60 * 1000, // 30 minutes
-  sessionWarning: 5 * 60 * 1000,  // 5 minutes before timeout
-  features: {
-    debugMode: true,
-    showEnvironmentBadge: true,
-    enableDetailedErrors: true
-  }
-};
+// Smart API Configuration
+// - Docker/Intranet: Relative URLs (Same-Origin, kein CORS)
+// - Emergent-Preview: Absolute URLs (Cross-Origin, CORS)
+// - Lokale Entwicklung: Direkter Backend-Zugriff
+const getRuntimeURL = typeof window !== 'undefined' && window.getBackendURL ? window.getBackendURL() : null;
+const BACKEND_URL = getRuntimeURL !== null
+  ? getRuntimeURL  // Runtime-Konfiguration (Docker/Dev)
+  : (process.env.REACT_APP_BACKEND_URL || '');  // Build-Zeit URL (Emergent-Preview)
 
-// Session timeout constant (30 minutes)
-const SESSION_TIMEOUT = APP_CONFIG.sessionTimeout || 30 * 60 * 1000;
-const SESSION_WARNING = APP_CONFIG.sessionWarning || 5 * 60 * 1000;
+const API_BASE_URL = BACKEND_URL ? `${BACKEND_URL}/api` : '/api';
 
-const API_BASE_URL = process.env.REACT_APP_BACKEND_URL ? `${process.env.REACT_APP_BACKEND_URL}/api` : '/api';
+// Environment Detection
+const APP_ENV = typeof window !== 'undefined' && window.APP_ENV ? window.APP_ENV : 'unknown';
+
+// Session Timeout Configuration (30 minutes)
+const SESSION_CONFIG = typeof window !== 'undefined' && window.SESSION_CONFIG 
+  ? window.SESSION_CONFIG 
+  : { timeout: 30 * 60 * 1000, warning: 5 * 60 * 1000 };
+
+const SESSION_TIMEOUT = SESSION_CONFIG.timeout;
+const SESSION_WARNING = SESSION_CONFIG.warning;
+
+console.log('[App] API Base:', API_BASE_URL || '(relative - same origin)');
+console.log('[App] Environment:', APP_ENV);
+console.log('[App] Session Timeout:', SESSION_TIMEOUT / 60000, 'minutes');
 
 // API configuration
 const api = axios.create({
@@ -53,11 +58,16 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Flag um mehrfache Logout-Meldungen zu verhindern
+let isLoggingOut = false;
+
 // Response Interceptor für automatischen Logout bei Session-Ablauf
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !isLoggingOut) {
+      isLoggingOut = true;
+      
       // Token abgelaufen oder ungültig
       localStorage.removeItem('token');
       localStorage.removeItem('username');
@@ -68,6 +78,11 @@ api.interceptors.response.use(
       window.dispatchEvent(new CustomEvent('session-expired'));
       
       toast.error('Ihre Session ist abgelaufen. Bitte melden Sie sich erneut an.');
+      
+      // Flag nach kurzer Zeit zurücksetzen
+      setTimeout(() => {
+        isLoggingOut = false;
+      }, 2000);
     }
     return Promise.reject(error);
   }
