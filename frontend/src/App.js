@@ -5244,10 +5244,10 @@ function App() {
       <div className="App">
         <Toaster richColors position="bottom-right" />
         {/* Environment Badge (only in non-production) */}
-        {APP_CONFIG.features?.showEnvironmentBadge && !APP_CONFIG.isProduction && (
+        {APP_ENV !== 'production' && APP_ENV !== 'unknown' && (
           <div className="fixed bottom-4 left-4 z-50">
-            <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300">
-              {APP_CONFIG.environment.toUpperCase()}
+            <Badge variant="outline" className={`${APP_ENV === 'emergent' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' : 'bg-blue-100 text-blue-800 border-blue-300'}`}>
+              {APP_ENV.toUpperCase()}
             </Badge>
           </div>
         )}
