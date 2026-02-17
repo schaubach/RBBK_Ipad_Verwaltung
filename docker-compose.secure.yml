@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  # Nginx Reverse Proxy - EINZIGER öffentlicher Eintrittspunkt
+  nginx:
+    image: nginx:alpine
+    container_name: ipad-nginx
+    ports:
+      - "80:80"     # HTTP (für Redirect auf HTTPS)
+      - "443:443"   # HTTPS (Haupt-Eingang)
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./frontend/build:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - ipad-network
+
+  # FastAPI Backend - NUR intern erreichbar
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ipad-backend
+    environment:
+      - MONGO_URL=mongodb://ipad_admin:${MONGO_PASSWORD:-ipad_secure_2024}@mongodb:27017/iPadDatabase?authSource=admin
+      - DB_NAME=iPadDatabase
+      - JWT_SECRET=${JWT_SECRET:-supersecretkey123}
+    depends_on:
+      - mongodb
+    restart: unless-stopped
+    networks:
+      - ipad-network
+    # NUR intern im Docker-Netzwerk - NICHT von außen erreichbar
+    expose:
+      - "8001"
+    # Optional: Für lokales Debugging (nur localhost)
+    # ports:
+    #   - "127.0.0.1:8001:8001"
+
+  # MongoDB Datenbank - NUR intern erreichbar, MIT Authentifizierung
+  mongodb:
+    image: mongo:6
+    container_name: ipad-mongodb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=ipad_admin
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-ipad_secure_2024}
+      - MONGO_INITDB_DATABASE=iPadDatabase
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+    networks:
+      - ipad-network
+    # NUR intern im Docker-Netzwerk - NICHT von außen erreichbar
+    expose:
+      - "27017"
+    # NIEMALS so: ports: - "0.0.0.0:27017:27017" ← UFW wird umgangen!
+    # Optional: Für lokales Debugging (nur localhost)
+    # ports:
+    #   - "127.0.0.1:27017:27017"
+
+networks:
+  ipad-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+    driver: local
