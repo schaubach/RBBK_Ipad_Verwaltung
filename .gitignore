@@ -92,31 +92,14 @@ tmp/
 temp/
 *.tmp
 
-# Security
+# Security - aber nginx/ssl erlauben
 *.pem
 *.key
 *.crt
+!nginx/ssl/
+!nginx/ssl/*.key
+!nginx/ssl/*.crt
 
 # Keep template files
 !backend/templates/
 !backend/templates/Muster.pdf
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
--e 
-# Environment files
-*.env
-*.env.*
