@@ -3924,6 +3924,51 @@ const Settings = () => {
         </CardContent>
       </Card>
 
+      {/* Data Recovery */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Upload className="h-5 w-5" />
+            Datenwiederherstellung
+          </CardTitle>
+          <CardDescription>
+            Daten aus einer Sicherungsdatei wiederherstellen
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
+              <h4 className="font-medium text-blue-800 mb-2">Datensicherung importieren</h4>
+              <p className="text-sm text-blue-700 mb-4">
+                Importiert eine Excel-Datei mit Schülern, iPads und Zuordnungen. 
+                Die Datei kann Zeilen mit nur Schüler-Daten, nur iPad-Daten oder 
+                vollständige Zuordnungen enthalten. Bereits vorhandene Einträge werden übersprungen.
+              </p>
+              <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center hover:border-blue-500 transition-colors bg-white">
+                <Input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  onChange={(e) => e.target.files[0] && handleInventoryImport(e.target.files[0])}
+                  disabled={importing}
+                  className="mb-2"
+                />
+                {importing && (
+                  <div className="text-sm text-blue-600">
+                    Datensicherung wird importiert...
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded">
+              <strong>Hinweis:</strong> Die Import-Datei muss das gleiche Format wie der Export haben. 
+              Spalten: Sname, SuSNachn, SuSVorn, SuSKl, SuSStrHNr, SuSPLZ, SuSOrt, SuSGeb, 
+              Erz1Nachn, Erz1Vorn, etc., ITNr, SNr, Typ, Pencil, AusleiheDatum
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Account Management */}
       <Card className="shadow-lg">
         <CardHeader>
