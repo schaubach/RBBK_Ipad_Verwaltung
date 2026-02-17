@@ -2771,98 +2771,109 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                         # Cache the student ID
                         student_cache[cache_key] = student_id
                     
-                    # Check if iPad is already assigned (skip if so)
-                    if ipad_already_assigned:
-                        continue
-                    
-                    # Check current assignment count for this student (1:n limit)
-                    current_assignment_count = await db.assignments.count_documents({
-                        "student_id": student_id,
-                        "is_active": True
-                    })
-                    
-                    if current_assignment_count >= MAX_IPADS_PER_STUDENT:
-                        assignments_skipped_limit += 1
-                        errors.append(f"Row {index + 2}: Student {sus_vorn} {sus_nachn} hat bereits {MAX_IPADS_PER_STUDENT} iPads - übersprungen")
-                        continue
-                    
-                    # Check if assignment already exists for this iPad
-                    existing_assignment = await db.assignments.find_one({
-                        "ipad_id": ipad_id,
-                        "is_active": True
-                    })
-                    
-                    if not existing_assignment:
-                        # Create new assignment
-                        ausleibe_datum = safe_str(row.get('AusleiheDatum', ''))
-                        assigned_at = datetime.now(timezone.utc).isoformat()
+                    # Only create assignment if both iPad AND student data present
+                    if has_ipad_data and ipad_id:
+                        # Check if iPad is already assigned (skip assignment if so)
+                        if ipad_already_assigned:
+                            continue
                         
-                        # Try to parse AusleiheDatum if provided
-                        if ausleibe_datum:
-                            try:
-                                # Parse DD.MM.YYYY format
-                                date_obj = datetime.strptime(ausleibe_datum, "%d.%m.%Y")
-                                assigned_at = date_obj.replace(tzinfo=timezone.utc).isoformat()
-                            except:
-                                pass  # Use current datetime if parsing fails
+                        # Check current assignment count for this student (1:n limit)
+                        current_assignment_count = await db.assignments.count_documents({
+                            "student_id": student_id,
+                            "is_active": True
+                        })
                         
-                        new_assignment = Assignment(
-                            user_id=current_user["id"],
-                            ipad_id=ipad_id,
-                            student_id=student_id,
-                            itnr=itnr,
-                            student_name=f"{sus_vorn} {sus_nachn}",
-                            assigned_at=assigned_at
-                        )
+                        if current_assignment_count >= MAX_IPADS_PER_STUDENT:
+                            assignments_skipped_limit += 1
+                            errors.append(f"Row {index + 2}: Student {sus_vorn} {sus_nachn} hat bereits {MAX_IPADS_PER_STUDENT} iPads - übersprungen")
+                            continue
                         
-                        assignment_dict = prepare_for_mongo(new_assignment.dict())
-                        await db.assignments.insert_one(assignment_dict)
+                        # Check if assignment already exists for this iPad
+                        existing_assignment = await db.assignments.find_one({
+                            "ipad_id": ipad_id,
+                            "is_active": True
+                        })
                         
-                        # Update iPad status and assignment reference
-                        await db.ipads.update_one(
-                            {"id": ipad_id},
-                            {"$set": {
-                                "status": "zugewiesen",
-                                "current_assignment_id": new_assignment.id,
-                                "updated_at": datetime.now(timezone.utc).isoformat()
-                            }}
-                        )
-                        
-                        # Update student timestamp (no more current_assignment_id in 1:n)
-                        await db.students.update_one(
-                            {"id": student_id},
-                            {"$set": {
-                                "updated_at": datetime.now(timezone.utc).isoformat()
-                            }}
-                        )
-                        
-                        assignments_created += 1
-                # If no student data, ensure iPad stays available
-                else:
-                    # No student data present - iPad should remain available
-                    if not existing_ipad:  # Only update status if this is a newly created iPad
-                        await db.ipads.update_one(
-                            {"id": ipad_id},
-                            {"$set": {
-                                "current_assignment_id": None,
-                                "updated_at": datetime.now(timezone.utc).isoformat()
-                            }}
-                        )
+                        if not existing_assignment:
+                            # Create new assignment
+                            ausleibe_datum = safe_str(row.get('AusleiheDatum', ''))
+                            assigned_at = datetime.now(timezone.utc).isoformat()
+                            
+                            # Try to parse AusleiheDatum if provided
+                            if ausleibe_datum:
+                                try:
+                                    # Parse DD.MM.YYYY format
+                                    date_obj = datetime.strptime(ausleibe_datum, "%d.%m.%Y")
+                                    assigned_at = date_obj.replace(tzinfo=timezone.utc).isoformat()
+                                except:
+                                    pass  # Use current datetime if parsing fails
+                            
+                            new_assignment = Assignment(
+                                user_id=current_user["id"],
+                                ipad_id=ipad_id,
+                                student_id=student_id,
+                                itnr=itnr,
+                                student_name=f"{sus_vorn} {sus_nachn}",
+                                assigned_at=assigned_at
+                            )
+                            
+                            assignment_dict = prepare_for_mongo(new_assignment.dict())
+                            await db.assignments.insert_one(assignment_dict)
+                            
+                            # Update iPad status and assignment reference
+                            await db.ipads.update_one(
+                                {"id": ipad_id},
+                                {"$set": {
+                                    "status": "zugewiesen",
+                                    "current_assignment_id": new_assignment.id,
+                                    "updated_at": datetime.now(timezone.utc).isoformat()
+                                }}
+                            )
+                            
+                            # Update student timestamp
+                            await db.students.update_one(
+                                {"id": student_id},
+                                {"$set": {
+                                    "updated_at": datetime.now(timezone.utc).isoformat()
+                                }}
+                            )
+                            
+                            assignments_created += 1
+                    else:
+                        # Student without iPad - count separately
+                        if student_id and cache_key not in student_cache:
+                            students_only_created += 1
+                
+                # If only iPad data (no student), iPad remains available
+                elif has_ipad_data and not has_student_data:
+                    # iPad without student - already created above, nothing more to do
+                    pass
                 
             except Exception as e:
                 error_count += 1
                 errors.append(f"Row {index + 2}: {str(e)}")
                 continue
         
-        # Prepare response
-        total_processed = ipads_created + ipads_skipped
-        message = f"Import completed: {ipads_created} iPads created, {ipads_skipped} iPads skipped, {students_created} students created, {students_skipped} students reused, {assignments_created} assignments created"
-        
+        # Prepare response message
+        parts = []
+        if ipads_created > 0:
+            parts.append(f"{ipads_created} iPads erstellt")
+        if ipads_skipped > 0:
+            parts.append(f"{ipads_skipped} iPads übersprungen")
+        if students_created > 0:
+            parts.append(f"{students_created} Schüler erstellt")
+        if students_skipped > 0:
+            parts.append(f"{students_skipped} Schüler wiederverwendet")
+        if assignments_created > 0:
+            parts.append(f"{assignments_created} Zuordnungen erstellt")
         if assignments_skipped_limit > 0:
-            message += f", {assignments_skipped_limit} assignments skipped (limit {MAX_IPADS_PER_STUDENT} iPads/student)"
-        
+            parts.append(f"{assignments_skipped_limit} Zuordnungen übersprungen (Limit {MAX_IPADS_PER_STUDENT})")
+        if rows_skipped_empty > 0:
+            parts.append(f"{rows_skipped_empty} leere Zeilen übersprungen")
         if error_count > 0:
-            message += f", {error_count} errors"
+            parts.append(f"{error_count} Fehler")
+        
+        message = "Import abgeschlossen: " + ", ".join(parts) if parts else "Import abgeschlossen: Keine Änderungen"
         
         return {
             "message": message,
