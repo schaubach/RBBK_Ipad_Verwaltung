@@ -1,13 +1,13 @@
 version: '3.8'
 
 services:
-  # Nginx Reverse Proxy
+  # Nginx Reverse Proxy - EINZIGER öffentlicher Eintrittspunkt
   nginx:
     image: nginx:alpine
     container_name: ipad-nginx
     ports:
-      - "80:80"
-      - "443:443"
+      - "80:80"     # HTTP (für Redirect auf HTTPS)
+      - "443:443"   # HTTPS (Haupt-Eingang)
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
@@ -19,7 +19,7 @@ services:
     networks:
       - ipad-network
 
-  # FastAPI Backend
+  # FastAPI Backend - NUR intern erreichbar
   backend:
     build:
       context: ./backend
@@ -34,11 +34,11 @@ services:
     restart: unless-stopped
     networks:
       - ipad-network
-    # Port 8001 nur intern im Docker-Netzwerk verfügbar
+    # NUR intern im Docker-Netzwerk - NICHT von außen erreichbar
     expose:
       - "8001"
 
-  # MongoDB Datenbank
+  # MongoDB Datenbank - NUR intern erreichbar
   mongodb:
     image: mongo:6
     container_name: ipad-mongodb
@@ -47,9 +47,11 @@ services:
     restart: unless-stopped
     networks:
       - ipad-network
-    # Port nur intern im Docker-Netzwerk verfügbar
+    # NUR intern im Docker-Netzwerk - NICHT von außen erreichbar
     expose:
       - "27017"
+    # SICHERHEITSHINWEIS: NIEMALS "ports: - 0.0.0.0:27017:27017" verwenden!
+    # Docker umgeht UFW und macht die DB weltweit erreichbar!
 
 networks:
   ipad-network:
