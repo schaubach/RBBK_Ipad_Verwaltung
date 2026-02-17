@@ -2694,36 +2694,33 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                 
                 # Process iPad data if present
                 if has_ipad_data:
-                
-                if existing_ipad:
-                    ipads_skipped += 1
-                    ipad_id = existing_ipad["id"]
-                    # Check if iPad is already assigned
-                    ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
-                else:
-                    # Create new iPad
-                    new_ipad = iPad(
-                        user_id=current_user["id"],
-                        itnr=itnr,
-                        snr=safe_str(row.get('SNr', '')),
-                        typ=safe_str(row.get('Typ', '')),
-                        pencil=safe_str(row.get('Pencil', '')),
-                        ansch_jahr=safe_str(row.get('AnschJahr', '')),
-                        status="ok"  # Default status for imported iPads
-                    )
+                    # Check if iPad already exists for this user
+                    existing_ipad = await db.ipads.find_one({"itnr": itnr, "user_id": current_user["id"]})
                     
-                    ipad_dict = prepare_for_mongo(new_ipad.dict())
-                    await db.ipads.insert_one(ipad_dict)
-                    ipad_id = new_ipad.id
-                    ipads_created += 1
-                    ipad_already_assigned = False
+                    if existing_ipad:
+                        ipads_skipped += 1
+                        ipad_id = existing_ipad["id"]
+                        ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
+                    else:
+                        # Create new iPad
+                        new_ipad = iPad(
+                            user_id=current_user["id"],
+                            itnr=itnr,
+                            snr=safe_str(row.get('SNr', '')),
+                            typ=safe_str(row.get('Typ', '')),
+                            pencil=safe_str(row.get('Pencil', '')),
+                            ansch_jahr=safe_str(row.get('AnschJahr', '')),
+                            status="ok"
+                        )
+                        
+                        ipad_dict = prepare_for_mongo(new_ipad.dict())
+                        await db.ipads.insert_one(ipad_dict)
+                        ipad_id = new_ipad.id
+                        ipads_created += 1
+                        ipad_already_assigned = False
                 
-                # Check if student data exists in row (and is not NaN)
-                sus_vorn = safe_str(row.get('SuSVorn', ''))
-                sus_nachn = safe_str(row.get('SuSNachn', ''))
-                sus_kl = safe_str(row.get('SuSKl', ''))
-                
-                if sus_vorn and sus_nachn:  # Student data present and valid
+                # Process student data if present
+                if has_student_data:
                     # Use cache key based on name only (not class) for 1:n support
                     # This allows the same student to receive multiple iPads
                     cache_key = (sus_vorn, sus_nachn)
