@@ -25,79 +25,8 @@ import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
 import { Upload, Users, Tablet, FileText, Settings as SettingsIcon, LogOut, Eye, Download, Trash2, ExternalLink, Shield, AlertTriangle, X, User, Edit, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 
-// iPad Detail Viewer Component (legacy - will be removed after full migration)
-
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    
-    try {
-      const response = await api.post('/auth/login', { username, password });
-      const { access_token, role, username: loggedInUsername, force_password_change } = response.data;
-      
-      if (force_password_change) {
-        // User must change password before proceeding
-        setTempToken(access_token);
-        setShowForcePasswordChange(true);
-        toast.info('Sie müssen Ihr Passwort ändern, bevor Sie fortfahren können');
-        setLoading(false);
-        return;
-      }
-      
-      localStorage.setItem('token', access_token);
-      localStorage.setItem('userRole', role);
-      localStorage.setItem('username', loggedInUsername);
-      onLogin(role, loggedInUsername);
-      toast.success(`Erfolgreich angemeldet als ${role === 'admin' ? 'Administrator' : 'Benutzer'}!`);
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleForcePasswordChange = async (e) => {
-    e.preventDefault();
-    
-    if (newPassword.length < 6) {
-      toast.error('Das Passwort muss mindestens 6 Zeichen lang sein');
-      return;
-    }
-    
-    if (newPassword !== confirmPassword) {
-      toast.error('Die Passwörter stimmen nicht überein');
-      return;
-    }
-    
-    setLoading(true);
-    
-    try {
-      // Use temporary token for this request
-      await axios.put(
-        `${API_BASE_URL}/auth/change-password-forced`,
-        { new_password: newPassword },
-        { headers: { Authorization: `Bearer ${tempToken}` } }
-      );
-      
-      toast.success('Passwort erfolgreich geändert! Bitte melden Sie sich mit Ihrem neuen Passwort an.');
-      setShowForcePasswordChange(false);
-      setTempToken(null);
-      setNewPassword('');
-      setConfirmPassword('');
-      setPassword(''); // Clear old password field
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler beim Ändern des Passworts');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const checkSetup = async () => {
-    try {
-      const response = await api.post('/auth/setup');
-      if (response.data.message.includes('Admin user created')) {
-        toast.success('Setup completed! Please login with admin/admin123');
-      }
+// iPad Management Component
+const IPadsManagement = () => {
     } catch (error) {
       // Setup likely already done
     }
