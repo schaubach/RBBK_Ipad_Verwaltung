@@ -4185,7 +4185,7 @@ const Settings = () => {
               <div className="text-sm text-gray-700 space-y-1">
                 <div>Version: 1.0.0</div>
                 <div>Datenbank: iPadDatabase</div>
-                <div>Umgebung: {APP_CONFIG.environment || 'Produktion'}</div>
+                <div>Umgebung: {APP_ENV || 'Unbekannt'}</div>
                 <div>Session-Timeout: {Math.round(SESSION_TIMEOUT / 60000)} Minuten</div>
               </div>
             </div>
