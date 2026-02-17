@@ -1589,27 +1589,6 @@ const StudentsManagement = () => {
     loadAvailableIPads();
   }, []);
 
-  const handleUpload = async (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    setUploading(true);
-
-    try {
-      const response = await api.post('/students/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      toast.success(response.data.message);
-      response.data.details.forEach(detail => {
-        toast.info(detail);
-      });
-      await loadStudents();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Student upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
-
   const handleDeleteStudent = (student) => {
     setStudentToDelete(student);
     setDeleteDialogOpen(true);
