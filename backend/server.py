@@ -2644,11 +2644,10 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error reading Excel file: {str(e)}")
         
-        # Validate required iPad columns
-        required_ipad_columns = ['ITNr']
-        missing_columns = [col for col in required_ipad_columns if col not in df.columns]
-        if missing_columns:
-            raise HTTPException(status_code=400, detail=f"Missing required columns: {missing_columns}")
+        # No strict column validation - we handle all cases:
+        # 1. Only iPad data (ITNr present, no student data)
+        # 2. Only student data (SuSVorn+SuSNachn present, no ITNr)
+        # 3. Both (iPad + student + assignment)
         
         # Counters for different operations
         ipads_created = 0
@@ -2656,8 +2655,10 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
         ipads_skipped = 0
         students_created = 0
         students_skipped = 0
+        students_only_created = 0  # Students without iPad
         assignments_created = 0
         assignments_skipped_limit = 0
+        rows_skipped_empty = 0
         error_count = 0
         errors = []
         
@@ -2673,13 +2674,26 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
         
         for index, row in df.iterrows():
             try:
-                # Process iPad data
+                # Extract data from row
                 itnr = safe_str(row.get('ITNr', ''))
-                if not itnr:
-                    continue  # Skip rows without ITNr
+                sus_vorn = safe_str(row.get('SuSVorn', ''))
+                sus_nachn = safe_str(row.get('SuSNachn', ''))
+                sus_kl = safe_str(row.get('SuSKl', ''))
                 
-                # Check if iPad already exists for this user
-                existing_ipad = await db.ipads.find_one({"itnr": itnr, "user_id": current_user["id"]})
+                has_ipad_data = bool(itnr)
+                has_student_data = bool(sus_vorn and sus_nachn)
+                
+                # Skip completely empty rows
+                if not has_ipad_data and not has_student_data:
+                    rows_skipped_empty += 1
+                    continue
+                
+                ipad_id = None
+                student_id = None
+                ipad_already_assigned = False
+                
+                # Process iPad data if present
+                if has_ipad_data:
                 
                 if existing_ipad:
                     ipads_skipped += 1
