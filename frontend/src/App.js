@@ -537,7 +537,6 @@ const IPadDetailViewer = ({ ipadId, onClose }) => {
 const IPadsManagement = () => {
   const [ipads, setIPads] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [selectedIPadId, setSelectedIPadId] = useState(null);
   const [availableStudents, setAvailableStudents] = useState([]);
   
@@ -736,27 +735,6 @@ const IPadsManagement = () => {
     loadIPads();
     loadAvailableStudents();
   }, []);
-
-  const handleUpload = async (file) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    setUploading(true);
-
-    try {
-      const response = await api.post('/ipads/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      toast.success(response.data.message);
-      response.data.details.forEach(detail => {
-        toast.info(detail);
-      });
-      await loadIPads();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'iPad upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
 
   const handleStatusChange = async (ipadId, newStatus) => {
     try {
