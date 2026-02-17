@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#379683;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2a6b5e;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="48" fill="url(#grad)" stroke="#1a4a40" stroke-width="2"/>
+  <!-- iPad icon simplified -->
+  <rect x="30" y="20" width="40" height="55" rx="4" ry="4" fill="white" stroke="#1a4a40" stroke-width="2"/>
+  <!-- Screen -->
+  <rect x="34" y="24" width="32" height="43" rx="2" ry="2" fill="#e8f4f0"/>
+  <!-- Home button -->
+  <circle cx="50" cy="71" r="3" fill="#1a4a40"/>
+  <!-- Camera -->
+  <circle cx="50" cy="22" r="1.5" fill="#1a4a40"/>
+  <!-- Text "RBBK" -->
+  <text x="50" y="92" font-family="Arial, sans-serif" font-size="10" font-weight="bold" fill="white" text-anchor="middle">RBBK</text>
+</svg>
