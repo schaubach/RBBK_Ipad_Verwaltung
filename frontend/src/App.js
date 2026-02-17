@@ -21,7 +21,7 @@ import { Button } from './components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
-import { Users, Tablet, FileText, Settings as SettingsIcon, LogOut } from 'lucide-react';
+import { Users, Tablet, FileText, Settings as SettingsIcon, LogOut, User } from 'lucide-react';
 
 // Main Dashboard Component
 const Dashboard = ({ onLogout, userRole, currentUsername }) => {
