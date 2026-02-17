@@ -3915,25 +3915,26 @@ const Settings = () => {
         </CardContent>
       </Card>
 
-      {/* Inventory Export & Import */}
+      {/* Data Backup */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
-            Bestandsliste-Export & Import
+            Datensicherung
           </CardTitle>
           <CardDescription>
-            Bestandsliste exportieren oder importieren für Datenwiederherstellung
+            Vollständige Datensicherung aller Schüler und iPads für Backup und Wiederherstellung
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             {/* Export Section */}
             <div className="border-l-4 border-green-400 bg-green-50 p-4 rounded">
-              <h4 className="font-medium text-green-800 mb-2">Bestandsliste-Export (Backup)</h4>
+              <h4 className="font-medium text-green-800 mb-2">Datensicherung erstellen</h4>
               <p className="text-sm text-green-700 mb-4">
-                Exportiert eine vollständige Excel-Datei mit allen iPads und zugehörigen Schülerdaten. 
-                Beinhaltet alle Spalten: Schülerdaten, iPad-Details, Zuordnungsinformationen.
+                Exportiert eine vollständige Excel-Datei mit allen Daten: Schüler (auch ohne iPad), 
+                iPads (auch ohne Zuordnung) und alle aktiven Zuordnungen. Bei Schülern mit mehreren 
+                iPads wird pro Zuordnung eine Zeile erstellt.
               </p>
               <Button 
                 onClick={handleInventoryExport}
@@ -3941,7 +3942,7 @@ const Settings = () => {
                 className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue transition-all duration-200"
               >
                 <Download className="h-4 w-4 mr-2" />
-                {exporting ? 'Exportiert...' : 'Bestandsliste exportieren'}
+                {exporting ? 'Exportiert...' : 'Als Excel exportieren'}
               </Button>
             </div>
 
