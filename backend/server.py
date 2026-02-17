@@ -2875,6 +2875,8 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
         
         message = "Import abgeschlossen: " + ", ".join(parts) if parts else "Import abgeschlossen: Keine Änderungen"
         
+        total_processed = ipads_created + ipads_skipped + students_created + students_skipped
+        
         return {
             "message": message,
             "total_processed": total_processed,
@@ -2882,11 +2884,13 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
             "ipads_skipped": ipads_skipped,
             "students_created": students_created,
             "students_skipped": students_skipped,
+            "students_only_created": students_only_created,
             "assignments_created": assignments_created,
             "assignments_skipped_limit": assignments_skipped_limit,
+            "rows_skipped_empty": rows_skipped_empty,
             "max_ipads_per_student": MAX_IPADS_PER_STUDENT,
             "error_count": error_count,
-            "errors": errors[:20] if errors else []  # Limit error list to first 20
+            "errors": errors[:20] if errors else []
         }
         
     except HTTPException:
