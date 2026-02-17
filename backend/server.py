@@ -1306,14 +1306,6 @@ async def batch_delete_students(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error during batch delete: {str(e)}")
 
-    student_result = await db.students.delete_one({"id": student_id})
-    
-    return {
-        "message": f"Student {student_name} successfully deleted",
-        "deleted_assignments": assignments_result.deleted_count,
-        "deleted_contracts": contracts_result.deleted_count,
-        "dissolved_active_assignment": bool(active_assignment)
-    }
 
 # Assignment endpoints
 @api_router.post("/assignments/auto-assign", response_model=AssignmentResponse)
