@@ -17,15 +17,15 @@ window.getBackendURL = function() {
   // Emergent Preview Detection (nur hier Cross-Origin)
   if (hostname.includes('preview.emergentagent.com') || hostname.includes('preview.emergent') || hostname.includes('emergentagent.com')) {
     // Emergent-Preview: Verwende die Build-Zeit URL aus REACT_APP_BACKEND_URL
-    // Diese wird bereits in App.js gelesen
     console.log('[Config] Emergent Preview detected - using REACT_APP_BACKEND_URL');
     return null; // null = verwende REACT_APP_BACKEND_URL
   }
 
-  // Docker/Intranet: Same-Origin mit relativen URLs
+  // Produktion: IP-Adresse oder Domain mit Nginx Reverse Proxy
   // Port 80/443 oder kein Port = Nginx Reverse Proxy aktiv
   if (!port || port === '80' || port === '443') {
-    console.log('[Config] Docker/Intranet detected - using Same-Origin API');
+    console.log('[Config] Production/Intranet detected - using Same-Origin API');
+    console.log('[Config] Host:', hostname);
     console.log('[Config] API calls will use relative URLs: /api/*');
     return '';  // Leerer String = relative URLs
   }
@@ -48,15 +48,26 @@ window.SESSION_CONFIG = {
 window.APP_ENV = (function() {
   var hostname = window.location.hostname;
   
+  // Emergent Preview
   if (hostname.includes('emergentagent.com') || hostname.includes('preview.emergent')) {
     return 'emergent';
-  } else if (hostname.includes('rbbk-do.de') || hostname.includes('rbbk.de')) {
-    return 'production';
-  } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
+  }
+  
+  // Lokale Entwicklung
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return 'development';
   }
-  return 'unknown';
+  
+  // Produktion: Alles andere (IP-Adressen, Domains, etc.)
+  // Wenn über Port 80/443 oder ohne Port = Produktion
+  var port = window.location.port;
+  if (!port || port === '80' || port === '443') {
+    return 'production';
+  }
+  
+  return 'development';
 })();
 
 console.log('[Config] Environment:', window.APP_ENV);
+console.log('[Config] Hostname:', window.location.hostname);
 console.log('[Config] Config.js loaded - Smart API configuration ready');
