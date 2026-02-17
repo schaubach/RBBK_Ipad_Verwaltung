@@ -872,34 +872,6 @@ const IPadsManagement = () => {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            iPads hochladen
-          </CardTitle>
-          <CardDescription>
-            Excel-Datei mit iPad-Daten hochladen (ipads.xlsx Format)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
-            <Input
-              type="file"
-              accept=".xlsx"
-              onChange={(e) => e.target.files[0] && handleUpload(e.target.files[0])}
-              className="mb-4"
-              disabled={uploading}
-            />
-            {uploading && (
-              <div className="text-sm text-gray-600">
-                iPads werden hochgeladen und verarbeitet...
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
             <Tablet className="h-5 w-5" />
             iPad-Status Übersicht
           </CardTitle>
@@ -1768,34 +1740,6 @@ const StudentsManagement = () => {
   return (
 
     <div className="space-y-6">
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            Schüler hochladen
-          </CardTitle>
-          <CardDescription>
-            Excel-Datei mit Schülerdaten hochladen (schildexport.xlsx Format)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
-            <Input
-              type="file"
-              accept=".xlsx"
-              onChange={(e) => e.target.files[0] && handleUpload(e.target.files[0])}
-              className="mb-4"
-              disabled={uploading}
-            />
-            {uploading && (
-              <div className="text-sm text-gray-600">
-                Schüler werden hochgeladen und verarbeitet...
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
       <Card className="shadow-lg">
         <CardHeader>
           <div className="flex items-center justify-between">
