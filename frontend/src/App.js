@@ -1347,7 +1347,6 @@ const IPadsManagement = () => {
 const StudentsManagement = () => {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [availableIPads, setAvailableIPads] = useState([]);
