@@ -3659,6 +3659,7 @@ const ContractsManagement = () => {
 const Settings = () => {
   const [cleaning, setCleaning] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [globalSettings, setGlobalSettings] = useState({
     ipad_typ: 'Apple iPad',
     pencil: 'ohne Apple Pencil'
