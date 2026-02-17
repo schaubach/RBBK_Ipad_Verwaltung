@@ -3074,32 +3074,6 @@ const AssignmentsManagement = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {/* Import Section - analog zu Schüler/iPad-Ansichten */}
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Bestandsliste-Import</CardTitle>
-              <CardDescription>
-                Excel-Datei mit vollständigen Daten hochladen (Bestandsliste mit iPads, Schülern, Zuordnungen - .xlsx Format)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
-                <Input
-                  type="file"
-                  accept=".xlsx,.xls"
-                  onChange={(e) => e.target.files[0] && handleInventoryImport(e.target.files[0])}
-                  disabled={importing}
-                  className="mb-4"
-                />
-                {importing && (
-                  <div className="text-sm text-gray-600">
-                    Bestandsliste wird hochgeladen und verarbeitet...
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Filter Controls */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
             <div>
