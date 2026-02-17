@@ -3478,7 +3478,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', 'http://localhost:3000,https://contract-gen-5.preview.emergentagent.com').split(','),
+    allow_origins=os.environ.get('CORS_ORIGINS', 'http://localhost:3000,https://ipad-management.preview.emergentagent.com').split(','),
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
