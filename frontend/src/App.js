@@ -5103,6 +5103,39 @@ function App() {
   const [userRole, setUserRole] = useState('user');
   const [currentUsername, setCurrentUsername] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sessionWarningShown, setSessionWarningShown] = useState(false);
+
+  // Session timeout handler
+  const checkSessionTimeout = useCallback(() => {
+    const lastActivity = localStorage.getItem('lastActivity');
+    if (!lastActivity) return;
+    
+    const timeSinceActivity = Date.now() - parseInt(lastActivity, 10);
+    const timeUntilTimeout = SESSION_TIMEOUT - timeSinceActivity;
+    
+    // Show warning 5 minutes before timeout
+    if (timeUntilTimeout <= SESSION_WARNING && timeUntilTimeout > 0 && !sessionWarningShown) {
+      setSessionWarningShown(true);
+      const minutesLeft = Math.ceil(timeUntilTimeout / 60000);
+      toast.warning(`Ihre Session läuft in ${minutesLeft} Minute${minutesLeft > 1 ? 'n' : ''} ab. Bitte speichern Sie Ihre Arbeit.`, {
+        duration: 10000,
+      });
+    }
+    
+    // Session expired
+    if (timeUntilTimeout <= 0) {
+      toast.error('Ihre Session ist abgelaufen. Sie werden zur Anmeldeseite weitergeleitet.');
+      handleLogout();
+    }
+  }, [sessionWarningShown]);
+
+  // Update last activity on user interaction
+  const updateActivity = useCallback(() => {
+    if (isAuthenticated) {
+      localStorage.setItem('lastActivity', Date.now().toString());
+      setSessionWarningShown(false);
+    }
+  }, [isAuthenticated]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -5112,6 +5145,11 @@ function App() {
       setIsAuthenticated(true);
       setUserRole(savedRole || 'user');
       setCurrentUsername(savedUsername || '');
+      
+      // Initialize last activity if not set
+      if (!localStorage.getItem('lastActivity')) {
+        localStorage.setItem('lastActivity', Date.now().toString());
+      }
     }
     setLoading(false);
     
@@ -5127,19 +5165,48 @@ function App() {
     };
   }, []);
 
+  // Session timeout checker interval
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    const interval = setInterval(checkSessionTimeout, 10000); // Check every 10 seconds
+    return () => clearInterval(interval);
+  }, [isAuthenticated, checkSessionTimeout]);
+
+  // Activity tracker
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
+    
+    events.forEach(event => {
+      window.addEventListener(event, updateActivity);
+    });
+    
+    return () => {
+      events.forEach(event => {
+        window.removeEventListener(event, updateActivity);
+      });
+    };
+  }, [isAuthenticated, updateActivity]);
+
   const handleLogin = (role, username) => {
     setIsAuthenticated(true);
     setUserRole(role);
     setCurrentUsername(username);
+    localStorage.setItem('lastActivity', Date.now().toString());
+    setSessionWarningShown(false);
   };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
     localStorage.removeItem('username');
+    localStorage.removeItem('lastActivity');
     setIsAuthenticated(false);
     setUserRole('user');
     setCurrentUsername('');
+    setSessionWarningShown(false);
   };
 
   if (loading) {
@@ -5157,6 +5224,14 @@ function App() {
     <Router>
       <div className="App">
         <Toaster richColors position="bottom-right" />
+        {/* Environment Badge (only in non-production) */}
+        {APP_CONFIG.features?.showEnvironmentBadge && !APP_CONFIG.isProduction && (
+          <div className="fixed bottom-4 left-4 z-50">
+            <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300">
+              {APP_CONFIG.environment.toUpperCase()}
+            </Badge>
+          </div>
+        )}
         <Routes>
           <Route 
             path="/" 
