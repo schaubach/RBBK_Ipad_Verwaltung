@@ -27,10 +27,6 @@ import { Users, Tablet, FileText, Settings as SettingsIcon, LogOut } from 'lucid
 const Dashboard = ({ onLogout, userRole, currentUsername }) => {
   const [activeTab, setActiveTab] = useState('students');
   const isAdmin = userRole === 'admin';
-// Main Dashboard Component
-const Dashboard = ({ onLogout, userRole, currentUsername }) => {
-  const [activeTab, setActiveTab] = useState('students');
-  const isAdmin = userRole === 'admin';
 
   return (
     <div className="min-h-screen bg-gray-50">
