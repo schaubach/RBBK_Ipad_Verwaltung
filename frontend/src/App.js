@@ -8,6 +8,9 @@ import api, { API_BASE_URL, SESSION_TIMEOUT, SESSION_WARNING } from './api';
 // Extracted Components
 import Login from './components/auth/Login';
 import IPadDetailViewer from './components/ipads/IPadDetailViewer';
+import IPadsManagement from './components/ipads/IPadsManagement';
+import StudentsManagement from './components/students/StudentsManagement';
+import AssignmentsManagement from './components/assignments/AssignmentsManagement';
 import ContractsManagement from './components/contracts/ContractsManagement';
 import Settings from './components/settings/Settings';
 import SessionTimer from './components/shared/SessionTimer';
@@ -15,26 +18,15 @@ import UserManagement from './components/users/UserManagement';
 
 // Import UI components
 import { Button } from './components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
-import { Input } from './components/ui/input';
-import { Label } from './components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
-import { Alert, AlertDescription } from './components/ui/alert';
-import { Badge } from './components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './components/ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
-import { Checkbox } from './components/ui/checkbox';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
-import { Upload, Users, Tablet, FileText, Settings as SettingsIcon, LogOut, Eye, Download, Trash2, ExternalLink, Shield, AlertTriangle, X, User, Edit, Plus, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Users, Tablet, FileText, Settings as SettingsIcon, LogOut } from 'lucide-react';
 
-// iPad Management Component
-const IPadsManagement = () => {
-  const [ipads, setIPads] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedIPadId, setSelectedIPadId] = useState(null);
-  const [availableStudents, setAvailableStudents] = useState([]);
+// Main Dashboard Component
+const Dashboard = ({ onLogout, userRole, currentUsername }) => {
+  const [activeTab, setActiveTab] = useState('students');
+  const isAdmin = userRole === 'admin';
   
   // Filter states
   const [itnrFilter, setItnrFilter] = useState('');
