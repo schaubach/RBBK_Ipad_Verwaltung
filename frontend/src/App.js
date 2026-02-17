@@ -4170,7 +4170,8 @@ const Settings = () => {
               <div className="text-sm text-gray-700 space-y-1">
                 <div>Version: 1.0.0</div>
                 <div>Datenbank: iPadDatabase</div>
-                <div>Umgebung: Produktion</div>
+                <div>Umgebung: {APP_CONFIG.environment || 'Produktion'}</div>
+                <div>Session-Timeout: {Math.round(SESSION_TIMEOUT / 60000)} Minuten</div>
               </div>
             </div>
           </div>
@@ -4182,13 +4183,16 @@ const Settings = () => {
 
 // Session Timer Component
 const SessionTimer = ({ onLogout }) => {
-  const [timeLeft, setTimeLeft] = useState(30 * 60); // 30 minutes in seconds
+  const SESSION_DURATION = Math.round(SESSION_TIMEOUT / 1000); // Convert to seconds
+  const [timeLeft, setTimeLeft] = useState(SESSION_DURATION);
   const [lastActivity, setLastActivity] = useState(Date.now());
 
   useEffect(() => {
     const updateActivity = () => {
       setLastActivity(Date.now());
-      setTimeLeft(30 * 60); // Reset timer on activity
+      setTimeLeft(SESSION_DURATION); // Reset timer on activity
+      // Also update localStorage for cross-component sync
+      localStorage.setItem('lastActivity', Date.now().toString());
     };
 
     // Activity events to monitor
