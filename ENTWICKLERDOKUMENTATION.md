@@ -247,8 +247,11 @@ JWT_SECRET=ihr_generiertes_secret_hier_eintragen
 ```bash
 cd config
 
-# Container bauen und starten
+# Container bauen und starten (Produktion - nur Nginx exponiert)
 docker-compose up -d
+
+# ODER für Entwicklung mit direktem Backend-Zugriff:
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 # Status prüfen
 docker-compose ps
