@@ -2385,7 +2385,12 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                         ipad_id = existing_ipad["id"]
                         ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
                     else:
-                        # Create new iPad
+                        # Create new iPad - Status aus Import oder Default 'ok'
+                        imported_status = safe_str(row.get('Status', ''))
+                        # Validiere Status-Wert
+                        valid_statuses = ['ok', 'defekt', 'gestohlen']
+                        ipad_status = imported_status.lower() if imported_status.lower() in valid_statuses else 'ok'
+                        
                         new_ipad = iPad(
                             user_id=current_user["id"],
                             itnr=itnr,
@@ -2393,7 +2398,7 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                             typ=safe_str(row.get('Typ', '')),
                             pencil=safe_str(row.get('Pencil', '')),
                             ansch_jahr=safe_str(row.get('AnschJahr', '')),
-                            status="ok"
+                            status=ipad_status
                         )
                         
                         ipad_dict = prepare_for_mongo(new_ipad.dict())
