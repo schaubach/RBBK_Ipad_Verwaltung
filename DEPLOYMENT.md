@@ -6,25 +6,19 @@
 
 ## Deployment-Schritte
 
-### 1. Umgebungsvariablen konfigurieren (WICHTIG!)
+### 1. JWT Secret konfigurieren
 ```bash
 # Beispiel-Datei kopieren
 cp .env.example .env
 
-# Datei bearbeiten und sichere Werte setzen
+# Sicheres Secret generieren und eintragen
+openssl rand -hex 32
 nano .env
 ```
 
 **Inhalt der .env Datei:**
 ```
-# MongoDB Zugangsdaten
-MONGO_USER=ipad_admin
-MONGO_PASSWORD=IhrSicheresPasswort123!
-MONGO_DB=iPadDatabase
-
-# JWT Secret (mindestens 32 Zeichen)
-# Generieren mit: openssl rand -hex 32
-JWT_SECRET=ihr_sehr_langes_zufaelliges_secret_hier
+JWT_SECRET=ihr_generiertes_secret_hier_eintragen
 ```
 
 ### 2. Frontend bauen
@@ -46,7 +40,7 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 
 ### 4. Docker starten
 ```bash
-# Erstmaliger Start (erstellt MongoDB mit Auth)
+# Starten
 docker-compose up -d
 
 # Logs anzeigen
@@ -61,59 +55,57 @@ docker-compose down
 - HTTP wird automatisch auf HTTPS umgeleitet
 - Standard-Login: admin / admin123
 
-## Sicherheitshinweise
+## Sicherheitsarchitektur
 
-### Exponierte Ports
+```
+Internet → [Nginx :80/:443] → [Backend :8001] → [MongoDB :27017]
+              ↑                      ↑                 ↑
+         öffentlich             nur intern        nur intern
+```
+
 | Port | Service | Von außen erreichbar |
 |------|---------|---------------------|
-| 80   | Nginx   | Ja (Redirect)       |
+| 80   | Nginx   | Ja (→ Redirect 443) |
 | 443  | Nginx   | Ja (HTTPS)          |
-| 8001 | Backend | Nein (nur intern)   |
-| 27017| MongoDB | Nein (nur intern)   |
+| 8001 | Backend | Nein                |
+| 27017| MongoDB | Nein                |
 
-### MongoDB-Authentifizierung
-- MongoDB startet mit Authentifizierung (`--auth`)
-- Benutzername/Passwort aus `.env` Datei
-- **WICHTIG:** Bei erstmaliger Installation wird der Admin-User erstellt
-- Bei bestehenden Daten: Volume löschen oder User manuell anlegen
+**Warum keine MongoDB-Authentifizierung?**
+- MongoDB ist nur im Docker-Netzwerk erreichbar
+- Kein Port nach außen exponiert
+- Nginx ist der einzige Eintrittspunkt
+- JWT sichert die API-Zugriffe
 
 ## Datenbank-Backup
 
 ```bash
-# Backup erstellen (mit Auth)
-docker exec ipad-mongodb mongodump \
-  -u $MONGO_USER -p $MONGO_PASSWORD \
-  --authenticationDatabase admin \
-  --out /data/backup
+# Backup erstellen
+docker exec ipad-mongodb mongodump --out /data/backup
 
 # Backup auf Host kopieren
 docker cp ipad-mongodb:/data/backup ./backup
 
 # Backup wiederherstellen
-docker exec ipad-mongodb mongorestore \
-  -u $MONGO_USER -p $MONGO_PASSWORD \
-  --authenticationDatabase admin \
-  /data/backup
+docker exec ipad-mongodb mongorestore /data/backup
 ```
 
 ## Troubleshooting
-
-### MongoDB-Auth funktioniert nicht bei bestehenden Daten
-Wenn bereits Daten ohne Auth existieren:
-```bash
-# Option 1: Neu starten (DATENVERLUST!)
-docker-compose down -v
-docker-compose up -d
-
-# Option 2: User manuell anlegen
-docker exec -it ipad-mongodb mongosh
-> use admin
-> db.createUser({user: "ipad_admin", pwd: "IhrPasswort", roles: ["root"]})
-```
 
 ### Container-Logs prüfen
 ```bash
 docker-compose logs backend
 docker-compose logs mongodb
 docker-compose logs nginx
+```
+
+### Neustart bei Problemen
+```bash
+docker-compose down
+docker-compose up -d
+```
+
+### Daten komplett zurücksetzen (VORSICHT!)
+```bash
+docker-compose down -v  # Löscht auch das Datenbank-Volume!
+docker-compose up -d
 ```
