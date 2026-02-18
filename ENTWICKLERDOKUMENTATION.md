@@ -218,9 +218,11 @@ Internet
 
 ### 4.2 Konfiguration (.env)
 
-Vor dem Start muss eine `.env`-Datei im Projektverzeichnis erstellt werden:
+Vor dem Start muss eine `.env`-Datei im `config/`-Verzeichnis erstellt werden:
 
 ```bash
+cd config
+
 # Beispieldatei kopieren
 cp .env.example .env
 
@@ -231,7 +233,7 @@ openssl rand -hex 32
 nano .env
 ```
 
-**Inhalt der `.env`-Datei:**
+**Inhalt der `config/.env`-Datei:**
 ```bash
 # Mindestens 32 Zeichen, zufällig generiert
 JWT_SECRET=ihr_generiertes_secret_hier_eintragen
