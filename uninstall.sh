@@ -150,6 +150,7 @@ if [ "$delete_env" = "j" ] || [ "$delete_env" = "J" ]; then
     print_step "Lösche .env-Dateien..."
     rm -f backend/.env 2>/dev/null || true
     rm -f frontend/.env 2>/dev/null || true
+    rm -f config/.env 2>/dev/null || true
     print_success ".env-Dateien gelöscht"
 else
     print_warning ".env-Dateien wurden behalten"
