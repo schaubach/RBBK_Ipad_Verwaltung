@@ -1,651 +1,928 @@
-# 📚 Entwicklerdokumentation - iPad Management System
+# iPad-Verwaltungssystem - Entwicklerdokumentation
 
-> **Umfassende Dokumentation für Entwickler, Administratoren und neue Teammitglieder**
-
----
-
-## 📋 Inhaltsverzeichnis
-
-1. [Einstiegspunkt und Überblick](#1-einstiegspunkt-und-überblick)
-2. [Installations- und Entwicklungsumgebung](#2-installations--und-entwicklungsumgebung)
-3. [Projektarchitektur und Struktur](#3-projektarchitektur-und-struktur)
-4. [Code-Basis und APIs](#4-code-basis-und-apis)
-5. [Deployment](#5-deployment)
-6. [Troubleshooting](#6-troubleshooting)
-7. [Best Practices](#7-best-practices)
+> **Umfassende Dokumentation für Installation, Deployment, Entwicklung und Wartung**
+> 
+> Version: 2.0 | Stand: Dezember 2025
 
 ---
 
-# 1. Einstiegspunkt und Überblick
+## Inhaltsverzeichnis
 
-## 🎯 Zusammenfassung des Projekts
+1. [Projektübersicht](#1-projektübersicht)
+2. [Schnellstart](#2-schnellstart)
+3. [Lokale Entwicklung](#3-lokale-entwicklung)
+4. [Produktion (Docker)](#4-produktion-docker)
+5. [SSL/HTTPS Konfiguration](#5-sslhttps-konfiguration)
+6. [Skript-Referenz](#6-skript-referenz)
+7. [Architektur](#7-architektur)
+8. [API-Dokumentation](#8-api-dokumentation)
+9. [Troubleshooting](#9-troubleshooting)
+10. [Best Practices](#10-best-practices)
 
-### Projektziel
-Das **iPad Management System** ist eine webbasierte Anwendung zur Verwaltung von iPads, Schülern und deren Zuordnungen in Bildungseinrichtungen. Die Software löst folgende Probleme:
+---
 
-- **Inventarverwaltung:** Zentrale Verwaltung aller iPads mit Status-Tracking
-- **Schülerverwaltung:** Verwaltung von Schülerdaten und deren iPad-Zuordnungen  
-- **Zuordnungsmanagement:** Manuelle und automatische iPad-Zuordnungen
-- **Vertragsverwaltung:** PDF-Generierung und Upload von Nutzungsverträgen
-- **Datenimport/-export:** Excel-basierter Datenimport und -export
-- **Benutzerverwaltung:** Rollenbasierte Zugriffskontrolle (Admin/User)
+## 1. Projektübersicht
+
+### Was ist das iPad-Verwaltungssystem?
+
+Eine webbasierte Anwendung zur Verwaltung von iPads, Schülern und deren Zuordnungen in Bildungseinrichtungen.
+
+**Kernfunktionen:**
+- Inventarverwaltung für iPads (IT-Nummer, Seriennummer, Status)
+- Schülerverwaltung mit Klassenzuordnung
+- Manuelle und automatische iPad-Zuordnungen (1:n möglich)
+- PDF-Vertragsgenerierung und -verwaltung
+- Excel-basierter Datenimport/-export
+- Rollenbasierte Zugriffskontrolle (Admin/User)
 
 ### Technologie-Stack
 
-#### Frontend
-- **React** 18.2.0 - Benutzeroberfläche
-- **Shadcn/ui** - UI-Komponentenbibliothek
-- **Tailwind CSS** - Styling
-- **Axios** - HTTP-Client
+| Komponente | Technologie | Version |
+|------------|-------------|---------|
+| Frontend | React (Komponenten-Architektur) | 18.2.0 |
+| UI-Bibliothek | Shadcn/ui + Tailwind CSS | - |
+| Backend | FastAPI (Python) | 0.100+ |
+| Datenbank | MongoDB | 6.0 |
+| Reverse Proxy | Nginx | Alpine |
+| Container | Docker + Docker Compose | 20.0+ |
 
-#### Backend  
-- **FastAPI** - Python Web Framework
-- **Pydantic** - Datenvalidierung
-- **Motor** - Async MongoDB Driver
-- **Python-Magic** - Dateityp-Erkennung
-- **Passlib** - Passwort-Hashing
+### Systemanforderungen
 
-#### Datenbank
-- **MongoDB** - NoSQL-Datenbank für alle Daten
+**Hardware (Minimum):**
+- RAM: 4 GB (8 GB empfohlen)
+- Speicher: 10 GB verfügbar
+- CPU: 2 Kerne
 
-#### Infrastructure
-- **Docker** & **Docker Compose** - Containerisierung
-- **Nginx** - Reverse Proxy und Static File Serving
-- **Supervisor** - Prozessmanagement (Entwicklung)
-
-### Mindestanforderungen
-
-#### Hardware
-- **RAM:** 4GB minimum, 8GB empfohlen
-- **Speicher:** 10GB verfügbar
-- **CPU:** 2 Kerne minimum
-
-#### Software
-- **Docker** 20.0+ und **Docker Compose** 2.0+
-- **Git** für Versionskontrolle
-- **Modern Browser** (Chrome, Firefox, Safari, Edge)
+**Software:**
+- Docker 20.0+ mit Docker Compose 2.0+
+- Git (für Versionskontrolle)
+- Moderner Browser (Chrome, Firefox, Safari, Edge)
 
 ---
 
-# 2. Installations- und Entwicklungsumgebung
+## 2. Schnellstart
 
-## 🚀 Detaillierte Installationsanleitung
+### Option A: Automatische Installation (empfohlen)
 
-### Schritt 1: Repository klonen
 ```bash
+# 1. Repository klonen
 git clone <repository-url>
-cd ipad-management-system
+cd ipad-verwaltungssystem
+
+# 2. Installation starten
+bash install.sh
 ```
 
-### Schritt 2: Environment-Dateien einrichten
+Das Installationsskript führt automatisch durch:
+- Prüfung der Voraussetzungen (Docker, Docker Compose)
+- Erstellung der Environment-Dateien
+- Build der Docker-Container
+- Start aller Services
+- Initialisierung der Datenbank mit Admin-User
 
-#### Frontend (.env)
+### Option B: Manuelle Installation
+
 ```bash
-# /app/frontend/.env
-REACT_APP_BACKEND_URL=http://localhost:8001
-```
+# 1. Repository klonen
+git clone <repository-url>
+cd ipad-verwaltungssystem
 
-#### Backend (.env)
-```bash
-# /app/backend/.env  
-MONGO_URL=mongodb://mongodb:27017/ipad_management
-JWT_SECRET=your-secret-key-here
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=admin123
-```
+# 2. Environment-Dateien erstellen
+cp .env.example .env
+# JWT_SECRET eintragen (siehe Abschnitt 4.2)
 
-### Schritt 3: Docker Container starten
-
-#### Produktionsumgebung
-```bash
-cd config
+# 3. Docker starten
 docker-compose up -d
 ```
 
-#### Entwicklungsumgebung (mit Hot Reload)
-```bash
-# Backend
-cd backend
-pip install -r requirements.txt
-python server.py
+### Standard-Login
 
-# Frontend  
-cd frontend
-yarn install
-yarn start
-```
+Nach der Installation:
+- **URL:** https://localhost (oder Server-IP)
+- **Benutzername:** `admin`
+- **Passwort:** `admin123`
 
-## 🔧 Entwicklertools und Container-Kommunikation
-
-### Docker-Container-Architektur
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Nginx         │    │   Frontend      │    │   Backend       │
-│   Port: 80      │◄───│   Port: 3000    │◄───│   Port: 8001    │
-│   Reverse Proxy │    │   React Dev     │    │   FastAPI       │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                               │
-                                               ▼
-                                       ┌─────────────────┐
-                                       │   MongoDB       │
-                                       │   Port: 27017   │
-                                       │   Database      │
-                                       └─────────────────┘
-```
-
-### Container-Kommunikation
-
-#### Nginx → Frontend
-- **Entwicklung:** Proxy zu Port 3000 (Hot Reload)
-- **Produktion:** Statische Dateien aus Volume
-
-#### Frontend → Backend  
-- **URL:** `REACT_APP_BACKEND_URL`
-- **Pfad:** Alle API-Calls mit `/api` Prefix
-
-#### Backend → MongoDB
-- **URL:** `MONGO_URL` aus Environment
-- **Auth:** Keine (interne Container-Kommunikation)
-
-### Development vs. Production
-
-| Aspekt | Development | Production |
-|--------|------------|------------|
-| **Frontend** | Hot Reload (Port 3000) | Statische Dateien in Volume |
-| **Backend** | Supervisor + Hot Reload | Docker Container |
-| **MongoDB** | Docker Container | Docker Container |
-| **Nginx** | Proxy zu Dev-Servern | Statische Files + API Proxy |
+> **Wichtig:** Ändern Sie das Admin-Passwort nach dem ersten Login!
 
 ---
 
-# 3. Projektarchitektur und Struktur
+## 3. Lokale Entwicklung
 
-## 🏗️ Architektur-Übersicht
+### 3.1 Entwicklungsumgebung einrichten
 
-### Microservices-Architektur
+#### Backend
+
+```bash
+cd backend
+
+# Virtual Environment erstellen (empfohlen)
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# oder: venv\Scripts\activate  # Windows
+
+# Dependencies installieren
+pip install -r requirements.txt
+
+# Backend starten (Hot Reload aktiv)
+uvicorn server:app --reload --host 0.0.0.0 --port 8001
 ```
-Frontend (React SPA)
-    ↓ HTTP/REST
-Backend (FastAPI)  
-    ↓ Motor (Async)
-MongoDB (NoSQL)
+
+**Backend Environment (`backend/.env`):**
+```bash
+MONGO_URL=mongodb://localhost:27017/iPadDatabase
+DB_NAME=iPadDatabase
+JWT_SECRET=entwicklung-geheimer-schluessel
 ```
 
-### Rollenbasierte Zugriffskontrolle (RBAC)
-- **Admin:** Vollzugriff + Benutzerverwaltung
-- **User:** Nur eigene Daten (iPads, Schüler, Zuordnungen)
+#### Frontend
 
-## 📁 Projektstruktur
+```bash
+cd frontend
+
+# Dependencies installieren
+yarn install
+
+# Entwicklungsserver starten (Hot Reload aktiv)
+yarn start
+```
+
+**Frontend Environment (`frontend/.env`):**
+```bash
+REACT_APP_BACKEND_URL=http://localhost:8001
+```
+
+#### MongoDB (lokal via Docker)
+
+```bash
+# Standalone MongoDB starten
+docker run -d --name mongodb-dev \
+  -p 27017:27017 \
+  -v mongodb_dev_data:/data/db \
+  mongo:6
+```
+
+### 3.2 Entwicklungs-Workflow
 
 ```
-/app/
-├── backend/                     # FastAPI Backend
-│   ├── .env                    # Backend Environment
-│   ├── server.py               # Hauptanwendung (~2800 Zeilen)
-│   ├── requirements.txt        # Python Dependencies  
-│   └── Dockerfile             # Backend Container
-├── frontend/                   # React Frontend
-│   ├── .env                   # Frontend Environment
+┌─────────────────────────────────────────────────────────────┐
+│  Entwicklung (lokale Maschine)                              │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
+│  │ Frontend    │  │ Backend     │  │ MongoDB     │         │
+│  │ Port 3000   │──│ Port 8001   │──│ Port 27017  │         │
+│  │ yarn start  │  │ uvicorn     │  │ Docker      │         │
+│  └─────────────┘  └─────────────┘  └─────────────┘         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 3.3 Code-Änderungen testen
+
+```bash
+# Backend-Tests
+cd backend
+pytest tests/
+
+# Frontend Lint
+cd frontend
+yarn lint
+```
+
+---
+
+## 4. Produktion (Docker)
+
+### 4.1 Architektur-Übersicht
+
+```
+Internet
+    │
+    ▼
+┌────────────────┐
+│  Nginx         │ ← Einziger öffentlicher Eintrittspunkt
+│  Port 80/443   │
+└───────┬────────┘
+        │ (internes Docker-Netzwerk)
+        ├──────────────────┐
+        ▼                  ▼
+┌──────────────┐    ┌──────────────┐
+│ Backend      │    │ MongoDB      │
+│ Port 8001    │────│ Port 27017   │
+│ (nur intern) │    │ (nur intern) │
+└──────────────┘    └──────────────┘
+```
+
+**Sicherheitskonzept:**
+- Nginx ist der **einzige** Service, der von außen erreichbar ist
+- Backend und MongoDB sind **nur im Docker-Netzwerk** erreichbar
+- JWT sichert alle API-Zugriffe
+- HTTPS mit SSL/TLS verschlüsselt die Verbindung
+
+### 4.2 Konfiguration (.env)
+
+Vor dem Start muss eine `.env`-Datei im Projektverzeichnis erstellt werden:
+
+```bash
+# Beispieldatei kopieren
+cp .env.example .env
+
+# Sicheres JWT-Secret generieren
+openssl rand -hex 32
+
+# In .env eintragen
+nano .env
+```
+
+**Inhalt der `.env`-Datei:**
+```bash
+# Mindestens 32 Zeichen, zufällig generiert
+JWT_SECRET=ihr_generiertes_secret_hier_eintragen
+```
+
+> **Wichtig:** Das JWT_SECRET muss **sicher** und **geheim** sein! Verwenden Sie `openssl rand -hex 32` zur Generierung.
+
+### 4.3 Docker Compose starten
+
+```bash
+# Container bauen und starten
+docker-compose up -d
+
+# Status prüfen
+docker-compose ps
+
+# Logs anzeigen (alle Services)
+docker-compose logs -f
+
+# Nur bestimmter Service
+docker-compose logs -f backend
+docker-compose logs -f nginx
+docker-compose logs -f mongodb
+
+# Services stoppen
+docker-compose down
+
+# Services stoppen UND Volumes löschen (VORSICHT: Datenverlust!)
+docker-compose down -v
+```
+
+### 4.4 Ports und Zugriff
+
+| Port | Service | Von außen erreichbar | Beschreibung |
+|------|---------|---------------------|--------------|
+| 80 | Nginx | Ja | HTTP → Redirect auf HTTPS |
+| 443 | Nginx | Ja | HTTPS (Haupteingang) |
+| 8001 | Backend | **Nein** | Nur intern via Nginx |
+| 27017 | MongoDB | **Nein** | Nur intern im Docker-Netzwerk |
+
+**Zugriff auf die Anwendung:**
+- HTTPS: `https://<SERVER-IP>`
+- HTTP wird automatisch auf HTTPS umgeleitet
+
+---
+
+## 5. SSL/HTTPS Konfiguration
+
+### 5.1 Self-Signed Zertifikat erstellen
+
+Für interne Netzwerke oder Testumgebungen:
+
+```bash
+# SSL-Verzeichnis erstellen
+mkdir -p nginx/ssl
+
+# Zertifikat generieren (gültig für 365 Tage)
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout nginx/ssl/server.key \
+  -out nginx/ssl/server.crt \
+  -subj "/C=DE/ST=NRW/L=Dortmund/O=RBBK/CN=iPad-Verwaltung"
+```
+
+**Erklärung der Parameter:**
+- `-x509`: Self-Signed Zertifikat
+- `-nodes`: Kein Passwort für den Private Key
+- `-days 365`: Gültigkeit (1 Jahr)
+- `-newkey rsa:2048`: 2048-bit RSA Key
+- `/C=DE`: Land (Deutschland)
+- `/ST=NRW`: Bundesland
+- `/L=Dortmund`: Stadt
+- `/O=RBBK`: Organisation
+- `/CN=iPad-Verwaltung`: Common Name
+
+### 5.2 Let's Encrypt (Produktion)
+
+Für öffentlich erreichbare Server empfohlen:
+
+```bash
+# Certbot installieren
+sudo apt install certbot python3-certbot-nginx
+
+# Zertifikat anfordern
+sudo certbot --nginx -d ihre-domain.de
+
+# Automatische Erneuerung testen
+sudo certbot renew --dry-run
+```
+
+**Nginx-Konfiguration anpassen (`nginx/default.conf`):**
+```nginx
+ssl_certificate /etc/letsencrypt/live/ihre-domain.de/fullchain.pem;
+ssl_certificate_key /etc/letsencrypt/live/ihre-domain.de/privkey.pem;
+```
+
+### 5.3 SSL-Sicherheitseinstellungen
+
+Die aktuelle Nginx-Konfiguration enthält bereits:
+
+```nginx
+# TLS 1.2+ (TLS 1.0/1.1 deaktiviert)
+ssl_protocols TLSv1.2 TLSv1.3;
+
+# Sichere Cipher-Suites
+ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:...;
+
+# HSTS (1 Jahr)
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
+
+# Content-Security-Policy
+add_header Content-Security-Policy "default-src 'self'; ...";
+```
+
+---
+
+## 6. Skript-Referenz
+
+### 6.1 install.sh - Erstinstallation
+
+**Zweck:** Vollständige Erstinstallation des Systems
+
+**Ausführung:**
+```bash
+bash install.sh
+# oder
+sudo bash install.sh  # falls Docker sudo benötigt
+```
+
+**Was macht das Skript?**
+1. Prüft Docker und Docker Compose Installation
+2. Prüft Projektstruktur auf Vollständigkeit
+3. Erstellt `backend/.env` und `frontend/.env` (falls nicht vorhanden)
+4. Baut alle Docker-Container
+5. Startet alle Services
+6. Wartet auf Service-Verfügbarkeit
+7. Erstellt Admin-User in der Datenbank
+
+**Voraussetzungen:**
+- Docker und Docker Compose installiert
+- `config/docker-compose.yml` vorhanden
+- `backend/server.py` vorhanden
+- `frontend/package.json` vorhanden
+
+### 6.2 uninstall.sh - Deinstallation
+
+**Zweck:** Vollständige Entfernung aller Docker-Ressourcen
+
+**Ausführung:**
+```bash
+bash uninstall.sh
+```
+
+**Was macht das Skript?**
+1. Zeigt Warnung über Datenverlust
+2. Fragt Bestätigung ab (`ja` eingeben)
+3. Stoppt alle Container (ipad_*)
+4. Löscht alle Container
+5. Löscht alle Volumes (config_*)
+6. Optional: Löscht Docker Images
+7. Optional: Löscht .env-Dateien
+8. Optional: Docker System Cleanup
+
+**Interaktive Abfragen:**
+- Bestätigung vor Deinstallation
+- Docker-Images löschen? (j/n)
+- .env-Dateien löschen? (j/n)
+- Docker-System-Bereinigung? (j/n)
+
+### 6.3 deploy-smart.sh - Smart Deployment
+
+**Zweck:** Intelligentes Deployment nach Code-Änderungen
+
+**Ausführung:**
+```bash
+sudo bash deploy-smart.sh
+```
+
+**Deployment-Optionen:**
+```
+1) Nur Frontend (App.js, CSS, etc.)       → 2-3 Min
+2) Nur Backend (server.py, etc.)          → 1-2 Min
+3) Beides (Frontend + Backend)            → 3-4 Min
+4) Full Build (package.json/requirements) → 5-7 Min
+```
+
+**Wann welche Option?**
+- **Option 1:** React-Komponenten, CSS, UI-Änderungen
+- **Option 2:** Python-Code, API-Endpoints
+- **Option 3:** Änderungen in beiden Bereichen
+- **Option 4:** Neue npm-Pakete oder pip-Dependencies
+
+**Nach dem Deployment:**
+```
+Browser-Cache leeren:
+1. Strg + Shift + Entf
+2. "Cache/Zwischengespeicherte Dateien" wählen
+3. "Daten löschen" klicken
+4. Strg + F5 (Hard Reload)
+```
+
+### 6.4 check-system.sh - Systemprüfung
+
+**Zweck:** Prüft ob Docker-Ressourcen existieren
+
+**Ausführung:**
+```bash
+bash check-system.sh
+```
+
+**Prüft:**
+- Container mit "ipad" im Namen
+- Volumes mit "config_" im Namen
+- Docker Images mit "config-" im Namen
+- Vorhandensein der .env-Dateien
+
+---
+
+## 7. Architektur
+
+### 7.1 Projektstruktur
+
+```
+/projekt-root/
+├── docker-compose.yml          # Gehärtete Produktion (ohne Auth, isoliert)
+├── .env.example                # Vorlage für Umgebungsvariablen
+├── .env                        # JWT_SECRET (nicht in Git!)
+├── install.sh                  # Erstinstallation
+├── uninstall.sh                # Deinstallation
+├── deploy-smart.sh             # Smart Deployment
+├── check-system.sh             # Systemprüfung
+│
+├── backend/
+│   ├── .env                    # Backend-Konfiguration
+│   ├── server.py               # FastAPI Hauptanwendung
+│   ├── contract_generator.py   # PDF-Vertragsgenerierung
+│   ├── requirements.txt        # Python Dependencies
+│   ├── Dockerfile              # Backend Container
+│   ├── templates/              # Vertragsvorlagen
+│   └── tests/                  # Backend-Tests
+│
+├── frontend/
+│   ├── .env                    # Frontend-Konfiguration
+│   ├── package.json            # NPM Dependencies
+│   ├── Dockerfile              # Frontend Container
 │   ├── src/
-│   │   └── App.js            # Monolithische App (~3800 Zeilen)
-│   ├── public/               # Statische Assets
-│   ├── package.json          # NPM Dependencies
-│   └── Dockerfile           # Frontend Container  
-├── config/                   # Docker Orchestrierung
-│   └── docker-compose.yml   # Service-Definition
-├── docs/                     # Dokumentation
-│   ├── DEPLOYMENT_*.md       # Deployment-Guides
-│   ├── CLEANUP_*.md         # Maintenance-Guides
-│   └── *.md                 # Verschiedene Guides
-├── nginx/                    # Reverse Proxy Config
-└── deploy-smart.sh          # Intelligentes Deployment-Script
+│   │   ├── App.js              # Haupt-App (Routing, Layout)
+│   │   ├── api/
+│   │   │   └── index.js        # Zentralisierte Axios-Konfiguration
+│   │   └── components/         # React-Komponenten
+│   │       ├── auth/           # Authentifizierung
+│   │       ├── ipads/          # iPad-Verwaltung
+│   │       ├── students/       # Schüler-Verwaltung
+│   │       ├── assignments/    # Zuordnungen
+│   │       ├── contracts/      # Verträge
+│   │       ├── settings/       # Einstellungen
+│   │       ├── users/          # Benutzerverwaltung (Admin)
+│   │       └── shared/         # Gemeinsame Komponenten
+│   └── public/                 # Statische Assets
+│
+├── nginx/
+│   ├── nginx.conf              # Nginx Hauptkonfiguration
+│   ├── default.conf            # Server-Block Konfiguration
+│   └── ssl/                    # SSL-Zertifikate
+│       ├── server.crt
+│       └── server.key
+│
+└── config/
+    └── docker-compose.yml      # Alternative (mit MongoDB Auth)
 ```
 
-### Datenbankschema (MongoDB)
+### 7.2 Frontend-Komponenten-Architektur
 
-#### Collections
+Das Frontend wurde von einer monolithischen `App.js` in eine modulare Komponenten-Architektur refaktoriert:
+
+```
+frontend/src/
+├── App.js                      # ~280 Zeilen (Routing, Layout, Auth-State)
+├── api/
+│   └── index.js                # Axios-Instanz mit Interceptors
+└── components/
+    ├── auth/
+    │   └── LoginForm.jsx       # Login-Formular
+    ├── ipads/
+    │   └── IPadsManagement.jsx # iPad-CRUD, Status-Änderungen
+    ├── students/
+    │   └── StudentsManagement.jsx
+    ├── assignments/
+    │   └── AssignmentsManagement.jsx
+    ├── contracts/
+    │   └── ContractsManagement.jsx
+    ├── settings/
+    │   └── Settings.jsx        # Daten-Import/Export, Excel-Template
+    ├── users/
+    │   └── UserManagement.jsx  # Admin-Benutzerverwaltung
+    └── shared/
+        └── ...                 # Gemeinsame UI-Komponenten
+```
+
+### 7.3 Datenbank-Schema
+
+**Collection: users**
 ```javascript
-// users - Benutzer
 {
   id: "uuid",
   username: "string",
-  email: "string", 
+  email: "string",
   hashed_password: "string",
-  role: "admin|user",
-  is_active: boolean,
+  role: "admin" | "user",
+  is_active: true,
   created_by: "uuid",
-  force_password_change: boolean
+  force_password_change: false
 }
+```
 
-// ipads - iPad-Inventar
+**Collection: ipads**
+```javascript
 {
   id: "uuid",
-  user_id: "uuid",           // Besitzer
-  itnr: "string",            // IT-Nummer (unique)
-  snr: "string",             // Seriennummer  
-  typ: "string",             // iPad-Modell
-  status: "ok|defekt|gestohlen",
-  current_assignment_id: "uuid|null",
+  user_id: "uuid",              // Besitzer
+  itnr: "string",               // IT-Nummer (unique)
+  snr: "string",                // Seriennummer
+  typ: "string",                // iPad-Modell
+  status: "ok" | "defekt" | "gestohlen",
+  current_assignment_id: "uuid" | null,
   created_at: "datetime",
   updated_at: "datetime"
 }
+```
 
-// students - Schülerdaten
+**Collection: students**
+```javascript
 {
   id: "uuid",
-  user_id: "uuid",           // Besitzer
-  sus_vorn: "string",        // Vorname
-  sus_nachn: "string",       // Nachname  
-  sus_kl: "string",          // Klasse
-  sus_geb: "date",           // Geburtsdatum
-  current_assignment_id: "uuid|null",
-  // ... weitere Schülerdaten
+  user_id: "uuid",              // Besitzer
+  sus_vorn: "string",           // Vorname
+  sus_nachn: "string",          // Nachname
+  sus_kl: "string",             // Klasse
+  sus_geb: "date",              // Geburtsdatum
+  current_assignment_id: "uuid" | null
 }
+```
 
-// assignments - Zuordnungen  
+**Collection: assignments**
+```javascript
 {
   id: "uuid",
-  user_id: "uuid",           // Ersteller
-  student_id: "uuid",        // Schüler
-  ipad_id: "uuid",           // iPad
-  contract_id: "uuid|null",  // Vertrag (optional)
-  is_active: boolean,
+  user_id: "uuid",              // Ersteller
+  student_id: "uuid",
+  ipad_id: "uuid",
+  contract_id: "uuid" | null,
+  is_active: true,
   created_at: "datetime",
-  unassigned_at: "datetime|null"
+  unassigned_at: "datetime" | null
 }
+```
 
-// contracts - Verträge
+**Collection: contracts**
+```javascript
 {
-  id: "uuid", 
-  user_id: "uuid",           // Ersteller
-  assignment_id: "uuid",     // Zuordnung
-  pdf_content: "base64",     // PDF-Daten
-  is_active: boolean,
+  id: "uuid",
+  user_id: "uuid",
+  assignment_id: "uuid",
+  pdf_content: "base64",
+  is_active: true,
   created_at: "datetime"
 }
 ```
 
 ---
 
-# 4. Code-Basis und APIs
+## 8. API-Dokumentation
 
-## 🧩 Modul- und Komponentenbeschreibung
+### 8.1 Authentifizierung
 
-### Backend (server.py)
-
-#### Hauptkomponenten
-```python
-# Authentifizierung & Autorisierung
-- JWT-Token-Generierung und -Validierung
-- Passwort-Hashing mit Passlib
-- RBAC-Middleware für Admin/User-Rollen
-
-# CRUD-Endpoints für alle Entities
-- Users: /api/users/*, /api/admin/users/*
-- iPads: /api/ipads/*
-- Students: /api/students/*  
-- Assignments: /api/assignments/*
-- Contracts: /api/contracts/*
-
-# Import/Export-Funktionen
-- Excel-Upload für iPads/Schüler
-- PDF-Vertragsmanagement  
-- Datenexport als Excel
-
-# Spezielle Features
-- Batch-Operationen (Delete, Dissolve)
-- Manuelle Zuordnungen
-- Cleanup verwaister Daten
-```
-
-#### Wichtige Funktionen
-```python
-# Datenvalidierung
-get_user_filter()           # RBAC-Filter für Queries
-require_admin()             # Admin-Berechtigung prüfen
-prepare_for_mongo()         # Pydantic → MongoDB
-
-# Business Logic  
-auto_assign_ipads()         # Automatische Zuordnung
-manual_assign()             # Manuelle Zuordnung
-batch_delete_students()     # Batch-Löschung
-cleanup_orphaned_data()     # Verwaiste Daten löschen
-```
-
-### Frontend (App.js)
-
-#### Hauptkomponenten
-```javascript
-// Authentifizierung
-- LoginForm: Login-Formular mit JWT
-- AuthContext: Globaler Auth-State
-
-// Management-Komponenten
-- IPadsManagement: iPad-CRUD + Upload
-- StudentsManagement: Schüler-CRUD + Upload  
-- AssignmentsManagement: Zuordnungs-Management + Import
-- UserManagement: Admin-Benutzerverwaltung
-- Settings: Einstellungen + Passwort-Änderung
-
-// UI-Komponenten (Shadcn/ui)
-- Tables: Daten-Darstellung mit Filtering
-- Dialogs: Bestätigungen und Formulare
-- Toast: Benachrichtigungen
-- Autocomplete: Suchfelder für Zuordnungen
-```
-
-## 🔌 API-Dokumentation
-
-### Authentifizierung
 ```http
 POST /api/auth/login
 Content-Type: application/json
+
 {
   "username": "string",
-  "password": "string" 
+  "password": "string"
 }
-→ {"access_token": "jwt_token", "user": {...}}
+
+→ 200: {"access_token": "jwt_token", "user": {...}}
+→ 401: {"detail": "Invalid credentials"}
 ```
 
-### iPad-Management
-```http
-# CRUD-Operationen
-GET    /api/ipads                     # Liste aller iPads
-POST   /api/ipads/upload              # Excel-Upload
-PUT    /api/ipads/{id}/status         # Status ändern
-DELETE /api/ipads/{id}                # iPad löschen
+### 8.2 iPad-Endpoints
 
-# Zuordnungen
-GET    /api/ipads/available-for-assignment  # Verfügbare iPads
-POST   /api/assignments/manual              # Manuelle Zuordnung
+```http
+# Liste aller iPads
+GET /api/ipads
+
+# iPad erstellen
+POST /api/ipads
+{
+  "itnr": "IT-001",
+  "snr": "ABC123",
+  "typ": "iPad Pro 12.9",
+  "status": "ok"
+}
+
+# iPad-Status ändern
+PUT /api/ipads/{id}/status
+{"status": "defekt"}
+
+# iPad löschen
+DELETE /api/ipads/{id}
+
+# Verfügbare iPads für Zuordnung
+GET /api/ipads/available-for-assignment
 ```
 
-### Schüler-Management  
-```http
-# CRUD-Operationen
-GET    /api/students                  # Liste aller Schüler
-POST   /api/students/upload           # Excel-Upload  
-DELETE /api/students/{id}             # Schüler löschen
-POST   /api/students/batch-delete     # Batch-Löschung
+### 8.3 Schüler-Endpoints
 
-# Zuordnungen
-GET    /api/students/available-for-assignment  # Verfügbare Schüler
+```http
+# Liste aller Schüler
+GET /api/students
+
+# Schüler erstellen
+POST /api/students
+{
+  "sus_vorn": "Max",
+  "sus_nachn": "Mustermann",
+  "sus_kl": "10a"
+}
+
+# Schüler löschen
+DELETE /api/students/{id}
+
+# Batch-Löschung
+POST /api/students/batch-delete
+{"ids": ["uuid1", "uuid2"]}
+
+# Verfügbare Schüler für Zuordnung
+GET /api/students/available-for-assignment
 ```
 
-### Admin-Funktionen
-```http
-# Benutzerverwaltung
-GET    /api/admin/users               # Alle Benutzer
-POST   /api/admin/users               # Benutzer erstellen
-DELETE /api/admin/users/{id}/complete # Komplette Löschung
+### 8.4 Zuordnungs-Endpoints
 
-# Maintenance  
-POST   /api/admin/cleanup-orphaned-data    # Verwaiste Daten löschen
+```http
+# Alle Zuordnungen
+GET /api/assignments
+
+# Manuelle Zuordnung
+POST /api/assignments/manual
+{
+  "student_id": "uuid",
+  "ipad_id": "uuid"
+}
+
+# Auto-Zuordnung (alle Schüler ohne iPad)
+POST /api/auto-assign-all
+
+# Zuordnung auflösen
+POST /api/assignments/{id}/dissolve
 ```
 
-### Import/Export
+### 8.5 Import/Export-Endpoints
+
 ```http
-POST   /api/imports/inventory         # Vollständiger Datenimport
-GET    /api/exports/assignments       # Zuordnungen als Excel
-GET    /api/exports/inventory         # Komplettes Inventar
+# Vollständiger Datenimport (Excel)
+POST /api/imports/inventory
+Content-Type: multipart/form-data
+file: <excel-datei>
+
+# Datenexport (Excel)
+GET /api/exports/inventory
+
+# Excel-Template herunterladen
+GET /api/exports/template
+```
+
+### 8.6 Admin-Endpoints
+
+```http
+# Alle Benutzer (nur Admin)
+GET /api/admin/users
+
+# Benutzer erstellen
+POST /api/admin/users
+{
+  "username": "neuer_user",
+  "email": "user@example.com",
+  "password": "sicheres_passwort",
+  "role": "user"
+}
+
+# Benutzer komplett löschen (inkl. Daten)
+DELETE /api/admin/users/{id}/complete
+
+# Verwaiste Daten bereinigen
+POST /api/admin/cleanup-orphaned-data
 ```
 
 ---
 
-# 5. Deployment
+## 9. Troubleshooting
 
-## 🚀 Smart Deployment System
+### 9.1 Backend startet nicht
 
-Das Projekt verwendet ein intelligentes Deployment-System mit mehreren Optionen:
+**Symptom:** `ImportError: failed to find libmagic`
 
-### Smart Deployment Script
+**Lösung:**
 ```bash
-# Hauptscript: Automatische Erkennung
-sudo bash deploy-smart.sh
-
-# Optionen:
-1) Nur Frontend (App.js, CSS, etc.)       → 2-3 Min
-2) Nur Backend (server.py, etc.)          → 1-2 Min  
-3) Beides (Frontend + Backend)            → 3-4 Min
-4) Full Build (package.json/requirements) → 5-7 Min
-```
-
-### Einzelne Deployment-Scripts
-
-#### Frontend-Deployment
-```bash
-# Standard (mit Cache)
-sudo bash frontend/deploy-production.sh      # 2-3 Min
-
-# Vollständig (ohne Cache)  
-sudo bash frontend/deploy-production-full.sh # 3-5 Min
-```
-
-#### Ein-Zeilen-Deployment
-```bash
-cd /home/RBBK_Ipad_Verwaltung-main/config && \
-docker-compose down && \
-docker rm -f ipad_frontend_build && \
-docker volume rm config_frontend_build && \
-docker-compose build frontend && \
-docker-compose up -d
-```
-
-### Deployment-Workflow
-
-#### Entwicklung → Produktion
-```bash
-1. Code-Änderungen auf Entwicklungs-System
-2. Dateien auf Produktions-Server kopieren:
-   - frontend/src/App.js
-   - backend/server.py  
-   - frontend/Dockerfile (bei Optimierungen)
-3. Smart Deployment ausführen
-4. Browser-Cache leeren (Strg+Shift+Entf)
-```
-
-#### Kritische Dateien
-```bash
-# MÜSSEN kopiert werden bei Änderungen:
-/app/frontend/src/App.js              # Frontend-Logic
-/app/backend/server.py                # Backend-Logic  
-/app/frontend/Dockerfile              # Build-Optimierungen
-/app/deploy-smart.sh                  # Deployment-Logic
-```
-
-### Docker Layer Caching
-Das System nutzt intelligentes Caching:
-- **Frontend:** `yarn install` wird gecacht wenn `package.json` unverändert
-- **Backend:** `pip install` wird gecacht wenn `requirements.txt` unverändert
-- **Rebuild:** Nur bei Abhängigkeits-Änderungen nötig
-
----
-
-# 6. Troubleshooting
-
-## 🔧 Häufige Probleme und Lösungen
-
-### Backend-Probleme
-
-#### libmagic-Fehler
-```bash
-# Symptom: ImportError: failed to find libmagic
-# Lösung:
+# In der Entwicklungsumgebung:
 sudo apt-get install -y libmagic1
 sudo supervisorctl restart backend
+
+# Im Docker-Container:
+docker exec -it ipad-backend apt-get install -y libmagic1
+docker-compose restart backend
 ```
 
-#### MongoDB-Verbindung
+### 9.2 MongoDB-Verbindungsfehler
+
+**Symptom:** `Connection refused to MongoDB`
+
+**Diagnose:**
 ```bash
-# Symptom: Connection refused
-# Lösung: Container-Status prüfen
+# Container-Status prüfen
 docker ps | grep mongodb
-docker logs ipad_mongodb
+
+# MongoDB-Logs anzeigen
+docker logs ipad-mongodb
+
+# Verbindung testen
+docker exec -it ipad-mongodb mongosh --eval "db.adminCommand('ping')"
 ```
 
-### Frontend-Probleme
+### 9.3 Frontend-Änderungen nicht sichtbar
 
-#### Änderungen nicht sichtbar
+**Ursachen und Lösungen:**
+
+1. **Browser-Cache:** `Strg + Shift + Entf` → Cache leeren
+2. **Docker-Volume:** `docker volume rm config_frontend_build`
+3. **Hard Reload:** `Strg + F5`
+4. **Container neu bauen:** `docker-compose build --no-cache frontend`
+
+### 9.4 SSL-Zertifikat-Fehler
+
+**Symptom:** Browser zeigt "Nicht sicher" oder blockiert
+
+**Für Self-Signed Zertifikate:**
+- Chrome: "Erweitert" → "Weiter zu <IP> (unsicher)"
+- Firefox: "Erweitert" → "Risiko akzeptieren und fortfahren"
+
+**Zertifikat erneuern:**
 ```bash
-# Ursachen & Lösungen:
-1. Browser-Cache: Strg+Shift+Entf → Cache leeren
-2. Docker Volume: docker volume rm config_frontend_build  
-3. Hard Reload: Strg+F5
-4. Frontend neu bauen: docker-compose build frontend
+# Neues Zertifikat generieren
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout nginx/ssl/server.key \
+  -out nginx/ssl/server.crt \
+  -subj "/C=DE/ST=NRW/L=Dortmund/O=RBBK/CN=iPad-Verwaltung"
+
+# Nginx neu starten
+docker-compose restart nginx
 ```
 
-#### Build-Fehler
+### 9.5 Container-Logs prüfen
+
 ```bash
-# Container-Konflikte
-docker rm -f ipad_frontend_build
-docker volume rm config_frontend_build
+# Alle Logs
+docker-compose logs -f
 
-# Abhängigkeits-Probleme  
-docker-compose build --no-cache frontend
+# Bestimmter Service
+docker-compose logs -f backend
+docker-compose logs -f nginx
+docker-compose logs -f mongodb
+
+# Letzte 100 Zeilen
+docker-compose logs --tail=100 backend
 ```
 
-### Performance-Probleme
+### 9.6 Direkter Container-Zugriff
 
-#### RAM-Probleme
-```bash
-# Docker RAM erhöhen (Docker Desktop)
-Settings → Resources → Memory → 8GB
-
-# Container-Status überwachen
-docker stats
-```
-
-#### Lange Build-Zeiten
-```bash
-# Docker BuildKit aktivieren
-export DOCKER_BUILDKIT=1
-docker-compose build frontend
-```
-
-### Deployment-Probleme
-
-#### Deploy-Script-Fehler
-```bash
-# Berechtigungen
-chmod +x deploy-smart.sh
-
-# Docker-Compose-Pfad
-cd /pfad/zur/config && sudo bash ../deploy-smart.sh
-```
-
-## 🔍 Debug-Techniken
-
-### Logs prüfen
-```bash
-# Backend-Logs  
-docker logs ipad_backend
-# oder bei Supervisor:
-tail -f /var/log/supervisor/backend.*.log
-
-# Frontend-Build-Logs
-docker logs ipad_frontend_build
-
-# Nginx-Logs
-docker logs ipad_nginx
-```
-
-### Direkter Container-Zugriff
 ```bash
 # Backend-Container
-docker exec -it ipad_backend /bin/bash
+docker exec -it ipad-backend /bin/bash
 
-# Datenbank-Zugriff
-docker exec -it ipad_mongodb mongo ipad_management
+# MongoDB-Shell
+docker exec -it ipad-mongodb mongosh iPadDatabase
+
+# Nginx-Container
+docker exec -it ipad-nginx /bin/sh
 ```
 
 ---
 
-# 7. Best Practices
+## 10. Best Practices
 
-## 💡 Entwicklungs-Best-Practices
+### 10.1 Sicherheit
 
-### Code-Organisation
-- **Backend:** Funktionen nach Entities gruppieren (iPad, Student, Assignment)
-- **Frontend:** Komponenten nach Features gruppieren
-- **Gemeinsam:** Konsistente Namenskonventionen
+**Passwörter:**
+- Admin-Passwort nach Erstinstallation ändern
+- Starke Passwörter verwenden (min. 12 Zeichen)
+- JWT_SECRET niemals in Git commiten
 
-### Datenbank-Best-Practices
-```javascript
-// IMMER "_id" ausschließen bei MongoDB-Queries
-await db.ipads.find({}, {"_id": 0}).to_list(length=None)
+**Updates:**
+```bash
+# Docker-Images aktualisieren
+docker-compose pull
+docker-compose up -d
 
-// UUIDs für alle IDs verwenden
-import { v4 as uuid4 } from 'uuid';
-const id = uuid4();
-
-// Datetime mit Timezone
-datetime.now(timezone.utc).isoformat()
+# System-Updates (Produktionsserver)
+sudo apt update && sudo apt upgrade
 ```
 
-### Sicherheits-Best-Practices
-- **RBAC:** Jede API-Route mit Benutzer-Filter
-- **Input-Validation:** Pydantic für Backend, PropTypes für Frontend  
-- **File-Upload:** Typ- und Größen-Validierung
-- **Passwörter:** Nie im Klartext speichern/loggen
+### 10.2 Backup-Strategie
 
-### Performance-Best-Practices
-- **Frontend:** Lazy Loading für große Datasets
-- **Backend:** Async/Await für DB-Operationen
-- **Caching:** Docker Layer Caching nutzen
-- **Pagination:** Bei >100 Datensätzen implementieren
-
-## 🔄 Maintenance-Richtlinien
-
-### Regelmäßige Tasks
+**MongoDB-Backup erstellen:**
 ```bash
-# Verwaiste Daten löschen (nach User-Löschungen)
-POST /api/admin/cleanup-orphaned-data
+# Backup
+docker exec ipad-mongodb mongodump --db iPadDatabase --out /data/backup
 
-# Docker-Images aufräumen (monatlich)
+# Backup auf Host kopieren
+docker cp ipad-mongodb:/data/backup ./backup_$(date +%Y%m%d)
+```
+
+**MongoDB-Backup wiederherstellen:**
+```bash
+# Backup in Container kopieren
+docker cp ./backup ipad-mongodb:/data/backup
+
+# Wiederherstellen
+docker exec ipad-mongodb mongorestore /data/backup
+```
+
+### 10.3 Monitoring
+
+**Container-Ressourcen überwachen:**
+```bash
+# Live-Statistiken
+docker stats
+
+# Disk-Usage
+docker system df
+```
+
+**Regelmäßige Wartung:**
+```bash
+# Ungenutzte Docker-Ressourcen bereinigen (monatlich)
 docker system prune -a
 
-# Logs rotieren (wöchentlich)  
-docker-compose logs --no-color | head -1000 > logs_backup.txt
+# Logs rotieren
+docker-compose logs --no-color backend > backend_logs_$(date +%Y%m%d).txt
 ```
 
-### Backup-Strategie
-```bash
-# MongoDB-Backup
-docker exec ipad_mongodb mongodump --db ipad_management --out /backup
+### 10.4 Code-Konventionen
 
-# Code-Backup
-git push origin main
-git tag -a v1.0 -m "Production release"
+**MongoDB:**
+```python
+# IMMER "_id" ausschließen bei Queries
+await db.ipads.find({}, {"_id": 0}).to_list(length=None)
+
+# UUIDs für IDs verwenden
+import uuid
+new_id = str(uuid.uuid4())
+
+# Datetime mit Timezone
+from datetime import datetime, timezone
+created_at = datetime.now(timezone.utc).isoformat()
 ```
 
-### Monitoring
-- **Container-Status:** `docker ps` täglich prüfen
-- **Resource-Usage:** `docker stats` bei Performance-Problemen
-- **Log-Levels:** ERROR/WARNING-Logs täglich prüfen
-- **Disk-Space:** Bei großen Excel-Imports überwachen
+**Frontend:**
+```javascript
+// API-Aufrufe über zentrale Axios-Instanz
+import api from '../api';
+const response = await api.get('/ipads');
+
+// Komponenten-Struktur
+// - Eine Komponente pro Datei
+// - Named exports für Komponenten
+// - Default exports für Seiten
+```
 
 ---
 
-## 📞 Support und Hilfe
+## Support und Hilfe
 
-### Dokumentation
-- **Deployment:** `/docs/SMART_DEPLOYMENT.md`
-- **Cleanup:** `/docs/CLEANUP_ANLEITUNG.md` 
-- **Troubleshooting:** `/docs/FRONTEND_REBUILD.md`
+**API-Dokumentation (Swagger):**
+- Entwicklung: `http://localhost:8001/docs`
+- Produktion: `https://<SERVER>/api/docs` (falls aktiviert)
 
-### Debugging-Tools
-- **Backend:** FastAPI Auto-Docs unter `/docs`
-- **Frontend:** React DevTools Browser-Extension
-- **Database:** MongoDB Compass für GUI-Zugriff
-
-### Community
-- **Issues:** GitHub Issues für Bug-Reports
-- **Diskussionen:** GitHub Discussions für Features
-- **Updates:** Release-Notes für Änderungen verfolgen
+**Debugging-Tools:**
+- Backend: FastAPI Auto-Docs
+- Frontend: React DevTools (Browser-Extension)
+- Database: MongoDB Compass (GUI)
 
 ---
 
-**📚 Diese Dokumentation ist ein lebendiges Dokument und sollte bei Änderungen am System aktualisiert werden.**
+*Diese Dokumentation wird bei Änderungen am System aktualisiert.*
 
-*Version: 1.0 | Letzte Aktualisierung: Dezember 2024*
+**Version 2.0** | Dezember 2025
