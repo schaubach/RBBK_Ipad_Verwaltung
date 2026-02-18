@@ -48,6 +48,12 @@ echo ""
 
 # Prüfe .env Dateien
 echo "⚙️  Konfigurationsdateien:"
+if [ -f "config/.env" ]; then
+    echo "   📄 config/.env existiert (JWT_SECRET)"
+else
+    echo "   ❌ config/.env nicht vorhanden"
+fi
+
 if [ -f "backend/.env" ]; then
     echo "   📄 backend/.env existiert"
 else
