@@ -403,7 +403,7 @@ bash uninstall.sh
 **Interaktive Abfragen:**
 - Bestätigung vor Deinstallation
 - Docker-Images löschen? (j/n)
-- .env-Dateien löschen? (j/n)
+- .env-Dateien löschen? (j/n) - inkl. `config/.env`
 - Docker-System-Bereinigung? (j/n)
 
 ### 6.3 deploy-smart.sh - Smart Deployment
