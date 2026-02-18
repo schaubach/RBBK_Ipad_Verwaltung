@@ -921,6 +921,22 @@ const AssignmentsManagement = () => {
         />
       )}
 
+      {/* Student Detail Viewer Modal */}
+      {selectedStudentId && (
+        <StudentDetailViewer 
+          studentId={selectedStudentId} 
+          onClose={() => setSelectedStudentId(null)} 
+        />
+      )}
+
+      {/* iPad Detail Viewer Modal */}
+      {selectedIPadId && (
+        <IPadDetailViewer 
+          ipadId={selectedIPadId} 
+          onClose={() => setSelectedIPadId(null)} 
+        />
+      )}
+
     </div>
   );
 };
