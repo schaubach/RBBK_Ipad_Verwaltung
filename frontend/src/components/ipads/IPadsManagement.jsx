@@ -508,9 +508,30 @@ const IPadsManagement = () => {
                           disabled={ipad.current_assignment_id}
                         />
                       </TableCell>
-                      <TableCell className="font-medium">{ipad.itnr}</TableCell>
-                      <TableCell>{ipad.snr || 'N/A'}</TableCell>
-                      <TableCell>{ipad.typ || 'N/A'}</TableCell>
+                      <TableCell className="font-medium">
+                        <button
+                          onClick={() => setSelectedIPadId(ipad.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          {ipad.itnr}
+                        </button>
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          onClick={() => setSelectedIPadId(ipad.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          {ipad.snr || 'N/A'}
+                        </button>
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          onClick={() => setSelectedIPadId(ipad.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          {ipad.typ || 'N/A'}
+                        </button>
+                      </TableCell>
                       <TableCell>
                         <Select
                           value={ipad.status}
