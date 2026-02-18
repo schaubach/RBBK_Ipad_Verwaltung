@@ -9,12 +9,8 @@
         <!-- 
         Content Security Policy
         ========================
-        Diese CSP ist für beide Szenarien konfiguriert:
-        - Docker/Intranet: Same-Origin API (/api/*)
-        - Entwicklung: Cross-Origin API (localhost:8001, preview.emergentagent.com)
-        
-        In Docker (Nginx Reverse Proxy) ist nur 'self' nötig.
-        Für Entwicklung/Preview werden zusätzliche Origins erlaubt.
+        Konfiguriert für Docker/Intranet: Same-Origin API (/api/*)
+        Alle API-Aufrufe gehen über Nginx Reverse Proxy.
         
         Hinweis: frame-ancestors und X-Frame-Options funktionieren nur via HTTP-Header (Nginx).
         -->
@@ -24,7 +20,7 @@
             style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
             img-src 'self' blob: data: https: http:;
             font-src 'self' data: https://fonts.gstatic.com;
-            connect-src 'self' https://*.emergentagent.com https://*.rbbk-do.de wss://*.emergentagent.com;
+            connect-src 'self';
             object-src 'none';
             frame-src 'none';
             base-uri 'self';
