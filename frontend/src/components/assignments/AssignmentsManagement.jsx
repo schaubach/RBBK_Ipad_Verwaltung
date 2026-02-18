@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../api';
+import StudentDetailViewer from '../students/StudentDetailViewer';
+import IPadDetailViewer from '../ipads/IPadDetailViewer';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
@@ -18,6 +20,8 @@ const AssignmentsManagement = () => {
   const [ipads, setIPads] = useState([]);
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedStudentId, setSelectedStudentId] = useState(null);
+  const [selectedIPadId, setSelectedIPadId] = useState(null);
   const [assigning, setAssigning] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [dissolving, setDissolving] = useState(false);
