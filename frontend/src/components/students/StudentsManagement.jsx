@@ -515,9 +515,21 @@ const StudentsManagement = () => {
                         />
                       </TableCell>
                       <TableCell className="font-medium">
-                        {student.sus_vorn} {student.sus_nachn}
+                        <button
+                          onClick={() => setSelectedStudentId(student.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline text-left"
+                        >
+                          {student.sus_vorn} {student.sus_nachn}
+                        </button>
                       </TableCell>
-                      <TableCell>{student.sus_kl || 'N/A'}</TableCell>
+                      <TableCell>
+                        <button
+                          onClick={() => setSelectedStudentId(student.id)}
+                          className="text-blue-600 hover:text-blue-800 hover:underline"
+                        >
+                          {student.sus_kl || 'N/A'}
+                        </button>
+                      </TableCell>
                       <TableCell>
                         <Badge 
                           className={`${(student.assignment_count && student.assignment_count > 0) 
