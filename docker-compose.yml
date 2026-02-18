@@ -26,8 +26,8 @@ services:
       dockerfile: Dockerfile
     container_name: ipad-backend
     environment:
-      - MONGO_URL=mongodb://${MONGO_USER:-ipad_admin}:${MONGO_PASSWORD:-ipad_secure_2024}@mongodb:27017/${MONGO_DB:-iPadDatabase}?authSource=admin
-      - DB_NAME=${MONGO_DB:-iPadDatabase}
+      - MONGO_URL=mongodb://mongodb:27017/iPadDatabase
+      - DB_NAME=iPadDatabase
       - JWT_SECRET=${JWT_SECRET}
     depends_on:
       - mongodb
@@ -37,14 +37,10 @@ services:
     expose:
       - "8001"
 
-  # MongoDB Datenbank - NUR intern erreichbar, MIT Authentifizierung
+  # MongoDB Datenbank - NUR intern erreichbar (keine Auth, da nur intern)
   mongodb:
     image: mongo:6
     container_name: ipad-mongodb
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER:-ipad_admin}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-ipad_secure_2024}
-      - MONGO_INITDB_DATABASE=${MONGO_DB:-iPadDatabase}
     volumes:
       - mongodb_data:/data/db
     restart: unless-stopped
@@ -52,6 +48,7 @@ services:
       - ipad-network
     expose:
       - "27017"
+    # Sicherheit: Nur im Docker-Netzwerk erreichbar, KEIN Port nach außen!
 
 networks:
   ipad-network:
