@@ -324,6 +324,11 @@ const IPadsManagement = () => {
     return acc;
   }, {});
 
+  // Frei & OK = Status "ok" und keine aktive Zuordnung
+  const freeAndOkCount = ipads.filter(ipad => 
+    ipad.status === 'ok' && !ipad.current_assignment_id
+  ).length;
+
   return (
     <div className="space-y-6">
       <Card className="shadow-lg">
@@ -334,7 +339,15 @@ const IPadsManagement = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+            <div className="bg-slate-100 p-3 rounded-lg">
+              <div className="font-medium text-slate-800">Gesamt</div>
+              <div className="text-2xl font-bold text-slate-600">{ipads.length}</div>
+            </div>
+            <div className="bg-blue-50 p-3 rounded-lg">
+              <div className="font-medium text-blue-800">Frei & OK</div>
+              <div className="text-2xl font-bold text-blue-600">{freeAndOkCount}</div>
+            </div>
             <div className="bg-green-50 p-3 rounded-lg">
               <div className="font-medium text-green-800">OK</div>
               <div className="text-2xl font-bold text-green-600">{statusCounts.ok || 0}</div>
