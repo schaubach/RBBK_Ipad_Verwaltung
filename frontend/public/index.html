@@ -15,24 +15,23 @@
         
         In Docker (Nginx Reverse Proxy) ist nur 'self' nötig.
         Für Entwicklung/Preview werden zusätzliche Origins erlaubt.
+        
+        Hinweis: frame-ancestors und X-Frame-Options funktionieren nur via HTTP-Header (Nginx).
         -->
         <meta http-equiv="Content-Security-Policy" content="
             default-src 'self';
             script-src 'self' 'unsafe-inline' 'unsafe-eval';
-            style-src 'self' 'unsafe-inline';
+            style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
             img-src 'self' blob: data: https: http:;
-            font-src 'self' data:;
+            font-src 'self' data: https://fonts.gstatic.com;
             connect-src 'self' https://*.emergentagent.com https://*.rbbk-do.de wss://*.emergentagent.com;
             object-src 'none';
             frame-src 'none';
-            frame-ancestors 'self';
             base-uri 'self';
             form-action 'self';
         ">
         
         <meta http-equiv="X-Content-Type-Options" content="nosniff" />
-        <meta http-equiv="X-Frame-Options" content="SAMEORIGIN" />
-        <meta http-equiv="X-XSS-Protection" content="1; mode=block" />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
         
         <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
