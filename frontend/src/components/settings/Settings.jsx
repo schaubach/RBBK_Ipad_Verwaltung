@@ -339,6 +339,37 @@ const Settings = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            {/* Template Download */}
+            <div className="border-l-4 border-purple-400 bg-purple-50 p-4 rounded">
+              <h4 className="font-medium text-purple-800 mb-2">Import-Vorlage herunterladen</h4>
+              <p className="text-sm text-purple-700 mb-3">
+                Laden Sie eine Excel-Vorlage mit allen unterstützten Spalten und Beispieldaten herunter.
+              </p>
+              <Button 
+                onClick={async () => {
+                  try {
+                    const response = await api.get('/imports/template', { responseType: 'blob' });
+                    const url = window.URL.createObjectURL(new Blob([response.data]));
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.setAttribute('download', 'import_vorlage.xlsx');
+                    document.body.appendChild(link);
+                    link.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(link);
+                    toast.success('Vorlage heruntergeladen');
+                  } catch (error) {
+                    toast.error('Fehler beim Herunterladen der Vorlage');
+                  }
+                }}
+                variant="outline"
+                className="border-purple-400 text-purple-700 hover:bg-purple-100"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Vorlage herunterladen
+              </Button>
+            </div>
+
             <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
               <h4 className="font-medium text-blue-800 mb-2">Excel-Datei importieren</h4>
               <p className="text-sm text-blue-700 mb-4">
@@ -346,11 +377,13 @@ const Settings = () => {
               </p>
               <ul className="text-sm text-blue-700 mb-4 list-disc list-inside space-y-1">
                 <li><strong>Nur Schüler:</strong> Excel mit Schüler-Spalten (SuSVorn, SuSNachn, etc.)</li>
-                <li><strong>Nur iPads:</strong> Excel mit iPad-Spalten (ITNr, SNr, etc.)</li>
+                <li><strong>Nur iPads:</strong> Excel mit iPad-Spalten (ITNr, SNr, Status, etc.)</li>
                 <li><strong>Komplett:</strong> Schüler + iPads + Zuordnungen in einer Datei</li>
+                <li><strong>1:n Zuordnung:</strong> Schüler mit 2 oder 3 iPads erscheinen mehrfach (eine Zeile pro iPad)</li>
               </ul>
               <p className="text-sm text-blue-600 mb-4">
-                Bereits vorhandene Einträge werden automatisch übersprungen.
+                Bereits vorhandene Einträge werden automatisch übersprungen. 
+                Status-Werte: <code className="bg-blue-100 px-1 rounded">ok</code>, <code className="bg-blue-100 px-1 rounded">defekt</code>, <code className="bg-blue-100 px-1 rounded">gestohlen</code> (Standard: ok)
               </p>
               <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center hover:border-blue-500 transition-colors bg-white">
                 <Input
@@ -372,7 +405,7 @@ const Settings = () => {
             <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded">
               <strong>Unterstützte Spalten:</strong> Sname, SuSNachn, SuSVorn, SuSKl, SuSStrHNr, SuSPLZ, SuSOrt, SuSGeb, 
               Erz1Nachn, Erz1Vorn, Erz1StrHNr, Erz1PLZ, Erz1Ort, Erz2Nachn, Erz2Vorn, Erz2StrHNr, Erz2PLZ, Erz2Ort, 
-              ITNr, SNr, Typ, Pencil, AnschJahr, AusleiheDatum
+              ITNr, SNr, Typ, Pencil, <strong>Status</strong>, AnschJahr, AusleiheDatum
             </div>
           </div>
         </CardContent>
