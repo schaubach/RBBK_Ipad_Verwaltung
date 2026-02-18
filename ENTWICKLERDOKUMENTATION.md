@@ -368,11 +368,12 @@ sudo bash install.sh  # falls Docker sudo benötigt
 **Was macht das Skript?**
 1. Prüft Docker und Docker Compose Installation
 2. Prüft Projektstruktur auf Vollständigkeit
-3. Erstellt `backend/.env` und `frontend/.env` (falls nicht vorhanden)
-4. Baut alle Docker-Container
-5. Startet alle Services
-6. Wartet auf Service-Verfügbarkeit
-7. Erstellt Admin-User in der Datenbank
+3. Erstellt `config/.env` mit generiertem JWT_SECRET (falls nicht vorhanden)
+4. Erstellt `backend/.env` und `frontend/.env` für lokale Entwicklung
+5. Baut alle Docker-Container
+6. Startet alle Services
+7. Wartet auf Service-Verfügbarkeit
+8. Erstellt Admin-User in der Datenbank
 
 **Voraussetzungen:**
 - Docker und Docker Compose installiert
