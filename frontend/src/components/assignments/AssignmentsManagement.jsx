@@ -117,7 +117,6 @@ const AssignmentsManagement = () => {
 
       const url = `/assignments/filtered?${params.toString()}`;
       console.log('Filter API URL:', url);
-      console.log('Full URL:', `${API_BASE_URL}${url}`);
 
       const response = await api.get(url);
       console.log('Filter API response:', response.data);
