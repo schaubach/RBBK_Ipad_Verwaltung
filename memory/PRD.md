@@ -8,12 +8,12 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 2. **Schüler-Management**: Anlegen, Bearbeiten, Löschen mit vollständigen Kontaktdaten
 3. **Zuordnungen (1:n)**: Ein Schüler kann bis zu 3 iPads zugeordnet bekommen
 4. **Verträge**: Vertragsgenerierung als PDF/ZIP-Archiv
-5. **Datensicherung**: Export aller Daten (Schüler, iPads, Zuordnungen) als Excel
-6. **Daten-Import**: Unified Import für Schüler, iPads oder beides (im Einstellungen-Tab)
+5. **Datensicherung**: Export aller Daten inkl. Status-Spalte
+6. **Daten-Import**: Unified Import mit Status-Unterstützung + Excel-Template Download
 7. **Benutzer-Verwaltung**: Admin kann Benutzer anlegen/verwalten
 8. **Session-Timeout**: 30 Minuten automatischer Logout
 9. **HTTPS/SSL**: Nginx Reverse Proxy mit selbstsignierten Zertifikaten
-10. **Docker-Deployment**: docker-compose.yml für Produktion
+10. **Docker-Deployment**: Sichere docker-compose.yml (keine Ports nach außen exponiert)
 
 ## Tech Stack
 - **Frontend**: React, TailwindCSS, ShadCN/UI
@@ -22,75 +22,55 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - **Auth**: JWT mit 30-min Session Timeout
 - **Deployment**: Docker, docker-compose, Nginx (Reverse Proxy mit SSL)
 
-## What's Been Implemented
+## What's Been Implemented (Session 5 - Feb 17-18, 2026)
 
-### Session 1-4 (Previous)
-- Complete CRUD for iPads, Students, Assignments
-- 1:n relationship (student can have multiple iPads)
-- Contract generation
-- Data backup/restore
-- Security hardening (HTTPS, CSP, session timeout)
-- Docker Compose setup
+### Sicherheit & Docker
+- **Docker-Sicherheit**: docker-compose.yml ohne exponierte Ports (nur Nginx 80/443)
+- MongoDB und Backend nur intern erreichbar via `expose` statt `ports`
 
-### Session 5 (Feb 17, 2026)
-- **Import-Konsolidierung**: 3 redundante Import-Funktionen zu einer zusammengeführt
-- **Backend-Bereinigung**: Ungenutzte Endpoints entfernt (~315 Zeilen)
-- **Frontend-Refactoring KOMPLETT**: App.js von 5174 auf 276 Zeilen reduziert (-95%)
+### Automatische Zuordnung (1:n Fix)
+- **Korrigiert**: Nur Schüler OHNE jegliches iPad bekommen automatisch eins
+- Schüler mit 1, 2 oder 3 iPads werden NICHT berücksichtigt
+- Nur iPads mit Status "ok" werden automatisch zugewiesen
 
-## Neue Projektstruktur (Nach Refactoring)
+### Import/Export Verbesserungen
+- **Status-Spalte**: Im Export und Import hinzugefügt (ok, defekt, gestohlen)
+- **Excel-Template**: Download-Endpoint `/api/imports/template` mit Beispieldaten
+- **1:n Hinweis**: Schüler mit mehreren iPads erscheinen mehrfach (eine Zeile pro iPad)
+
+### Defekte/Gestohlene iPads
+- **Bleiben zugeordnet**: Status-Änderung löst Zuordnung NICHT auf
+- **Werden nicht automatisch zugewiesen**: Nur Status "ok" bei auto-assign
+
+### Frontend-Refactoring
+- App.js von 5174 auf 276 Zeilen reduziert (-95%)
+- 13 modulare Komponenten-Dateien erstellt
+
+## Projektstruktur
 
 ```
 /app/frontend/src/
-├── App.js                 (276 Zeilen) - Nur Routing & Main Layout
-├── api/
-│   └── index.js           (73 Zeilen) - API-Konfiguration
+├── App.js                 (276 Zeilen)
+├── api/index.js           (73 Zeilen)
 ├── components/
-│   ├── auth/
-│   │   └── Login.jsx      (218 Zeilen)
-│   ├── ipads/
-│   │   ├── IPadDetailViewer.jsx (229 Zeilen)
-│   │   └── IPadsManagement.jsx  (827 Zeilen)
-│   ├── students/
-│   │   ├── StudentDetailViewer.jsx (202 Zeilen)
-│   │   └── StudentsManagement.jsx  (850 Zeilen)
-│   ├── assignments/
-│   │   └── AssignmentsManagement.jsx (917 Zeilen)
-│   ├── contracts/
-│   │   └── ContractsManagement.jsx   (242 Zeilen)
-│   ├── settings/
-│   │   └── Settings.jsx   (521 Zeilen)
-│   ├── shared/
-│   │   ├── ContractViewer.jsx  (96 Zeilen)
-│   │   └── SessionTimer.jsx    (72 Zeilen)
-│   └── users/
-│       └── UserManagement.jsx  (743 Zeilen)
+│   ├── auth/Login.jsx
+│   ├── ipads/IPadDetailViewer.jsx, IPadsManagement.jsx
+│   ├── students/StudentDetailViewer.jsx, StudentsManagement.jsx
+│   ├── assignments/AssignmentsManagement.jsx
+│   ├── contracts/ContractsManagement.jsx
+│   ├── settings/Settings.jsx
+│   ├── shared/ContractViewer.jsx, SessionTimer.jsx
+│   └── users/UserManagement.jsx
 ```
 
 ## API Endpoints
-- `POST /api/imports/inventory` - Unified data import
-- `GET /api/exports/inventory` - Data backup export
-- `GET/POST/PUT/DELETE /api/students` - Student CRUD
-- `GET/POST/PUT/DELETE /api/ipads` - iPad CRUD
-- `GET/POST/DELETE /api/assignments` - Assignment management
-- `POST /api/auth/login` - Authentication
-
-## DB Schema
-- **students**: {_id, sus_vorn, sus_nachn, sus_kl, assigned_ipad_ids: List[str], ...}
-- **ipads**: {_id, itnr, snr, status, current_assignment_id, ...}
-- **assignments**: {_id, student_id, ipad_id, is_active, ...}
-- **users**: {_id, username, password_hash, role, ...}
+- `GET /api/imports/template` - Excel-Vorlage herunterladen
+- `POST /api/imports/inventory` - Unified data import (mit Status)
+- `GET /api/exports/inventory` - Data backup export (mit Status)
+- `POST /api/assignments/auto-assign` - Nur Schüler ohne iPad
 
 ## Credentials
 - Admin: `admin` / `admin123`
 
-## Refactoring-Statistik
-| Vorher | Nachher | Reduktion |
-|--------|---------|-----------|
-| App.js: 5174 Zeilen | App.js: 276 Zeilen | -95% |
-| 1 Datei | 13 Dateien | Modulare Struktur |
-
 ## Known Issues
-- None currently
-
-## Prioritized Backlog
-- P2: Weitere Modularisierung der größeren Komponenten (IPadsManagement, StudentsManagement, AssignmentsManagement)
+- `libmagic` muss im Pod installiert sein (`sudo apt-get install -y libmagic1`)
