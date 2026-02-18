@@ -24,11 +24,14 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 
 ## What's Been Implemented
 
-### Session 6 - Dezember 2025: Dokumentation
+### Session 6 - Dezember 2025: Dokumentation & Cleanup
 - **Dokumentation konsolidiert**: Alle Anleitungen in `ENTWICKLERDOKUMENTATION.md` zusammengeführt
 - **Skript-Referenz**: Nutzung von `install.sh`, `uninstall.sh`, `deploy-smart.sh` dokumentiert
 - **SSL/HTTPS-Anleitung**: Self-Signed und Let's Encrypt Setup dokumentiert
 - **DEPLOYMENT.md entfernt**: Alle Inhalte in Entwicklerdokumentation übernommen
+- **Docker-Compose bereinigt**: Nur noch gehärtete Version in `config/docker-compose.yml`
+- **Ungehärtete Version gelöscht**: `/app/docker-compose.yml` entfernt
+- **.env-Struktur angepasst**: `config/.env` für JWT_SECRET
 
 ### Session 5 - Sicherheit & Refactoring
 - **Docker-Sicherheit**: docker-compose.yml ohne exponierte Ports (nur Nginx 80/443)
