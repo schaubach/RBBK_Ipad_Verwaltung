@@ -87,7 +87,8 @@ Das Installationsskript führt automatisch durch:
 git clone <repository-url>
 cd ipad-verwaltungssystem
 
-# 2. Environment-Dateien erstellen
+# 2. Environment-Datei erstellen
+cd config
 cp .env.example .env
 # JWT_SECRET eintragen (siehe Abschnitt 4.2)
 
