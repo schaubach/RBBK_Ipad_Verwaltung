@@ -1310,15 +1310,28 @@ async def batch_delete_students(
 # Assignment endpoints
 @api_router.post("/assignments/auto-assign", response_model=AssignmentResponse)
 async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
+    """
+    Automatische Zuordnung: Weist nur Schülern OHNE jegliche iPad-Zuordnung ein iPad zu.
+    Schüler mit bereits 1, 2 oder 3 iPads werden NICHT berücksichtigt.
+    """
     # Apply user filter
     user_filter = await get_user_filter(current_user)
     
-    # Get unassigned students for this user
-    student_filter = {**user_filter, "current_assignment_id": None}
-    unassigned_students = await db.students.find(student_filter).to_list(length=None)
+    # Get all students for this user
+    all_students = await db.students.find(user_filter).to_list(length=None)
     
-    # Get available iPads for this user (not currently assigned)
-    ipad_filter = {**user_filter, "current_assignment_id": None}
+    # Filter: Nur Schüler OHNE aktive Zuordnungen (nicht 1, nicht 2, nicht 3 - gar keine!)
+    unassigned_students = []
+    for student in all_students:
+        active_assignments = await db.assignments.count_documents({
+            "student_id": student["id"],
+            "is_active": True
+        })
+        if active_assignments == 0:
+            unassigned_students.append(student)
+    
+    # Get available iPads for this user (not currently assigned, status = 'ok')
+    ipad_filter = {**user_filter, "current_assignment_id": None, "status": "ok"}
     available_ipads = await db.ipads.find(ipad_filter).to_list(length=None)
     
     assigned_count = 0
