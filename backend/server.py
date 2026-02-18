@@ -2586,6 +2586,152 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing inventory import: {str(e)}")
 
+
+@api_router.get("/imports/template")
+async def download_import_template(current_user: dict = Depends(get_current_user)):
+    """
+    Download an Excel template for data import.
+    The template contains all supported columns with example data.
+    """
+    try:
+        # Create template data with example rows
+        template_data = [
+            {
+                "Sname": "",
+                "SuSNachn": "Mustermann",
+                "SuSVorn": "Max",
+                "SuSKl": "10a",
+                "SuSStrHNr": "Musterstraße 1",
+                "SuSPLZ": "12345",
+                "SuSOrt": "Musterstadt",
+                "SuSGeb": "01.01.2008",
+                "Erz1Nachn": "Mustermann",
+                "Erz1Vorn": "Hans",
+                "Erz1StrHNr": "Musterstraße 1",
+                "Erz1PLZ": "12345",
+                "Erz1Ort": "Musterstadt",
+                "Erz2Nachn": "",
+                "Erz2Vorn": "",
+                "Erz2StrHNr": "",
+                "Erz2PLZ": "",
+                "Erz2Ort": "",
+                "Pencil": "ohne Apple Pencil",
+                "ITNr": "IT-001",
+                "SNr": "SN-12345",
+                "Typ": "Apple iPad",
+                "Status": "ok",
+                "AnschJahr": "2024",
+                "AusleiheDatum": "15.09.2024",
+                "Rückgabe": ""
+            },
+            # Beispiel: Gleicher Schüler mit 2. iPad (1:n Beziehung)
+            {
+                "Sname": "",
+                "SuSNachn": "Mustermann",
+                "SuSVorn": "Max",
+                "SuSKl": "10a",
+                "SuSStrHNr": "Musterstraße 1",
+                "SuSPLZ": "12345",
+                "SuSOrt": "Musterstadt",
+                "SuSGeb": "01.01.2008",
+                "Erz1Nachn": "Mustermann",
+                "Erz1Vorn": "Hans",
+                "Erz1StrHNr": "Musterstraße 1",
+                "Erz1PLZ": "12345",
+                "Erz1Ort": "Musterstadt",
+                "Erz2Nachn": "",
+                "Erz2Vorn": "",
+                "Erz2StrHNr": "",
+                "Erz2PLZ": "",
+                "Erz2Ort": "",
+                "Pencil": "mit Apple Pencil",
+                "ITNr": "IT-002",
+                "SNr": "SN-67890",
+                "Typ": "Apple iPad Pro",
+                "Status": "ok",
+                "AnschJahr": "2024",
+                "AusleiheDatum": "20.09.2024",
+                "Rückgabe": ""
+            },
+            # Beispiel: Nur Schüler ohne iPad
+            {
+                "Sname": "",
+                "SuSNachn": "Schmidt",
+                "SuSVorn": "Anna",
+                "SuSKl": "10b",
+                "SuSStrHNr": "Schulweg 5",
+                "SuSPLZ": "12345",
+                "SuSOrt": "Musterstadt",
+                "SuSGeb": "15.03.2008",
+                "Erz1Nachn": "Schmidt",
+                "Erz1Vorn": "Maria",
+                "Erz1StrHNr": "Schulweg 5",
+                "Erz1PLZ": "12345",
+                "Erz1Ort": "Musterstadt",
+                "Erz2Nachn": "",
+                "Erz2Vorn": "",
+                "Erz2StrHNr": "",
+                "Erz2PLZ": "",
+                "Erz2Ort": "",
+                "Pencil": "",
+                "ITNr": "",
+                "SNr": "",
+                "Typ": "",
+                "Status": "",
+                "AnschJahr": "",
+                "AusleiheDatum": "",
+                "Rückgabe": ""
+            },
+            # Beispiel: Nur iPad ohne Schüler
+            {
+                "Sname": "",
+                "SuSNachn": "",
+                "SuSVorn": "",
+                "SuSKl": "",
+                "SuSStrHNr": "",
+                "SuSPLZ": "",
+                "SuSOrt": "",
+                "SuSGeb": "",
+                "Erz1Nachn": "",
+                "Erz1Vorn": "",
+                "Erz1StrHNr": "",
+                "Erz1PLZ": "",
+                "Erz1Ort": "",
+                "Erz2Nachn": "",
+                "Erz2Vorn": "",
+                "Erz2StrHNr": "",
+                "Erz2PLZ": "",
+                "Erz2Ort": "",
+                "Pencil": "ohne Apple Pencil",
+                "ITNr": "IT-003",
+                "SNr": "SN-11111",
+                "Typ": "Apple iPad",
+                "Status": "defekt",
+                "AnschJahr": "2023",
+                "AusleiheDatum": "",
+                "Rückgabe": ""
+            }
+        ]
+        
+        df = pd.DataFrame(template_data)
+        
+        # Create Excel file in memory
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Import-Vorlage', index=False)
+        
+        output.seek(0)
+        
+        return StreamingResponse(
+            io.BytesIO(output.read()),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": "attachment; filename=import_vorlage.xlsx"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating template: {str(e)}")
+
+
 @api_router.get("/exports/inventory")
 async def export_inventory(current_user: dict = Depends(get_current_user)):
     """Export complete data backup: all students, all iPads, and all assignments (1:n support)"""
