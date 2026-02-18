@@ -758,12 +758,22 @@ const AssignmentsManagement = () => {
                               onClick={() => handleDismissWarning(assignment)}
                             />
                           )}
-                          {assignment.itnr}
+                          <button
+                            onClick={() => setSelectedIPadId(assignment.ipad_id)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {assignment.itnr}
+                          </button>
                         </div>
                       </TableCell>
                       <TableCell>
                         <div>
-                          <div className="font-medium">{assignment.student_name}</div>
+                          <button
+                            onClick={() => setSelectedStudentId(assignment.student_id)}
+                            className="font-medium text-blue-600 hover:text-blue-800 hover:underline text-left"
+                          >
+                            {assignment.student_name}
+                          </button>
                           <div className="text-sm text-gray-500">
                             {(() => {
                               const student = students.find(s => s.id === assignment.student_id);
