@@ -460,16 +460,18 @@ bash check-system.sh
 
 ```
 /projekt-root/
-├── docker-compose.yml          # Gehärtete Produktion (ohne Auth, isoliert)
-├── .env.example                # Vorlage für Umgebungsvariablen
-├── .env                        # JWT_SECRET (nicht in Git!)
 ├── install.sh                  # Erstinstallation
 ├── uninstall.sh                # Deinstallation
 ├── deploy-smart.sh             # Smart Deployment
 ├── check-system.sh             # Systemprüfung
 │
+├── config/
+│   ├── docker-compose.yml      # Docker Orchestrierung (gehärtet)
+│   ├── .env.example            # Vorlage für JWT_SECRET
+│   └── .env                    # JWT_SECRET (nicht in Git!)
+│
 ├── backend/
-│   ├── .env                    # Backend-Konfiguration
+│   ├── .env                    # Backend-Konfiguration (lokal)
 │   ├── server.py               # FastAPI Hauptanwendung
 │   ├── contract_generator.py   # PDF-Vertragsgenerierung
 │   ├── requirements.txt        # Python Dependencies
@@ -478,7 +480,7 @@ bash check-system.sh
 │   └── tests/                  # Backend-Tests
 │
 ├── frontend/
-│   ├── .env                    # Frontend-Konfiguration
+│   ├── .env                    # Frontend-Konfiguration (lokal)
 │   ├── package.json            # NPM Dependencies
 │   ├── Dockerfile              # Frontend Container
 │   ├── src/
@@ -496,15 +498,12 @@ bash check-system.sh
 │   │       └── shared/         # Gemeinsame Komponenten
 │   └── public/                 # Statische Assets
 │
-├── nginx/
-│   ├── nginx.conf              # Nginx Hauptkonfiguration
-│   ├── default.conf            # Server-Block Konfiguration
-│   └── ssl/                    # SSL-Zertifikate
-│       ├── server.crt
-│       └── server.key
-│
-└── config/
-    └── docker-compose.yml      # Alternative (mit MongoDB Auth)
+└── nginx/
+    ├── nginx.conf              # Nginx Hauptkonfiguration
+    ├── default.conf            # Server-Block Konfiguration
+    └── ssl/                    # SSL-Zertifikate
+        ├── server.crt
+        └── server.key
 ```
 
 ### 7.2 Frontend-Komponenten-Architektur
