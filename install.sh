@@ -106,21 +106,31 @@ check_project_structure() {
 setup_environment() {
     print_step "Setup Umgebungsvariablen..."
     
-    # Backend .env
+    # Haupt-.env für Docker Compose (JWT_SECRET)
+    if [ ! -f "config/.env" ]; then
+        print_warning "config/.env fehlt - wird erstellt..."
+        JWT_SECRET=$(openssl rand -hex 32)
+        cat > config/.env << EOF
+JWT_SECRET=$JWT_SECRET
+EOF
+        print_success "config/.env erstellt (JWT_SECRET generiert)"
+    else
+        print_success "config/.env bereits vorhanden"
+    fi
+    
+    # Backend .env (für lokale Entwicklung)
     if [ ! -f "backend/.env" ]; then
         print_warning "backend/.env fehlt - wird erstellt..."
         cat > backend/.env << EOF
-MONGO_URL=mongodb://mongodb:27017/ipad_management
-SECRET_KEY=$(openssl rand -hex 32)
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
+MONGO_URL=mongodb://localhost:27017/iPadDatabase
+DB_NAME=iPadDatabase
 EOF
         print_success "backend/.env erstellt"
     else
         print_success "backend/.env bereits vorhanden"
     fi
     
-    # Frontend .env
+    # Frontend .env (für lokale Entwicklung)
     if [ ! -f "frontend/.env" ]; then
         print_warning "frontend/.env fehlt - wird erstellt..."
         cat > frontend/.env << EOF
