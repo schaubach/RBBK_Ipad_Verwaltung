@@ -2679,7 +2679,8 @@ async def export_inventory(current_user: dict = Depends(get_current_user)):
                 "ITNr": ipad.get("itnr", "") if ipad else "",
                 "SNr": ipad.get("snr", "") if ipad else "",
                 "Typ": ipad_typ if ipad else "",
-                "AnschJahr": "",
+                "Status": ipad.get("status", "ok") if ipad else "",
+                "AnschJahr": ipad.get("ansch_jahr", "") if ipad else "",
                 "AusleiheDatum": ausleibe_datum,
                 "Rückgabe": ""
             }
