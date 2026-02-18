@@ -22,29 +22,20 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - **Auth**: JWT mit 30-min Session Timeout
 - **Deployment**: Docker, docker-compose, Nginx (Reverse Proxy mit SSL)
 
-## What's Been Implemented (Session 5 - Feb 17-18, 2026)
+## What's Been Implemented
 
-### Sicherheit & Docker
+### Session 6 - Dezember 2025: Dokumentation
+- **Dokumentation konsolidiert**: Alle Anleitungen in `ENTWICKLERDOKUMENTATION.md` zusammengeführt
+- **Skript-Referenz**: Nutzung von `install.sh`, `uninstall.sh`, `deploy-smart.sh` dokumentiert
+- **SSL/HTTPS-Anleitung**: Self-Signed und Let's Encrypt Setup dokumentiert
+- **DEPLOYMENT.md entfernt**: Alle Inhalte in Entwicklerdokumentation übernommen
+
+### Session 5 - Sicherheit & Refactoring
 - **Docker-Sicherheit**: docker-compose.yml ohne exponierte Ports (nur Nginx 80/443)
 - MongoDB und Backend nur intern erreichbar via `expose` statt `ports`
-
-### Automatische Zuordnung (1:n Fix)
-- **Korrigiert**: Nur Schüler OHNE jegliches iPad bekommen automatisch eins
-- Schüler mit 1, 2 oder 3 iPads werden NICHT berücksichtigt
-- Nur iPads mit Status "ok" werden automatisch zugewiesen
-
-### Import/Export Verbesserungen
-- **Status-Spalte**: Im Export und Import hinzugefügt (ok, defekt, gestohlen)
-- **Excel-Template**: Download-Endpoint `/api/imports/template` mit Beispieldaten
-- **1:n Hinweis**: Schüler mit mehreren iPads erscheinen mehrfach (eine Zeile pro iPad)
-
-### Defekte/Gestohlene iPads
-- **Bleiben zugeordnet**: Status-Änderung löst Zuordnung NICHT auf
-- **Werden nicht automatisch zugewiesen**: Nur Status "ok" bei auto-assign
-
-### Frontend-Refactoring
-- App.js von 5174 auf 276 Zeilen reduziert (-95%)
-- 13 modulare Komponenten-Dateien erstellt
+- **Automatische Zuordnung (1:n Fix)**: Nur Schüler OHNE jegliches iPad bekommen eins
+- **Import/Export**: Status-Spalte hinzugefügt, Excel-Template Download
+- **Frontend-Refactoring**: App.js von 5174 auf 276 Zeilen reduziert (-95%)
 
 ## Projektstruktur
 
