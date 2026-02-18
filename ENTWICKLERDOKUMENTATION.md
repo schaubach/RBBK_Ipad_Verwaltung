@@ -244,6 +244,8 @@ JWT_SECRET=ihr_generiertes_secret_hier_eintragen
 ### 4.3 Docker Compose starten
 
 ```bash
+cd config
+
 # Container bauen und starten
 docker-compose up -d
 
