@@ -72,7 +72,7 @@ const StudentDetailViewer = ({ studentId, onClose }) => {
                 <div><strong>Adresse:</strong> {student.sus_str_hnr || 'N/A'}</div>
                 <div><strong>PLZ:</strong> {student.sus_plz || 'N/A'}</div>
                 <div><strong>Ort:</strong> {student.sus_ort || 'N/A'}</div>
-                <div><strong>Geburtsdatum:</strong> {student.sus_geb || 'N/A'}</div>
+                <div><strong>Geburtsdatum:</strong> {student.sus_geb ? new Date(student.sus_geb).toLocaleDateString('de-DE') : 'N/A'}</div>
                 <div><strong>Erstellt am:</strong> {student.created_at ? new Date(student.created_at).toLocaleDateString('de-DE') : 'N/A'}</div>
               </div>
             </CardContent>
