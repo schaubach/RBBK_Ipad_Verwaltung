@@ -2508,11 +2508,10 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                             assignment_dict = prepare_for_mongo(new_assignment.dict())
                             await db.assignments.insert_one(assignment_dict)
                             
-                            # Update iPad status and assignment reference
+                            # Update iPad assignment reference (keep original status like ok, defekt, gestohlen)
                             await db.ipads.update_one(
                                 {"id": ipad_id},
                                 {"$set": {
-                                    "status": "zugewiesen",
                                     "current_assignment_id": new_assignment.id,
                                     "updated_at": datetime.now(timezone.utc).isoformat()
                                 }}
