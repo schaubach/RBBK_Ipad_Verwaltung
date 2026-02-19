@@ -627,7 +627,7 @@ const AssignmentsManagement = () => {
             </Button>
             
             <Button 
-              onClick={() => handleBatchDissolve(true)}
+              onClick={() => setDissolveAllDialogOpen(true)}
               disabled={dissolving || assignments.length === 0}
               className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
             >
@@ -657,7 +657,7 @@ const AssignmentsManagement = () => {
                 </Button>
                 
                 <Button 
-                  onClick={() => handleBatchDissolve(true, true)}
+                  onClick={() => setDissolveFilteredDialogOpen(true)}
                   disabled={dissolving}
                   className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
                 >
