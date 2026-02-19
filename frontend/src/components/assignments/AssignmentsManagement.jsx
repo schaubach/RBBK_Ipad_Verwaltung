@@ -262,25 +262,14 @@ const AssignmentsManagement = () => {
     try {
       toast.info('Löse Zuordnung auf...');
       
-      const response = await fetch(`${API_BASE_URL}/assignments/${assignmentToDelete.id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      await api.delete(`/assignments/${assignmentToDelete.id}`);
       
-      if (response.ok) {
-        const data = await response.json();
-        toast.success('Zuordnung erfolgreich aufgelöst!');
-        await loadAllData();
-      } else {
-        toast.error(`API Fehler: ${response.status}`);
-      }
+      toast.success('Zuordnung erfolgreich aufgelöst!');
+      await loadAllData();
       
     } catch (error) {
       console.error('❌ Exception:', error);
-      toast.error(`Fehler: ${error.message}`);
+      toast.error(`Fehler: ${error.response?.data?.detail || error.message}`);
     } finally {
       setDeleteDialogOpen(false);
       setAssignmentToDelete(null);
