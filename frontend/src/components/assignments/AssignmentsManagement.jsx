@@ -47,6 +47,8 @@ const AssignmentsManagement = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [assignmentToDelete, setAssignmentToDelete] = useState(null);
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+  const [dissolveAllDialogOpen, setDissolveAllDialogOpen] = useState(false);
+  const [dissolveFilteredDialogOpen, setDissolveFilteredDialogOpen] = useState(false);
 
   const loadAllData = async () => {
     try {
