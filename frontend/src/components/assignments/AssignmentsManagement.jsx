@@ -923,6 +923,72 @@ const AssignmentsManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
       
+      {/* Dissolve All Assignments Confirmation Dialog */}
+      <AlertDialog open={dissolveAllDialogOpen} onOpenChange={setDissolveAllDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Alle {assignments.length} Zuordnungen auflösen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich <strong>ALLE {assignments.length} Zuordnungen</strong> auflösen?
+              <br /><br />
+              <strong>Dies führt dazu:</strong>
+              <ul className="list-disc list-inside mt-2">
+                <li>Alle iPads werden auf "verfügbar" gesetzt</li>
+                <li>Alle Schüler werden freigegeben</li>
+                <li>Alle Verträge werden inaktiv</li>
+              </ul>
+              <br />
+              <span className="text-red-600 font-bold">Diese Aktion kann nicht rückgängig gemacht werden!</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                setDissolveAllDialogOpen(false);
+                handleBatchDissolve(true, false);
+              }} 
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Alle {assignments.length} Zuordnungen auflösen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Dissolve Filtered Assignments Confirmation Dialog */}
+      <AlertDialog open={dissolveFilteredDialogOpen} onOpenChange={setDissolveFilteredDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Gefilterte {filteredAssignments.length} Zuordnungen auflösen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich die <strong>{filteredAssignments.length} gefilterten Zuordnungen</strong> auflösen?
+              <br /><br />
+              <strong>Dies führt dazu:</strong>
+              <ul className="list-disc list-inside mt-2">
+                <li>Die entsprechenden iPads werden auf "verfügbar" gesetzt</li>
+                <li>Die entsprechenden Schüler werden freigegeben</li>
+                <li>Die entsprechenden Verträge werden inaktiv</li>
+              </ul>
+              <br />
+              <span className="text-red-600 font-bold">Diese Aktion kann nicht rückgängig gemacht werden!</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={() => {
+                setDissolveFilteredDialogOpen(false);
+                handleBatchDissolve(true, true);
+              }} 
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {filteredAssignments.length} Zuordnungen auflösen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
       {/* Contract Viewer Modal */}
       {selectedContractId && (
         <ContractViewer 
