@@ -526,13 +526,13 @@ const AssignmentsManagement = () => {
         <CardContent>
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-              <div className="bg-blue-50 p-3 rounded-lg">
-                <div className="font-medium text-blue-800">Verfügbare iPads</div>
-                <div className="text-2xl font-bold text-blue-600">{availableIPads.length}</div>
-              </div>
               <div className="bg-green-50 p-3 rounded-lg">
-                <div className="font-medium text-green-800">Schüler ohne iPad</div>
-                <div className="text-2xl font-bold text-green-600">{unassignedStudents.length}</div>
+                <div className="font-medium text-green-800">Frei & OK</div>
+                <div className="text-2xl font-bold text-green-600">{freeAndOkIPads.length}</div>
+              </div>
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <div className="font-medium text-blue-800">Schüler ohne iPad</div>
+                <div className="text-2xl font-bold text-blue-600">{unassignedStudents.length}</div>
               </div>
               <div className="bg-purple-50 p-3 rounded-lg">
                 <div className="font-medium text-purple-800">Aktuelle Zuordnungen</div>
@@ -541,14 +541,14 @@ const AssignmentsManagement = () => {
             </div>
             <Button 
               onClick={handleAutoAssign}
-              disabled={assigning || availableIPads.length === 0 || unassignedStudents.length === 0}
+              disabled={assigning || freeAndOkIPads.length === 0 || unassignedStudents.length === 0}
               className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue disabled:opacity-50"
             >
               {assigning ? 'Zuordnung läuft...' : 'Automatische Zuordnung starten'}
             </Button>
-            {(availableIPads.length === 0 || unassignedStudents.length === 0) && (
+            {(freeAndOkIPads.length === 0 || unassignedStudents.length === 0) && (
               <p className="text-sm text-gray-600">
-                {availableIPads.length === 0 && 'Keine verfügbaren iPads vorhanden. '}
+                {freeAndOkIPads.length === 0 && 'Keine freien iPads mit Status OK vorhanden. '}
                 {unassignedStudents.length === 0 && 'Alle Schüler haben bereits ein iPad. '}
               </p>
             )}
