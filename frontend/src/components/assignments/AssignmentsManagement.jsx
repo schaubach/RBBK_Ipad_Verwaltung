@@ -195,18 +195,28 @@ const AssignmentsManagement = () => {
     setBatchDeleteDialogOpen(true);
   };
   
-  const handleBatchDissolve = async () => {
+  const handleBatchDissolve = async (dissolveAll = false, useFiltered = false) => {
     setDissolving(true);
     let successCount = 0;
     let errorCount = 0;
     
-    for (const assignmentId of selectedAssignments) {
+    // Bestimme welche Zuordnungen aufgelöst werden sollen
+    let assignmentsToDissolve;
+    if (dissolveAll) {
+      // Alle oder gefilterte Zuordnungen
+      assignmentsToDissolve = useFiltered ? filteredAssignments : assignments;
+    } else {
+      // Nur ausgewählte Zuordnungen
+      assignmentsToDissolve = assignments.filter(a => selectedAssignments.includes(a.id));
+    }
+    
+    for (const assignment of assignmentsToDissolve) {
       try {
-        await api.delete(`/assignments/${assignmentId}`);
+        await api.delete(`/assignments/${assignment.id}`);
         successCount++;
       } catch (error) {
         errorCount++;
-        console.error(`Failed to dissolve assignment ${assignmentId}:`, error);
+        console.error(`Failed to dissolve assignment ${assignment.id}:`, error);
       }
     }
     
