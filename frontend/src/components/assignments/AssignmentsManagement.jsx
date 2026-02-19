@@ -656,6 +656,15 @@ const AssignmentsManagement = () => {
                 </Button>
                 
                 <Button 
+                  onClick={() => handleBatchDissolve(true, true)}
+                  disabled={dissolving}
+                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  {dissolving ? 'Löse auf...' : `Gefilterte Zuordnungen lösen (${filteredAssignments.length})`}
+                </Button>
+                
+                <Button 
                   onClick={() => handleGenerateContracts(true)}
                   disabled={generatingContracts}
                   className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
