@@ -511,8 +511,8 @@ const AssignmentsManagement = () => {
   const unassignedStudents = students.filter(student => 
     !student.assignment_count || student.assignment_count === 0
   );
-  // Verfügbare iPads = nicht zugewiesen UND Status = "ok" (defekte/gestohlene werden nicht automatisch zugeordnet)
-  const availableIPads = ipads.filter(ipad => !ipad.current_assignment_id && ipad.status === 'ok');
+  // Frei & OK = nicht zugewiesen UND Status = "ok" (defekte/gestohlene werden nicht automatisch zugeordnet)
+  const freeAndOkIPads = ipads.filter(ipad => !ipad.current_assignment_id && ipad.status === 'ok');
 
   return (
     <div className="space-y-6">
