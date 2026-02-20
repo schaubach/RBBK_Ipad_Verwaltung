@@ -245,7 +245,7 @@ const Settings = () => {
             Globale Einstellungen
           </CardTitle>
           <CardDescription>
-            Standard-Werte für iPad-Typ und Pencil-Ausstattung
+            Standard-Werte für iPad-Felder
           </CardDescription>
         </CardHeader>
         <CardContent>

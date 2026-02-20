@@ -179,3 +179,8 @@ temp/
 # Environment files
 *.env
 *.env.*
+yarn.lock
+-e 
+# Environment files
+*.env
+*.env.*
