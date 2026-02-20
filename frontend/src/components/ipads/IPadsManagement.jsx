@@ -230,7 +230,20 @@ const IPadsManagement = () => {
   useEffect(() => {
     loadIPads();
     loadAvailableStudents();
+    loadGlobalSettings();
   }, []);
+
+  // Open create dialog with defaults from global settings
+  const openCreateDialog = () => {
+    setNewIPadData({
+      itnr: '',
+      snr: '',
+      typ: globalSettings.ipad_typ || 'Apple iPad',
+      pencil: globalSettings.pencil || 'ohne Apple Pencil',
+      status: 'ok'
+    });
+    setCreateDialogOpen(true);
+  };
 
   const handleStatusChange = async (ipadId, newStatus) => {
     try {
