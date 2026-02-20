@@ -448,52 +448,6 @@ async def change_password(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error changing password: {str(e)}")
 
-@api_router.put("/auth/change-username")
-async def change_username(
-    username_data: dict,
-    current_user: dict = Depends(get_current_user)
-):
-    """Change username"""
-    try:
-        current_password = username_data.get("current_password")
-        new_username = username_data.get("new_username")
-        
-        if not current_password or not new_username:
-            raise HTTPException(status_code=400, detail="Current password and new username are required")
-        
-        if len(new_username) < 3:
-            raise HTTPException(status_code=400, detail="New username must be at least 3 characters long")
-        
-        # Check if new username already exists
-        existing_user = await db.users.find_one({"username": new_username})
-        if existing_user and existing_user["id"] != current_user["id"]:
-            raise HTTPException(status_code=400, detail="Username already exists")
-        
-        # Get current user from database
-        user = await db.users.find_one({"id": current_user["id"]})
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Verify current password
-        if not verify_password(current_password, user["password_hash"]):
-            raise HTTPException(status_code=400, detail="Current password is incorrect")
-        
-        # Update username
-        await db.users.update_one(
-            {"id": current_user["id"]},
-            {"$set": {
-                "username": new_username,
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }}
-        )
-        
-        return {"message": "Username changed successfully", "new_username": new_username}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error changing username: {str(e)}")
-
 @api_router.put("/auth/change-password-forced")
 async def change_password_forced(
     password_data: dict,
