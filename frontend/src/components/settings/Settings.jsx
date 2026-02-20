@@ -381,92 +381,50 @@ const Settings = () => {
             Konto-Verwaltung
           </CardTitle>
           <CardDescription>
-            Passwort und Benutzername ändern
+            Passwort ändern
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Password Change */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-gray-800 mb-4">Passwort ändern</h4>
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="current_password">Aktuelles Passwort</Label>
-                  <Input
-                    id="current_password"
-                    type="password"
-                    value={passwordForm.current_password}
-                    onChange={(e) => setPasswordForm({...passwordForm, current_password: e.target.value})}
-                    className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="new_password">Neues Passwort</Label>
-                  <Input
-                    id="new_password"
-                    type="password"
-                    value={passwordForm.new_password}
-                    onChange={(e) => setPasswordForm({...passwordForm, new_password: e.target.value})}
-                    className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="confirm_password">Neues Passwort bestätigen</Label>
-                  <Input
-                    id="confirm_password"
-                    type="password"
-                    value={passwordForm.confirm_password}
-                    onChange={(e) => setPasswordForm({...passwordForm, confirm_password: e.target.value})}
-                    className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <Button 
-                  onClick={handlePasswordChange}
-                  disabled={changingPassword || !passwordForm.current_password || !passwordForm.new_password || !passwordForm.confirm_password}
-                  className="w-full bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
-                >
-                  {changingPassword ? 'Ändert Passwort...' : 'Passwort ändern'}
-                </Button>
+          <div className="max-w-md space-y-4">
+            <h4 className="font-medium text-gray-800 mb-4">Passwort ändern</h4>
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="current_password">Aktuelles Passwort</Label>
+                <Input
+                  id="current_password"
+                  type="password"
+                  value={passwordForm.current_password}
+                  onChange={(e) => setPasswordForm({...passwordForm, current_password: e.target.value})}
+                  className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
+                />
               </div>
-            </div>
-
-            {/* Username Change */}
-            <div className="space-y-4">
-              <h4 className="font-medium text-gray-800 mb-4">Benutzername ändern</h4>
-              <div className="space-y-3">
-                <div>
-                  <Label htmlFor="username_current_password">Aktuelles Passwort</Label>
-                  <Input
-                    id="username_current_password"
-                    type="password"
-                    value={usernameForm.current_password}
-                    onChange={(e) => setUsernameForm({...usernameForm, current_password: e.target.value})}
-                    className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="new_username">Neuer Benutzername</Label>
-                  <Input
-                    id="new_username"
-                    type="text"
-                    value={usernameForm.new_username}
-                    onChange={(e) => setUsernameForm({...usernameForm, new_username: e.target.value})}
-                    className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="bg-yellow-50 p-3 rounded-lg">
-                  <p className="text-sm text-yellow-800">
-                    <strong>Hinweis:</strong> Nach der Änderung des Benutzernamens werden Sie automatisch abgemeldet.
-                  </p>
-                </div>
-                <Button 
-                  onClick={handleUsernameChange}
-                  disabled={changingUsername || !usernameForm.current_password || !usernameForm.new_username}
-                  className="w-full bg-gradient-to-r from-ipad-blue to-ipad-beige hover:from-ipad-dark-blue hover:to-ipad-dark-gray"
-                >
-                  {changingUsername ? 'Ändert Benutzername...' : 'Benutzername ändern'}
-                </Button>
+              <div>
+                <Label htmlFor="new_password">Neues Passwort</Label>
+                <Input
+                  id="new_password"
+                  type="password"
+                  value={passwordForm.new_password}
+                  onChange={(e) => setPasswordForm({...passwordForm, new_password: e.target.value})}
+                  className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
+                />
               </div>
+              <div>
+                <Label htmlFor="confirm_password">Neues Passwort bestätigen</Label>
+                <Input
+                  id="confirm_password"
+                  type="password"
+                  value={passwordForm.confirm_password}
+                  onChange={(e) => setPasswordForm({...passwordForm, confirm_password: e.target.value})}
+                  className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <Button 
+                onClick={handlePasswordChange}
+                disabled={changingPassword || !passwordForm.current_password || !passwordForm.new_password || !passwordForm.confirm_password}
+                className="w-full bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
+              >
+                {changingPassword ? 'Ändert Passwort...' : 'Passwort ändern'}
+              </Button>
             </div>
           </div>
         </CardContent>
