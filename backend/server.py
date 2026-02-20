@@ -460,11 +460,11 @@ async def change_username(
         
         # Check if new username already exists
         existing_user = await db.users.find_one({"username": new_username})
-        if existing_user and existing_user["username"] != current_user:
+        if existing_user and existing_user["id"] != current_user["id"]:
             raise HTTPException(status_code=400, detail="Username already exists")
         
-        # Get current user
-        user = await db.users.find_one({"username": current_user})
+        # Get current user from database
+        user = await db.users.find_one({"id": current_user["id"]})
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -474,7 +474,7 @@ async def change_username(
         
         # Update username
         await db.users.update_one(
-            {"username": current_user},
+            {"id": current_user["id"]},
             {"$set": {
                 "username": new_username,
                 "updated_at": datetime.now(timezone.utc).isoformat()
