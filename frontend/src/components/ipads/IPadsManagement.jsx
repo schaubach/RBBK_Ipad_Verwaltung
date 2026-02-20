@@ -318,7 +318,13 @@ const IPadsManagement = () => {
       const response = await api.post('/ipads', newIPadData);
       toast.success('iPad erfolgreich angelegt!');
       setCreateDialogOpen(false);
-      setNewIPadData({ itnr: '', snr: '', typ: '', status: 'ok' });
+      setNewIPadData({ 
+        itnr: '', 
+        snr: '', 
+        typ: globalSettings.ipad_typ || '', 
+        pencil: globalSettings.pencil || '',
+        status: 'ok' 
+      });
       loadIPads();
     } catch (error) {
       console.error('Create iPad error:', error);
