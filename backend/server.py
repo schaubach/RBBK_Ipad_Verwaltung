@@ -416,8 +416,8 @@ async def change_password(
         if len(new_password) < 6:
             raise HTTPException(status_code=400, detail="New password must be at least 6 characters long")
         
-        # Get current user
-        user = await db.users.find_one({"username": current_user})
+        # Get current user from database (current_user is already the user dict)
+        user = await db.users.find_one({"id": current_user["id"]})
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         
@@ -428,7 +428,7 @@ async def change_password(
         # Update password
         hashed_new_password = get_password_hash(new_password)
         await db.users.update_one(
-            {"username": current_user},
+            {"id": current_user["id"]},
             {"$set": {
                 "password_hash": hashed_new_password,
                 "updated_at": datetime.now(timezone.utc).isoformat()
