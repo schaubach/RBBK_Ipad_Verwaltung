@@ -2309,6 +2309,11 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
     Compatible with both old (1:1) and new (1:n) export formats.
     """
     try:
+        # Load global settings for default values
+        global_settings = await db.global_settings.find_one({"type": "app_settings"})
+        default_ipad_typ = global_settings.get("ipad_typ", "Apple iPad") if global_settings else "Apple iPad"
+        default_pencil = global_settings.get("pencil", "ohne Apple Pencil") if global_settings else "ohne Apple Pencil"
+        
         # Validate file type
         if not file.filename.lower().endswith(('.xlsx', '.xls')):
             raise HTTPException(status_code=400, detail="Only Excel files (.xlsx, .xls) are allowed")
