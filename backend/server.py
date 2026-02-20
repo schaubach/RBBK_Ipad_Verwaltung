@@ -383,23 +383,29 @@ def validate_uploaded_file(file_content: bytes, filename: str, max_size_mb: int 
 # Authentication endpoints
 @api_router.post("/auth/setup", response_model=dict)
 async def setup_admin():
-    """Setup initial admin user"""
-    existing_user = await db.users.find_one({"username": "admin"})
-    if existing_user:
-        # Update existing admin to have admin role if missing
-        if not existing_user.get("role"):
-            await db.users.update_one(
-                {"username": "admin"},
-                {"$set": {"role": "admin", "is_active": True}}
-            )
-            return {"message": "Admin user updated with role"}
+    """Setup initial admin user - only creates if NO admin exists"""
+    # Check if ANY admin user exists (not just username "admin")
+    existing_admin = await db.users.find_one({"role": "admin"})
+    if existing_admin:
         return {"message": "Admin user already exists"}
     
+    # Check if old-style admin exists (without role field)
+    legacy_admin = await db.users.find_one({"username": "admin"})
+    if legacy_admin:
+        # Update legacy admin to have admin role
+        await db.users.update_one(
+            {"username": "admin"},
+            {"$set": {"role": "admin", "is_active": True}}
+        )
+        return {"message": "Admin user updated with role"}
+    
+    # No admin exists - create default admin
     hashed_password = get_password_hash("admin123")
     user = User(username="admin", password_hash=hashed_password, role="admin", is_active=True)
     user_dict = prepare_for_mongo(user.dict())
     await db.users.insert_one(user_dict)
     return {"message": "Admin user created successfully", "username": "admin", "password": "admin123"}
+
 @api_router.put("/auth/change-password")
 async def change_password(
     password_data: dict,
