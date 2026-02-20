@@ -2396,12 +2396,16 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                         valid_statuses = ['ok', 'defekt', 'gestohlen']
                         ipad_status = imported_status.lower() if imported_status.lower() in valid_statuses else 'ok'
                         
+                        # Use global settings as defaults if fields are empty
+                        imported_typ = safe_str(row.get('Typ', ''))
+                        imported_pencil = safe_str(row.get('Pencil', ''))
+                        
                         new_ipad = iPad(
                             user_id=current_user["id"],
                             itnr=itnr,
                             snr=safe_str(row.get('SNr', '')),
-                            typ=safe_str(row.get('Typ', '')),
-                            pencil=safe_str(row.get('Pencil', '')),
+                            typ=imported_typ if imported_typ else default_ipad_typ,
+                            pencil=imported_pencil if imported_pencil else default_pencil,
                             ansch_jahr=safe_str(row.get('AnschJahr', '')),
                             status=ipad_status
                         )
