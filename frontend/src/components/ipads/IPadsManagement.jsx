@@ -47,9 +47,26 @@ const IPadsManagement = () => {
     itnr: '',
     snr: '',
     typ: '',
+    pencil: '',
     status: 'ok'
   });
   const [creating, setCreating] = useState(false);
+  
+  // Global settings for defaults
+  const [globalSettings, setGlobalSettings] = useState({
+    ipad_typ: 'Apple iPad',
+    pencil: 'ohne Apple Pencil'
+  });
+  
+  // Load global settings
+  const loadGlobalSettings = async () => {
+    try {
+      const response = await api.get('/settings/global');
+      setGlobalSettings(response.data);
+    } catch (error) {
+      console.error('Error loading global settings:', error);
+    }
+  };
   
   // Assignment info dialog (click on "Ja" badge to see assigned student)
   const [assignmentInfoDialogOpen, setAssignmentInfoDialogOpen] = useState(false);
