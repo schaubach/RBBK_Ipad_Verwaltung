@@ -641,36 +641,55 @@ const IPadsManagement = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Neues iPad anlegen</AlertDialogTitle>
             <AlertDialogDescription>
-              Geben Sie die Daten für das neue iPad ein.
+              Geben Sie die Daten für das neue iPad ein. Typ und Pencil sind mit den Standardwerten aus den globalen Einstellungen vorbelegt.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="itnr">ITNr *</Label>
-              <Input
-                id="itnr"
-                placeholder="z.B. 12345"
-                value={newIPadData.itnr}
-                onChange={(e) => setNewIPadData({...newIPadData, itnr: e.target.value})}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="itnr">ITNr *</Label>
+                <Input
+                  id="itnr"
+                  placeholder="z.B. 12345"
+                  value={newIPadData.itnr}
+                  onChange={(e) => setNewIPadData({...newIPadData, itnr: e.target.value})}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="snr">SNr *</Label>
+                <Input
+                  id="snr"
+                  placeholder="z.B. ABC123XYZ"
+                  value={newIPadData.snr}
+                  onChange={(e) => setNewIPadData({...newIPadData, snr: e.target.value})}
+                />
+              </div>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="snr">SNr *</Label>
-              <Input
-                id="snr"
-                placeholder="z.B. ABC123XYZ"
-                value={newIPadData.snr}
-                onChange={(e) => setNewIPadData({...newIPadData, snr: e.target.value})}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="typ">Typ (optional)</Label>
-              <Input
-                id="typ"
-                placeholder="z.B. iPad Pro 11"
-                value={newIPadData.typ}
-                onChange={(e) => setNewIPadData({...newIPadData, typ: e.target.value})}
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="typ">
+                  Typ
+                  <span className="text-xs text-gray-500 ml-2">(Standard aus Einstellungen)</span>
+                </Label>
+                <Input
+                  id="typ"
+                  placeholder="z.B. iPad Pro 11"
+                  value={newIPadData.typ}
+                  onChange={(e) => setNewIPadData({...newIPadData, typ: e.target.value})}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="pencil">
+                  Pencil
+                  <span className="text-xs text-gray-500 ml-2">(Standard aus Einstellungen)</span>
+                </Label>
+                <Input
+                  id="pencil"
+                  placeholder="z.B. mit Apple Pencil"
+                  value={newIPadData.pencil}
+                  onChange={(e) => setNewIPadData({...newIPadData, pencil: e.target.value})}
+                />
+              </div>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="status">Status</Label>
