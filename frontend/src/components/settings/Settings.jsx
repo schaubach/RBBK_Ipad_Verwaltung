@@ -172,39 +172,6 @@ const Settings = () => {
     }
   };
 
-  const handleUsernameChange = async () => {
-    if (usernameForm.new_username.length < 3) {
-      toast.error('Neuer Benutzername muss mindestens 3 Zeichen lang sein');
-      return;
-    }
-
-    setChangingUsername(true);
-    try {
-      const response = await api.put('/auth/change-username', {
-        current_password: usernameForm.current_password,
-        new_username: usernameForm.new_username
-      });
-      
-      toast.success(response.data.message);
-      toast.info('Bitte melden Sie sich mit dem neuen Benutzernamen an.');
-      
-      // Clear form and logout after username change
-      setUsernameForm({ current_password: '', new_username: '' });
-      
-      // Logout after 3 seconds to allow user to see the message
-      setTimeout(() => {
-        localStorage.removeItem('token');
-        window.location.reload();
-      }, 3000);
-      
-    } catch (error) {
-      console.error('Failed to change username:', error);
-      toast.error(error.response?.data?.detail || 'Fehler beim Ändern des Benutzernamens');
-    } finally {
-      setChangingUsername(false);
-    }
-  };
-
   const handleDataProtectionCleanup = async () => {
     // Double-click protection
     const now = Date.now();
