@@ -1046,29 +1046,35 @@ async def get_student_details(student_id: str, current_user: dict = Depends(get_
     # Validate resource ownership
     await validate_resource_ownership("student", student_id, current_user)
     
-    student = await db.students.find_one({"id": student_id})
+    student = await db.students.find_one({"id": student_id}, {"_id": 0})
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
     
     # Get all active assignments for this student (1:n relationship)
-    active_assignments = await db.assignments.find({
-        "student_id": student_id,
-        "is_active": True
-    }).to_list(length=None)
+    active_assignments = await db.assignments.find(
+        {"student_id": student_id, "is_active": True}, 
+        {"_id": 0}
+    ).to_list(length=None)
     
     # Get assignment history
-    assignment_history = await db.assignments.find({"student_id": student_id}).to_list(length=None)
+    assignment_history = await db.assignments.find(
+        {"student_id": student_id}, 
+        {"_id": 0}
+    ).to_list(length=None)
     
     # Get contracts related to this student via student_id (new way) or student_name/assignment_id (legacy)
-    contracts = await db.contracts.find({
-        "$or": [
-            {"student_id": student_id},
-            {"student_name": {"$regex": f"{student['sus_vorn']} {student['sus_nachn']}", "$options": "i"}},
-            {"assignment_id": {"$in": [a["id"] for a in assignment_history]}}
-        ]
-    }).to_list(length=None)
+    contracts = await db.contracts.find(
+        {
+            "$or": [
+                {"student_id": student_id},
+                {"student_name": {"$regex": f"{student['sus_vorn']} {student['sus_nachn']}", "$options": "i"}},
+                {"assignment_id": {"$in": [a["id"] for a in assignment_history]}}
+            ]
+        },
+        {"_id": 0, "file_data": 0}  # Exclude _id and file_data
+    ).to_list(length=None)
     
-    # Prepare contract data (without file_data for display)
+    # Prepare contract data
     contract_data = []
     for contract in contracts:
         contract_dict = {
@@ -1084,10 +1090,13 @@ async def get_student_details(student_id: str, current_user: dict = Depends(get_
         }
         contract_data.append(contract_dict)
     
+    # Prepare current assignment (first active one)
+    current_assignment_data = active_assignments[0] if active_assignments else None
+    
     return {
-        "student": Student(**parse_from_mongo(student)),
-        "current_assignment": active_assignments[0] if active_assignments else None,  # First active assignment for display
-        "assignment_history": [Assignment(**parse_from_mongo(a)) for a in assignment_history],
+        "student": student,
+        "current_assignment": current_assignment_data,
+        "assignment_history": assignment_history,
         "contracts": contract_data
     }
 
