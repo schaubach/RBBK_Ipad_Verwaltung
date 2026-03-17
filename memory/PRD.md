@@ -7,7 +7,7 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 1. **iPad-Management**: Anlegen, Bearbeiten, Löschen, Status-Verwaltung (OK, Defekt, Gestohlen)
 2. **Schüler-Management**: Anlegen, Bearbeiten, Löschen mit vollständigen Kontaktdaten
 3. **Zuordnungen (1:n)**: Ein Schüler kann bis zu 3 iPads zugeordnet bekommen
-4. **Verträge**: Vertragsgenerierung als PDF/ZIP-Archiv
+4. **Verträge**: Vertragsgenerierung als PDF/ZIP-Archiv, Batch-Upload, Batch-Delete, Zuordnung ändern
 5. **Datensicherung**: Export aller Daten inkl. Status-Spalte
 6. **Daten-Import**: Unified Import mit Status-Unterstützung + Excel-Template Download
 7. **Benutzer-Verwaltung**: Admin kann Benutzer anlegen/verwalten
@@ -23,6 +23,14 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - **Deployment**: Docker, docker-compose, Nginx (Reverse Proxy mit SSL)
 
 ## What's Been Implemented
+
+### Session 7 - März 2025: Verträge-Tab Verbesserungen
+- **Sortierung "Zuordnung"-Spalte**: Die Zuordnung-Spalte in der Verträge-Tabelle ist jetzt sortierbar
+- **Zuordnung ändern Feature**: Bereits zugewiesene Verträge können einer neuen Zuordnung zugewiesen werden
+- **Batch-Delete mit Checkboxen**: Mehrfachauswahl von Verträgen mit Batch-Löschung über neuen API-Endpoint
+- **Bug-Fix: Veraltete Vertragsstatus**: Beim Löschen eines Vertrags wird jetzt `contract_id` im Assignment auf `null` gesetzt
+- **Neuer Endpoint**: `POST /api/contracts/batch-delete` für effiziente Batch-Löschung
+- **Neuer Endpoint**: `POST /api/contracts/{id}/unassign` für Vertrag von Zuordnung trennen
 
 ### Session 6 - Dezember 2025: Dokumentation & Cleanup
 - **Dokumentation konsolidiert**: Alle Anleitungen in `ENTWICKLERDOKUMENTATION.md` zusammengeführt
@@ -62,6 +70,9 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - `POST /api/imports/inventory` - Unified data import (mit Status)
 - `GET /api/exports/inventory` - Data backup export (mit Status)
 - `POST /api/assignments/auto-assign` - Nur Schüler ohne iPad
+- `POST /api/contracts/batch-delete` - Batch-Löschung von Verträgen (body: {contract_ids: []})
+- `POST /api/contracts/{id}/unassign` - Vertrag von Zuordnung trennen
+- `DELETE /api/contracts/{id}` - Einzelner Vertrag löschen (setzt Assignment.contract_id auf null)
 
 ## Credentials
 - Admin: `admin` / `admin123`
