@@ -1,45 +1,69 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../api';
+import StudentDetailViewer from '../students/StudentDetailViewer';
+import IPadDetailViewer from '../ipads/IPadDetailViewer';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
+import { Checkbox } from '../ui/checkbox';
 import { toast } from 'sonner';
-import { Upload, FileText, Download, Trash2, Search, Link } from 'lucide-react';
+import { Upload, FileText, Download, Trash2, Search, Link, ArrowUpDown, ArrowUp, ArrowDown, Eye } from 'lucide-react';
 
 const ContractsManagement = () => {
-  const [unassignedContracts, setUnassignedContracts] = useState([]);
+  const [contracts, setContracts] = useState([]);
   const [availableAssignments, setAvailableAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  
+  // Selection
+  const [selectedContracts, setSelectedContracts] = useState([]);
+  
+  // Sorting
+  const [sortField, setSortField] = useState('uploaded_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+  
+  // Filtering
+  const [filenameFilter, setFilenameFilter] = useState('');
+  const [studentFilter, setStudentFilter] = useState('');
+  const [itnrFilter, setItnrFilter] = useState('');
   
   // Dialog für Vertragszuordnung
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedContract, setSelectedContract] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [assigning, setAssigning] = useState(false);
+  
+  // Detail viewers
+  const [selectedStudentId, setSelectedStudentId] = useState(null);
+  const [selectedIPadId, setSelectedIPadId] = useState(null);
+  
+  // Delete dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [contractToDelete, setContractToDelete] = useState(null);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [contractsRes, assignmentsRes] = await Promise.all([
-        api.get('/contracts/unassigned'),
+        api.get('/contracts'),
         api.get('/assignments/available-for-contracts')
       ]);
-      setUnassignedContracts(contractsRes.data);
+      setContracts(contractsRes.data);
       setAvailableAssignments(assignmentsRes.data);
     } catch (error) {
       toast.error('Fehler beim Laden der Vertragsdaten');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
 
   const handleMultipleUpload = async (files) => {
     if (files.length === 0) return;
@@ -106,10 +130,13 @@ const ContractsManagement = () => {
     }
   };
 
-  const handleDeleteContract = async (contractId) => {
+  const handleDeleteContract = async () => {
+    if (!contractToDelete) return;
     try {
-      await api.delete(`/contracts/${contractId}`);
+      await api.delete(`/contracts/${contractToDelete.id}`);
       toast.success('Vertrag gelöscht');
+      setDeleteDialogOpen(false);
+      setContractToDelete(null);
       loadData();
     } catch (error) {
       toast.error('Fehler beim Löschen des Vertrags');
@@ -134,7 +161,66 @@ const ContractsManagement = () => {
     }
   };
 
-  // Gefilterte Zuordnungen basierend auf Suchbegriff
+  // Sorting
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const getSortIcon = (field) => {
+    if (sortField !== field) return <ArrowUpDown className="h-4 w-4 ml-1" />;
+    return sortDirection === 'asc' ? <ArrowUp className="h-4 w-4 ml-1" /> : <ArrowDown className="h-4 w-4 ml-1" />;
+  };
+
+  // Selection
+  const toggleContractSelection = (contractId) => {
+    setSelectedContracts(prev => 
+      prev.includes(contractId) 
+        ? prev.filter(id => id !== contractId)
+        : [...prev, contractId]
+    );
+  };
+
+  const toggleAllSelection = () => {
+    if (selectedContracts.length === filteredContracts.length) {
+      setSelectedContracts([]);
+    } else {
+      setSelectedContracts(filteredContracts.map(c => c.id));
+    }
+  };
+
+  // Filtering and Sorting
+  const filteredContracts = contracts
+    .filter(contract => {
+      const matchesFilename = !filenameFilter || contract.filename?.toLowerCase().includes(filenameFilter.toLowerCase());
+      const matchesStudent = !studentFilter || contract.student_name?.toLowerCase().includes(studentFilter.toLowerCase());
+      const matchesItnr = !itnrFilter || contract.itnr?.toLowerCase().includes(itnrFilter.toLowerCase());
+      return matchesFilename && matchesStudent && matchesItnr;
+    })
+    .sort((a, b) => {
+      let aVal = a[sortField] || '';
+      let bVal = b[sortField] || '';
+      
+      if (sortField === 'uploaded_at') {
+        aVal = new Date(aVal).getTime();
+        bVal = new Date(bVal).getTime();
+      } else if (typeof aVal === 'string') {
+        aVal = aVal.toLowerCase();
+        bVal = bVal.toLowerCase();
+      }
+      
+      if (sortDirection === 'asc') {
+        return aVal > bVal ? 1 : -1;
+      } else {
+        return aVal < bVal ? 1 : -1;
+      }
+    });
+
+  // Gefilterte Zuordnungen für Dialog
   const filteredAssignments = availableAssignments.filter(a => {
     const term = searchTerm.toLowerCase();
     return (
@@ -143,8 +229,39 @@ const ContractsManagement = () => {
     );
   });
 
+  // Stats
+  const assignedCount = contracts.filter(c => c.assignment_id).length;
+  const unassignedCount = contracts.filter(c => !c.assignment_id).length;
+
   return (
     <div className="space-y-6">
+      {/* Stats */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Verträge Übersicht
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="bg-slate-100 p-3 rounded-lg">
+              <div className="font-medium text-slate-800">Gesamt</div>
+              <div className="text-2xl font-bold text-slate-600">{contracts.length}</div>
+            </div>
+            <div className="bg-green-50 p-3 rounded-lg">
+              <div className="font-medium text-green-800">Zugeordnet</div>
+              <div className="text-2xl font-bold text-green-600">{assignedCount}</div>
+            </div>
+            <div className="bg-orange-50 p-3 rounded-lg">
+              <div className="font-medium text-orange-800">Unzugeordnet</div>
+              <div className="text-2xl font-bold text-orange-600">{unassignedCount}</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Upload */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -152,90 +269,205 @@ const ContractsManagement = () => {
             Verträge hochladen
           </CardTitle>
           <CardDescription>
-            Verträge hochladen - PDF oder Bilder (bis zu 50 Dateien gleichzeitig)
+            PDF oder Bilder hochladen (bis zu 50 Dateien)
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-400 transition-colors">
             <Input
               type="file"
               accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp"
               multiple
               onChange={(e) => handleMultipleUpload(Array.from(e.target.files))}
-              className="mb-4"
               disabled={uploading}
             />
-            {uploading && (
-              <div className="text-sm text-gray-600">
-                Verträge werden hochgeladen und verarbeitet...
-              </div>
-            )}
-            
-            <div className="mt-4 p-4 bg-blue-50 rounded-lg text-left">
-              <h4 className="font-medium text-blue-800 mb-2">Upload-Hinweise:</h4>
-              <ul className="text-sm text-blue-700 space-y-1">
-                <li>• <strong>PDF-Verträge</strong> mit Formularfeldern (ITNr, SuSVorn, SuSNachn) werden automatisch zugeordnet</li>
-                <li>• <strong>Bilder</strong> (PNG, JPG, etc.) müssen manuell zugeordnet werden</li>
-                <li>• Pro Zuordnung kann nur 1 Vertrag zugewiesen werden</li>
-                <li>• Pro Schüler sind max. 3 Verträge erlaubt</li>
-              </ul>
-            </div>
+            {uploading && <div className="mt-2 text-sm text-gray-600">Hochladen...</div>}
           </div>
         </CardContent>
       </Card>
 
+      {/* Contracts Table */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Unzugewiesene Verträge ({unassignedContracts.length})
+            Verträge verwalten ({contracts.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {/* Filters */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div>
+              <Label>Dateiname</Label>
+              <Input
+                placeholder="Dateiname filtern..."
+                value={filenameFilter}
+                onChange={(e) => setFilenameFilter(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>Schüler</Label>
+              <Input
+                placeholder="Schüler filtern..."
+                value={studentFilter}
+                onChange={(e) => setStudentFilter(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>ITNr</Label>
+              <Input
+                placeholder="ITNr filtern..."
+                value={itnrFilter}
+                onChange={(e) => setItnrFilter(e.target.value)}
+              />
+            </div>
+          </div>
+
           {loading ? (
             <div className="text-center py-8">Lade Verträge...</div>
-          ) : unassignedContracts.length === 0 ? (
+          ) : filteredContracts.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              Keine unzugewiesenen Verträge vorhanden.
+              Keine Verträge gefunden.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Dateiname</TableHead>
-                    <TableHead>Hochgeladen am</TableHead>
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={selectedContracts.length === filteredContracts.length && filteredContracts.length > 0}
+                        onCheckedChange={toggleAllSelection}
+                      />
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('filename')}
+                    >
+                      <div className="flex items-center">
+                        Dateiname {getSortIcon('filename')}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('student_name')}
+                    >
+                      <div className="flex items-center">
+                        Schüler {getSortIcon('student_name')}
+                      </div>
+                    </TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('itnr')}
+                    >
+                      <div className="flex items-center">
+                        ITNr {getSortIcon('itnr')}
+                      </div>
+                    </TableHead>
+                    <TableHead>Zuordnung</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('uploaded_at')}
+                    >
+                      <div className="flex items-center">
+                        Hochgeladen {getSortIcon('uploaded_at')}
+                      </div>
+                    </TableHead>
                     <TableHead>Aktionen</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {unassignedContracts.map((contract) => (
+                  {filteredContracts.map((contract) => (
                     <TableRow key={contract.id} className="hover:bg-gray-50">
-                      <TableCell className="font-medium">{contract.filename}</TableCell>
                       <TableCell>
-                        {new Date(contract.uploaded_at).toLocaleDateString('de-DE')}
+                        <Checkbox
+                          checked={selectedContracts.includes(contract.id)}
+                          onCheckedChange={() => toggleContractSelection(contract.id)}
+                        />
+                      </TableCell>
+                      <TableCell className="font-medium max-w-xs truncate">
+                        {contract.filename}
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            onClick={() => openAssignDialog(contract)}
-                            className="bg-blue-600 hover:bg-blue-700"
+                        {contract.student_name ? (
+                          <button
+                            onClick={() => setSelectedStudentId(contract.student_id)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                            disabled={!contract.student_id}
                           >
-                            <Link className="h-4 w-4 mr-1" />
-                            Zuordnen
-                          </Button>
+                            {contract.student_name}
+                          </button>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {contract.itnr ? (
+                          <button
+                            onClick={() => setSelectedIPadId(contract.ipad_id)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                            disabled={!contract.ipad_id}
+                          >
+                            {contract.itnr}
+                          </button>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {contract.assignment_id ? (
+                          <Badge 
+                            className="bg-green-100 text-green-800 cursor-pointer hover:bg-green-200"
+                            title="Klicken um Details anzuzeigen"
+                            onClick={() => {
+                              if (contract.student_id) setSelectedStudentId(contract.student_id);
+                              else if (contract.ipad_id) setSelectedIPadId(contract.ipad_id);
+                            }}
+                          >
+                            Zugeordnet
+                          </Badge>
+                        ) : (
+                          <Badge 
+                            className="bg-orange-100 text-orange-800 cursor-pointer hover:bg-orange-200"
+                            onClick={() => openAssignDialog(contract)}
+                          >
+                            Nicht zugeordnet
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {new Date(contract.uploaded_at).toLocaleDateString('de-DE', {
+                          day: '2-digit', month: '2-digit', year: 'numeric'
+                        })}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => handleDownloadContract(contract.id, contract.filename)}
+                            title="Herunterladen"
                           >
                             <Download className="h-4 w-4" />
                           </Button>
+                          {!contract.assignment_id && (
+                            <Button
+                              size="sm"
+                              onClick={() => openAssignDialog(contract)}
+                              className="bg-blue-600 hover:bg-blue-700"
+                              title="Zuordnen"
+                            >
+                              <Link className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="destructive"
-                            onClick={() => handleDeleteContract(contract.id)}
+                            onClick={() => {
+                              setContractToDelete(contract);
+                              setDeleteDialogOpen(true);
+                            }}
+                            title="Löschen"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -325,6 +557,41 @@ const ContractsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Vertrag löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie den Vertrag <strong>{contractToDelete?.filename}</strong> wirklich löschen?
+              Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteContract} className="bg-red-600 hover:bg-red-700">
+              Löschen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Student Detail Viewer */}
+      {selectedStudentId && (
+        <StudentDetailViewer 
+          studentId={selectedStudentId} 
+          onClose={() => setSelectedStudentId(null)} 
+        />
+      )}
+
+      {/* iPad Detail Viewer */}
+      {selectedIPadId && (
+        <IPadDetailViewer 
+          ipadId={selectedIPadId} 
+          onClose={() => setSelectedIPadId(null)} 
+        />
+      )}
     </div>
   );
 };

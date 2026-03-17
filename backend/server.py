@@ -1827,12 +1827,46 @@ async def upload_multiple_contracts(files: List[UploadFile] = File(...), current
         "results": results
     }
 
+@api_router.get("/contracts")
+async def get_all_contracts(current_user: dict = Depends(get_current_user)):
+    """Get all contracts (assigned and unassigned)"""
+    user_filter = await get_user_filter(current_user)
+    contracts = await db.contracts.find(user_filter, {"_id": 0, "file_data": 0}).to_list(length=None)
+    
+    result = []
+    for contract in contracts:
+        try:
+            contract_dict = {
+                "id": contract.get("id"),
+                "assignment_id": contract.get("assignment_id"),
+                "ipad_id": contract.get("ipad_id"),
+                "student_id": contract.get("student_id"),
+                "itnr": contract.get("itnr"),
+                "student_name": contract.get("student_name"),
+                "filename": contract.get("filename"),
+                "form_fields": contract.get("form_fields", {}),
+                "uploaded_at": contract.get("uploaded_at"),
+                "is_active": contract.get("is_active", True)
+            }
+            result.append(contract_dict)
+        except Exception as e:
+            print(f"Error processing contract {contract.get('id')}: {e}")
+            continue
+    
+    return result
+
 @api_router.get("/contracts/unassigned")
 async def get_unassigned_contracts(current_user: dict = Depends(get_current_user)):
-    # Apply user filter
+    # Apply user filter - unassigned = no assignment_id
     user_filter = await get_user_filter(current_user)
-    contract_filter = {**user_filter, "is_active": False}
-    contracts = await db.contracts.find(contract_filter).to_list(length=None)
+    contract_filter = {
+        **user_filter, 
+        "$or": [
+            {"assignment_id": None},
+            {"assignment_id": {"$exists": False}}
+        ]
+    }
+    contracts = await db.contracts.find(contract_filter, {"_id": 0, "file_data": 0}).to_list(length=None)
     
     # Return contracts without file_data to avoid encoding issues
     result = []
@@ -1841,6 +1875,8 @@ async def get_unassigned_contracts(current_user: dict = Depends(get_current_user
             contract_dict = {
                 "id": contract.get("id"),
                 "assignment_id": contract.get("assignment_id"),
+                "ipad_id": contract.get("ipad_id"),
+                "student_id": contract.get("student_id"),
                 "itnr": contract.get("itnr"),
                 "student_name": contract.get("student_name"),
                 "filename": contract.get("filename"),
