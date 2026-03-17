@@ -144,7 +144,9 @@ class Assignment(BaseModel):
 class Contract(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str  # Owner of this contract
-    assignment_id: Optional[str] = None
+    assignment_id: Optional[str] = None  # Kann null sein wenn Assignment gelöscht
+    ipad_id: Optional[str] = None  # Bleibt bestehen auch wenn Assignment gelöscht
+    student_id: Optional[str] = None  # Bleibt bestehen auch wenn Assignment gelöscht
     itnr: Optional[str] = None
     student_name: Optional[str] = None
     filename: str
@@ -907,11 +909,23 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
             detail="iPad ist aktuell zugewiesen. Bitte zuerst die Zuordnung auflösen."
         )
     
+    # Update contracts: entferne ipad_id Referenz
+    await db.contracts.update_many(
+        {"ipad_id": ipad_id},
+        {"$set": {"ipad_id": None, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Delete orphaned contracts (no ipad_id, no student_id, no assignment_id)
+    contracts_deleted = await db.contracts.delete_many({
+        "$and": [
+            {"$or": [{"student_id": None}, {"student_id": {"$exists": False}}]},
+            {"$or": [{"ipad_id": None}, {"ipad_id": {"$exists": False}}]},
+            {"$or": [{"assignment_id": None}, {"assignment_id": {"$exists": False}}]}
+        ]
+    })
+    
     # Delete all assignments history for this iPad
     assignments_result = await db.assignments.delete_many({"ipad_id": ipad_id})
-    
-    # Delete all contracts for this iPad
-    contracts_result = await db.contracts.delete_many({"itnr": ipad["itnr"]})
     
     # Delete the iPad
     await db.ipads.delete_one({"id": ipad_id})
@@ -919,7 +933,7 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
     return {
         "message": f"iPad {ipad['itnr']} erfolgreich gelöscht",
         "deleted_assignments": assignments_result.deleted_count,
-        "deleted_contracts": contracts_result.deleted_count
+        "deleted_contracts": contracts_deleted.deleted_count
     }
 
 
@@ -1075,7 +1089,7 @@ async def get_student_details(student_id: str, current_user: dict = Depends(get_
 
 @api_router.delete("/students/{student_id}")
 async def delete_student(student_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete a student and all related data (assignments, contracts, history)"""
+    """Delete a student and handle related data (assignments, contracts)"""
     # Validate resource ownership
     await validate_resource_ownership("student", student_id, current_user)
     
@@ -1092,11 +1106,15 @@ async def delete_student(student_id: str, current_user: dict = Depends(get_curre
     }).to_list(length=None)
     
     for active_assignment in active_assignments:
-        # Move contract to inactive if exists
+        # Update contract: entferne student_id Referenz
         if active_assignment.get("contract_id"):
             await db.contracts.update_one(
                 {"id": active_assignment["contract_id"]},
-                {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+                {"$set": {
+                    "student_id": None,
+                    "assignment_id": None,
+                    "updated_at": datetime.now(timezone.utc).isoformat()
+                }}
             )
         
         # Mark assignment as inactive
@@ -1118,28 +1136,31 @@ async def delete_student(student_id: str, current_user: dict = Depends(get_curre
             }}
         )
     
-    # Step 2: Delete all assignments (history) for this student
-    assignments_result = await db.assignments.delete_many({"student_id": student_id})
+    # Step 2: Update all contracts for this student - set student_id to null
+    await db.contracts.update_many(
+        {"student_id": student_id},
+        {"$set": {"student_id": None, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
     
-    # Step 3: Delete all contracts related to this student
-    # Find contracts by student name pattern or by assignment IDs
-    all_assignments = await db.assignments.find({"student_id": student_id}).to_list(length=None)
-    assignment_ids = [a["id"] for a in all_assignments]
-    
-    contracts_result = await db.contracts.delete_many({
-        "$or": [
-            {"student_name": {"$regex": f"{student['sus_vorn']} {student['sus_nachn']}", "$options": "i"}},
-            {"assignment_id": {"$in": assignment_ids}}
+    # Step 3: Delete orphaned contracts (no ipad_id, no student_id, no assignment_id)
+    contracts_deleted = await db.contracts.delete_many({
+        "$and": [
+            {"$or": [{"student_id": None}, {"student_id": {"$exists": False}}]},
+            {"$or": [{"ipad_id": None}, {"ipad_id": {"$exists": False}}]},
+            {"$or": [{"assignment_id": None}, {"assignment_id": {"$exists": False}}]}
         ]
     })
     
-    # Step 4: Delete the student
-    student_result = await db.students.delete_one({"id": student_id})
+    # Step 4: Delete all assignments for this student
+    assignments_result = await db.assignments.delete_many({"student_id": student_id})
+    
+    # Step 5: Delete the student
+    await db.students.delete_one({"id": student_id})
     
     return {
         "message": f"Schüler {student_name} erfolgreich gelöscht",
         "deleted_assignments": assignments_result.deleted_count,
-        "deleted_contracts": contracts_result.deleted_count
+        "deleted_contracts": contracts_deleted.deleted_count
     }
 
 
@@ -1665,10 +1686,17 @@ async def upload_multiple_contracts(files: List[UploadFile] = File(...), current
                     assignment_found = True
                     assignment_method = f"PDF form fields (iPad {itnr})"
                     
-                    # Create contract with assignment
+                    # Check if assignment already has a contract
+                    if assignment.get("contract_id"):
+                        results.append({"filename": file.filename, "status": "skipped", "message": "Assignment hat bereits einen Vertrag"})
+                        continue
+                    
+                    # Create contract with all 3 references
                     contract = Contract(
                         user_id=current_user["id"],
                         assignment_id=assignment["id"],
+                        ipad_id=assignment.get("ipad_id"),
+                        student_id=assignment.get("student_id"),
                         itnr=str(itnr),
                         student_name=f"{sus_vorn} {sus_nachn}",
                         filename=file.filename,
@@ -1727,13 +1755,20 @@ async def upload_multiple_contracts(files: List[UploadFile] = File(...), current
                             student_data = assignment["student"][0] if assignment["student"] else None
                             
                             if student_data:
+                                # Check if assignment already has a contract
+                                if assignment.get("contract_id"):
+                                    results.append({"filename": file.filename, "status": "skipped", "message": "Assignment hat bereits einen Vertrag"})
+                                    continue
+                                
                                 assignment_found = True
                                 assignment_method = f"filename pattern ({vorname_file}_{nachname_file})"
                                 
-                                # Create contract with assignment
+                                # Create contract with all 3 references
                                 contract = Contract(
                                     user_id=current_user["id"],
                                     assignment_id=assignment["id"],
+                                    ipad_id=assignment.get("ipad_id"),
+                                    student_id=assignment.get("student_id"),
                                     itnr=assignment["itnr"],
                                     student_name=f"{student_data['sus_vorn']} {student_data['sus_nachn']}",
                                     filename=file.filename,
@@ -1809,31 +1844,32 @@ async def get_unassigned_contracts(current_user: dict = Depends(get_current_user
 
 @api_router.get("/assignments/available-for-contracts")
 async def get_assignments_available_for_contracts(current_user: dict = Depends(get_current_user)):
-    """Get assignments that can still receive contracts (respects MAX_CONTRACTS_PER_STUDENT)"""
-    # Apply user filter
+    """Get assignments that don't have a contract yet AND where student hasn't reached limit"""
     user_filter = await get_user_filter(current_user)
     
-    # Get all active assignments for this user
+    # Get assignments without contracts
     assignments = await db.assignments.find({
         **user_filter,
-        "is_active": True
+        "is_active": True,
+        "$or": [
+            {"contract_id": None},
+            {"contract_id": {"$exists": False}}
+        ]
     }).to_list(length=None)
     
     # Count contracts per student
     student_contract_count = {}
     for assignment in assignments:
         student_id = assignment.get("student_id")
-        if student_id:
-            if student_id not in student_contract_count:
-                # Count existing contracts for this student
-                contract_count = await db.contracts.count_documents({
-                    **user_filter,
-                    "is_active": True,
-                    "assignment_id": {"$in": [a["id"] for a in assignments if a.get("student_id") == student_id]}
-                })
-                student_contract_count[student_id] = contract_count
+        if student_id and student_id not in student_contract_count:
+            count = await db.contracts.count_documents({
+                **user_filter,
+                "student_id": student_id,
+                "is_active": True
+            })
+            student_contract_count[student_id] = count
     
-    # Filter assignments where student hasn't reached contract limit
+    # Filter: Assignment hat keinen Vertrag UND Schüler hat Limit nicht erreicht
     available = []
     for a in assignments:
         student_id = a.get("student_id")
@@ -1861,21 +1897,20 @@ async def assign_contract_to_assignment(contract_id: str, assignment_id: str, cu
     if not contract or not assignment:
         raise HTTPException(status_code=404, detail="Contract or assignment not found")
     
-    # Check contract limit for student
+    # Check if assignment already has a contract
+    if assignment.get("contract_id"):
+        raise HTTPException(status_code=400, detail="Diese Zuordnung hat bereits einen Vertrag")
+    
+    # Get student and iPad info
     student_id = assignment.get("student_id")
+    ipad_id = assignment.get("ipad_id")
+    
+    # Check contract limit for student
     if student_id:
         user_filter = await get_user_filter(current_user)
-        # Get all assignments for this student
-        student_assignments = await db.assignments.find({
+        existing_contracts = await db.contracts.count_documents({
             **user_filter,
             "student_id": student_id,
-            "is_active": True
-        }).to_list(length=None)
-        
-        # Count existing contracts for these assignments
-        assignment_ids = [a["id"] for a in student_assignments]
-        existing_contracts = await db.contracts.count_documents({
-            "assignment_id": {"$in": assignment_ids},
             "is_active": True
         })
         
@@ -1885,11 +1920,13 @@ async def assign_contract_to_assignment(contract_id: str, assignment_id: str, cu
                 detail=f"Schüler hat bereits {MAX_CONTRACTS_PER_STUDENT} Vertrag/Verträge (Maximum erreicht)"
             )
     
-    # Update contract
+    # Update contract with all 3 references
     await db.contracts.update_one(
         {"id": contract_id},
         {"$set": {
             "assignment_id": assignment_id,
+            "ipad_id": ipad_id,
+            "student_id": student_id,
             "itnr": assignment["itnr"],
             "student_name": assignment["student_name"],
             "is_active": True,
@@ -1897,7 +1934,7 @@ async def assign_contract_to_assignment(contract_id: str, assignment_id: str, cu
         }}
     )
     
-    # Update assignment - add contract to list or set as primary
+    # Update assignment with contract reference
     await db.assignments.update_one(
         {"id": assignment_id},
         {"$set": {"contract_id": contract_id}}
@@ -2059,11 +2096,16 @@ async def dissolve_assignment(assignment_id: str, current_user: dict = Depends(g
     if not assignment:
         raise HTTPException(status_code=404, detail="Assignment not found")
     
-    # Move contract to history if exists
+    # Vertrag bleibt bestehen, nur assignment_id wird auf null gesetzt
+    # Vertrag ist weiterhin über ipad_id und student_id findbar
     if assignment.get("contract_id"):
         await db.contracts.update_one(
             {"id": assignment["contract_id"]},
-            {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+            {"$set": {
+                "assignment_id": None,  # Assignment-Referenz entfernen
+                # ipad_id und student_id bleiben erhalten!
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
         )
     
     # Mark assignment as inactive
