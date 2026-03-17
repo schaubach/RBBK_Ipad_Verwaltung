@@ -3,16 +3,23 @@ import api from '../../api';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
+import { Label } from '../ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { toast } from 'sonner';
-import { Upload, FileText, Download, Trash2 } from 'lucide-react';
+import { Upload, FileText, Download, Trash2, Search, Link } from 'lucide-react';
 
 const ContractsManagement = () => {
   const [unassignedContracts, setUnassignedContracts] = useState([]);
   const [availableAssignments, setAvailableAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  
+  // Dialog für Vertragszuordnung
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [selectedContract, setSelectedContract] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [assigning, setAssigning] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -37,7 +44,6 @@ const ContractsManagement = () => {
   const handleMultipleUpload = async (files) => {
     if (files.length === 0) return;
     
-    // Limit to 50 files as specified in requirements
     if (files.length > 50) {
       toast.error('Maximal 50 Dateien können gleichzeitig hochgeladen werden');
       return;
@@ -54,66 +60,88 @@ const ContractsManagement = () => {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       
-      toast.success(response.data.message);
-      if (response.data.details && response.data.details.length > 0) {
-        response.data.details.forEach(detail => {
-          toast.info(detail);
-        });
+      const { processed_count, unassigned_count, results } = response.data;
+      
+      if (processed_count > 0) {
+        toast.success(`${processed_count} Verträge automatisch zugeordnet`);
+      }
+      if (unassigned_count > 0) {
+        toast.info(`${unassigned_count} Verträge zur manuellen Zuordnung bereit`);
       }
       
-      await loadData();
+      results.forEach(result => {
+        if (result.status === 'error') {
+          toast.error(`${result.filename}: ${result.message}`);
+        }
+      });
+      
+      loadData();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler beim Upload der Verträge');
+      toast.error('Fehler beim Hochladen der Verträge');
     } finally {
       setUploading(false);
     }
   };
 
-  const handleAssignContract = async (contractId, assignmentId) => {
+  const openAssignDialog = (contract) => {
+    setSelectedContract(contract);
+    setSearchTerm('');
+    setAssignDialogOpen(true);
+  };
+
+  const handleAssignContract = async (assignmentId) => {
+    if (!selectedContract) return;
+    
+    setAssigning(true);
     try {
-      await api.post(`/contracts/${contractId}/assign/${assignmentId}`);
+      await api.post(`/contracts/${selectedContract.id}/assign/${assignmentId}`);
       toast.success('Vertrag erfolgreich zugeordnet');
-      await loadData();
+      setAssignDialogOpen(false);
+      setSelectedContract(null);
+      loadData();
     } catch (error) {
-      toast.error('Fehler bei der Zuordnung');
+      toast.error(error.response?.data?.detail || 'Fehler bei der Zuordnung');
+    } finally {
+      setAssigning(false);
     }
   };
 
-  const handleDownloadContract = async (contract) => {
+  const handleDeleteContract = async (contractId) => {
     try {
-      const response = await api.get(`/contracts/${contract.id}/download`, {
-        responseType: 'blob'
-      });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', contract.filename);
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
-    } catch (error) {
-      toast.error('Fehler beim Download');
-    }
-  };
-
-  const handleDeleteContract = async (contract) => {
-    // Double-click protection
-    const now = Date.now();
-    if (!contract._lastDeleteClick || (now - contract._lastDeleteClick) > 3000) {
-      contract._lastDeleteClick = now;
-      toast.info(`Vertrag ${contract.filename} löschen? Klicken Sie nochmal in 3 Sekunden um zu bestätigen.`);
-      return;
-    }
-
-    try {
-      await api.delete(`/contracts/${contract.id}`);
-      toast.success('Vertrag erfolgreich gelöscht');
-      await loadData();
+      await api.delete(`/contracts/${contractId}`);
+      toast.success('Vertrag gelöscht');
+      loadData();
     } catch (error) {
       toast.error('Fehler beim Löschen des Vertrags');
     }
   };
+
+  const handleDownloadContract = async (contractId, filename) => {
+    try {
+      const response = await api.get(`/contracts/${contractId}/download`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      toast.error('Fehler beim Herunterladen des Vertrags');
+    }
+  };
+
+  // Gefilterte Zuordnungen basierend auf Suchbegriff
+  const filteredAssignments = availableAssignments.filter(a => {
+    const term = searchTerm.toLowerCase();
+    return (
+      a.itnr?.toLowerCase().includes(term) ||
+      a.student_name?.toLowerCase().includes(term)
+    );
+  });
 
   return (
     <div className="space-y-6">
@@ -143,15 +171,13 @@ const ContractsManagement = () => {
               </div>
             )}
             
-            {/* Upload Guidelines */}
             <div className="mt-4 p-4 bg-blue-50 rounded-lg text-left">
               <h4 className="font-medium text-blue-800 mb-2">Upload-Hinweise:</h4>
               <ul className="text-sm text-blue-700 space-y-1">
                 <li>• <strong>PDF-Verträge</strong> mit Formularfeldern (ITNr, SuSVorn, SuSNachn) werden automatisch zugeordnet</li>
                 <li>• <strong>Bilder</strong> (PNG, JPG, etc.) müssen manuell zugeordnet werden</li>
-                <li>• Verträge ohne Felder werden als "unzugewiesen" markiert</li>
-                <li>• Maximale Upload-Anzahl: 50 Dateien gleichzeitig</li>
-                <li>• Erwartete Felder: ITNr, SuSVorn, SuSNachn</li>
+                <li>• Pro Zuordnung kann nur 1 Vertrag zugewiesen werden</li>
+                <li>• Pro Schüler sind max. 3 Verträge erlaubt</li>
               </ul>
             </div>
           </div>
@@ -179,7 +205,6 @@ const ContractsManagement = () => {
                   <TableRow>
                     <TableHead>Dateiname</TableHead>
                     <TableHead>Hochgeladen am</TableHead>
-                    <TableHead>Zuordnung</TableHead>
                     <TableHead>Aktionen</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -191,38 +216,26 @@ const ContractsManagement = () => {
                         {new Date(contract.uploaded_at).toLocaleDateString('de-DE')}
                       </TableCell>
                       <TableCell>
-                        <Select
-                          onValueChange={(assignmentId) => handleAssignContract(contract.id, assignmentId)}
-                        >
-                          <SelectTrigger className="w-64">
-                            <SelectValue placeholder="Zuordnung auswählen..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableAssignments.map((assignment) => (
-                              <SelectItem key={assignment.id} value={assignment.id}>
-                                {assignment.itnr} → {assignment.student_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell>
                         <div className="flex gap-2">
-                          <Button 
-                            variant="outline" 
+                          <Button
                             size="sm"
-                            onClick={() => handleDownloadContract(contract)}
-                            title="Vertrag herunterladen"
-                            className="hover:bg-green-50"
+                            onClick={() => openAssignDialog(contract)}
+                            className="bg-blue-600 hover:bg-blue-700"
+                          >
+                            <Link className="h-4 w-4 mr-1" />
+                            Zuordnen
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDownloadContract(contract.id, contract.filename)}
                           >
                             <Download className="h-4 w-4" />
                           </Button>
-                          <Button 
-                            variant="outline" 
+                          <Button
                             size="sm"
-                            onClick={() => handleDeleteContract(contract)}
-                            title="Vertrag löschen"
-                            className="hover:bg-red-50 hover:text-red-600"
+                            variant="destructive"
+                            onClick={() => handleDeleteContract(contract.id)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -236,6 +249,82 @@ const ContractsManagement = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Dialog für Vertragszuordnung */}
+      <AlertDialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
+        <AlertDialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Vertrag zuordnen</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedContract && (
+                <span>Vertrag <strong>{selectedContract.filename}</strong> einer Zuordnung zuweisen.</span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          
+          <div className="py-4 flex-1 overflow-hidden flex flex-col">
+            <div className="mb-4">
+              <Label htmlFor="search">Suche (ITNr oder Schülername)</Label>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  id="search"
+                  placeholder="z.B. IT12345 oder Max Mustermann..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto border rounded-lg">
+              {filteredAssignments.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">
+                  {searchTerm ? 'Keine passenden Zuordnungen gefunden' : 'Keine verfügbaren Zuordnungen'}
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ITNr</TableHead>
+                      <TableHead>Schüler</TableHead>
+                      <TableHead>Verträge</TableHead>
+                      <TableHead>Aktion</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredAssignments.map((assignment) => (
+                      <TableRow key={assignment.assignment_id} className="hover:bg-gray-50">
+                        <TableCell className="font-medium">{assignment.itnr}</TableCell>
+                        <TableCell>{assignment.student_name}</TableCell>
+                        <TableCell>
+                          <span className="text-sm text-gray-500">
+                            {assignment.contracts_count}/{assignment.max_contracts}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            onClick={() => handleAssignContract(assignment.assignment_id)}
+                            disabled={assigning}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            {assigning ? 'Zuordnen...' : 'Zuordnen'}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          </div>
+          
+          <AlertDialogFooter className="mt-4">
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

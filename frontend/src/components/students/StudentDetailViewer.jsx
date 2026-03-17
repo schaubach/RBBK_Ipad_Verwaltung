@@ -160,24 +160,49 @@ const StudentDetailViewer = ({ studentId, onClose }) => {
           )}
 
           {/* Contracts */}
-          {contracts.length > 0 && (
+          {contracts && contracts.length > 0 && (
             <Card className="mb-6">
               <CardHeader>
-                <CardTitle>Verträge ({contracts.length})</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Verträge ({contracts.length})
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
+                <div className="space-y-2 max-h-60 overflow-y-auto">
                   {contracts.map((contract) => (
                     <div key={contract.id} className={`p-3 rounded-lg text-sm ${contract.is_active ? 'bg-blue-50 border-l-4 border-blue-400' : 'bg-gray-50 border-l-4 border-gray-400'}`}>
-                      <div className="flex justify-between items-start">
-                        <div>
+                      <div className="flex justify-between items-center">
+                        <div className="flex-1">
                           <div><strong>Datei:</strong> {contract.filename}</div>
                           <div><strong>iPad:</strong> {contract.itnr || 'Unzugewiesen'}</div>
                           <div><strong>Hochgeladen:</strong> {new Date(contract.uploaded_at).toLocaleDateString('de-DE')}</div>
                         </div>
-                        <Badge className={contract.is_active ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}>
-                          {contract.is_active ? 'Aktiv' : 'Historisch'}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge className={contract.is_active ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}>
+                            {contract.is_active ? 'Aktiv' : 'Historisch'}
+                          </Badge>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={async () => {
+                              try {
+                                const response = await api.get(`/contracts/${contract.id}/download`, { responseType: 'blob' });
+                                const url = window.URL.createObjectURL(new Blob([response.data]));
+                                const link = document.createElement('a');
+                                link.href = url;
+                                link.setAttribute('download', contract.filename);
+                                document.body.appendChild(link);
+                                link.click();
+                                link.remove();
+                              } catch (error) {
+                                toast.error('Fehler beim Herunterladen');
+                              }
+                            }}
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}

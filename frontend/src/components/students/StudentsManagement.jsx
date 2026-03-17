@@ -728,14 +728,14 @@ const StudentsManagement = () => {
       
       {/* iPad Search Dialog */}
       <AlertDialog open={searchDialogOpen} onOpenChange={setSearchDialogOpen}>
-        <AlertDialogContent className="max-w-2xl max-h-[80vh]">
+        <AlertDialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <AlertDialogHeader>
             <AlertDialogTitle>iPad zuordnen</AlertDialogTitle>
             <AlertDialogDescription>
               Wählen Sie ein iPad für die Zuordnung aus.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="py-4">
+          <div className="py-4 flex-1 overflow-hidden flex flex-col">
             <Input
               placeholder="iPad suchen (ITNr)..."
               value={ipadSearchQuery}
@@ -743,7 +743,7 @@ const StudentsManagement = () => {
               className="mb-4"
               autoFocus
             />
-            <div className="max-h-96 overflow-auto border rounded-md">
+            <div className="flex-1 overflow-y-auto border rounded-md">
               {availableIPads
                 .filter(ipad => 
                   !ipadSearchQuery || 
@@ -773,7 +773,7 @@ const StudentsManagement = () => {
               )}
             </div>
           </div>
-          <AlertDialogFooter>
+          <AlertDialogFooter className="mt-4">
             <AlertDialogCancel onClick={() => setIpadSearchQuery('')}>Abbrechen</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
