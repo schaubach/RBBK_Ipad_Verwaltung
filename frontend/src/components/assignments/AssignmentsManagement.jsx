@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { toast } from 'sonner';
-import { FileText, Download, Trash2, Upload, ExternalLink, Eye, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { FileText, Download, Trash2, Upload, ExternalLink, Eye, X, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react';
 
 const AssignmentsManagement = () => {
   const [assignments, setAssignments] = useState([]);

@@ -50,6 +50,7 @@ if not SECRET_KEY or len(SECRET_KEY) < 32:
 
 # Business Logic Configuration
 MAX_IPADS_PER_STUDENT = int(os.environ.get("MAX_IPADS_PER_STUDENT", 3))
+MAX_CONTRACTS_PER_STUDENT = int(os.environ.get("MAX_CONTRACTS_PER_STUDENT", 3))
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
 
@@ -1606,38 +1607,47 @@ async def upload_multiple_contracts(files: List[UploadFile] = File(...), current
     processed_count = 0
     unassigned_count = 0
     
+    # Allowed file types
+    allowed_extensions = ['.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']
+    
     for file in files[:50]:  # Limit to 50 files max
-        if not file.filename.endswith('.pdf'):
-            results.append({"filename": file.filename, "status": "error", "message": "Only .pdf files are allowed"})
+        file_ext = os.path.splitext(file.filename.lower())[1]
+        if file_ext not in allowed_extensions:
+            results.append({"filename": file.filename, "status": "error", "message": f"Nur PDF und Bilder erlaubt ({', '.join(allowed_extensions)})"})
             continue
             
         try:
             contents = await file.read()
-            # Security: Validate uploaded file
-            validate_uploaded_file(contents, file.filename, max_size_mb=5, allowed_types=['.pdf'])
+            # Security: Validate uploaded file (10MB for images)
+            max_size = 10 if file_ext != '.pdf' else 5
+            validate_uploaded_file(contents, file.filename, max_size_mb=max_size, allowed_types=allowed_extensions)
             
-            # Extract form fields from PDF
-            reader = PyPDF2.PdfReader(io.BytesIO(contents))
+            # Extract form fields from PDF (only for PDFs)
             form_fields = {}
+            itnr = None
+            sus_vorn = None
+            sus_nachn = None
             
-            try:
-                if '/AcroForm' in reader.trailer['/Root']:
-                    form = reader.trailer['/Root']['/AcroForm']
-                    if '/Fields' in form:
-                        for field in form['/Fields']:
-                            field_obj = field.get_object()
-                            field_name = field_obj.get('/T')
-                            field_value = field_obj.get('/V')
-                            
-                            if field_name:
-                                form_fields[field_name] = field_value
-            except:
-                form_fields = {}
-            
-            # Check if contract has required fields for auto-assignment (PDF form fields)
-            itnr = form_fields.get('ITNr')
-            sus_vorn = form_fields.get('SuSVorn')
-            sus_nachn = form_fields.get('SuSNachn')
+            if file_ext == '.pdf':
+                try:
+                    reader = PyPDF2.PdfReader(io.BytesIO(contents))
+                    if '/AcroForm' in reader.trailer['/Root']:
+                        form = reader.trailer['/Root']['/AcroForm']
+                        if '/Fields' in form:
+                            for field in form['/Fields']:
+                                field_obj = field.get_object()
+                                field_name = field_obj.get('/T')
+                                field_value = field_obj.get('/V')
+                                
+                                if field_name:
+                                    form_fields[field_name] = field_value
+                    
+                    # Check if contract has required fields for auto-assignment (PDF form fields)
+                    itnr = form_fields.get('ITNr')
+                    sus_vorn = form_fields.get('SuSVorn')
+                    sus_nachn = form_fields.get('SuSNachn')
+                except:
+                    form_fields = {}
             
             assignment_found = False
             assignment_method = ""
@@ -1799,17 +1809,44 @@ async def get_unassigned_contracts(current_user: dict = Depends(get_current_user
 
 @api_router.get("/assignments/available-for-contracts")
 async def get_assignments_available_for_contracts(current_user: dict = Depends(get_current_user)):
+    """Get assignments that can still receive contracts (respects MAX_CONTRACTS_PER_STUDENT)"""
     # Apply user filter
     user_filter = await get_user_filter(current_user)
-    # Get assignments without contracts for this user
-    assignment_filter = {
-        **user_filter,
-        "is_active": True,
-        "contract_id": None
-    }
-    assignments = await db.assignments.find(assignment_filter).to_list(length=None)
     
-    return [{"assignment_id": a["id"], "itnr": a["itnr"], "student_name": a["student_name"]} for a in assignments]
+    # Get all active assignments for this user
+    assignments = await db.assignments.find({
+        **user_filter,
+        "is_active": True
+    }).to_list(length=None)
+    
+    # Count contracts per student
+    student_contract_count = {}
+    for assignment in assignments:
+        student_id = assignment.get("student_id")
+        if student_id:
+            if student_id not in student_contract_count:
+                # Count existing contracts for this student
+                contract_count = await db.contracts.count_documents({
+                    **user_filter,
+                    "is_active": True,
+                    "assignment_id": {"$in": [a["id"] for a in assignments if a.get("student_id") == student_id]}
+                })
+                student_contract_count[student_id] = contract_count
+    
+    # Filter assignments where student hasn't reached contract limit
+    available = []
+    for a in assignments:
+        student_id = a.get("student_id")
+        if student_id and student_contract_count.get(student_id, 0) < MAX_CONTRACTS_PER_STUDENT:
+            available.append({
+                "assignment_id": a["id"], 
+                "itnr": a["itnr"], 
+                "student_name": a["student_name"],
+                "contracts_count": student_contract_count.get(student_id, 0),
+                "max_contracts": MAX_CONTRACTS_PER_STUDENT
+            })
+    
+    return available
 
 @api_router.post("/contracts/{contract_id}/assign/{assignment_id}")
 async def assign_contract_to_assignment(contract_id: str, assignment_id: str, current_user: dict = Depends(get_current_user)):
@@ -1824,6 +1861,30 @@ async def assign_contract_to_assignment(contract_id: str, assignment_id: str, cu
     if not contract or not assignment:
         raise HTTPException(status_code=404, detail="Contract or assignment not found")
     
+    # Check contract limit for student
+    student_id = assignment.get("student_id")
+    if student_id:
+        user_filter = await get_user_filter(current_user)
+        # Get all assignments for this student
+        student_assignments = await db.assignments.find({
+            **user_filter,
+            "student_id": student_id,
+            "is_active": True
+        }).to_list(length=None)
+        
+        # Count existing contracts for these assignments
+        assignment_ids = [a["id"] for a in student_assignments]
+        existing_contracts = await db.contracts.count_documents({
+            "assignment_id": {"$in": assignment_ids},
+            "is_active": True
+        })
+        
+        if existing_contracts >= MAX_CONTRACTS_PER_STUDENT:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Schüler hat bereits {MAX_CONTRACTS_PER_STUDENT} Vertrag/Verträge (Maximum erreicht)"
+            )
+    
     # Update contract
     await db.contracts.update_one(
         {"id": contract_id},
@@ -1836,7 +1897,7 @@ async def assign_contract_to_assignment(contract_id: str, assignment_id: str, cu
         }}
     )
     
-    # Update assignment
+    # Update assignment - add contract to list or set as primary
     await db.assignments.update_one(
         {"id": assignment_id},
         {"$set": {"contract_id": contract_id}}

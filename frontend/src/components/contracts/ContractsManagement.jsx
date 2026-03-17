@@ -124,14 +124,14 @@ const ContractsManagement = () => {
             Verträge hochladen
           </CardTitle>
           <CardDescription>
-            PDF-Verträge hochladen (bis zu 50 Dateien gleichzeitig)
+            Verträge hochladen - PDF oder Bilder (bis zu 50 Dateien gleichzeitig)
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
             <Input
               type="file"
-              accept=".pdf"
+              accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp"
               multiple
               onChange={(e) => handleMultipleUpload(Array.from(e.target.files))}
               className="mb-4"
@@ -147,7 +147,8 @@ const ContractsManagement = () => {
             <div className="mt-4 p-4 bg-blue-50 rounded-lg text-left">
               <h4 className="font-medium text-blue-800 mb-2">Upload-Hinweise:</h4>
               <ul className="text-sm text-blue-700 space-y-1">
-                <li>• PDF-Verträge mit Formularfeldern werden automatisch zugeordnet</li>
+                <li>• <strong>PDF-Verträge</strong> mit Formularfeldern (ITNr, SuSVorn, SuSNachn) werden automatisch zugeordnet</li>
+                <li>• <strong>Bilder</strong> (PNG, JPG, etc.) müssen manuell zugeordnet werden</li>
                 <li>• Verträge ohne Felder werden als "unzugewiesen" markiert</li>
                 <li>• Maximale Upload-Anzahl: 50 Dateien gleichzeitig</li>
                 <li>• Erwartete Felder: ITNr, SuSVorn, SuSNachn</li>
