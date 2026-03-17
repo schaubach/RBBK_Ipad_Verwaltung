@@ -2068,29 +2068,17 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
                 # Handle contracts without file_data for display
                 contract_dict = {
                     "id": c.get("id"),
-                    "assignment_id": c.get("assignment_id"),  # Can be None
-                    "itnr": c.get("itnr"),  # Can be None  
-                    "student_name": c.get("student_name"),  # Can be None
+                    "assignment_id": c.get("assignment_id"),
+                    "ipad_id": c.get("ipad_id"),
+                    "student_id": c.get("student_id"),
+                    "itnr": c.get("itnr"),
+                    "student_name": c.get("student_name"),
                     "filename": c.get("filename"),
                     "form_fields": c.get("form_fields", {}),
                     "uploaded_at": c.get("uploaded_at"),
-                    "is_active": c.get("is_active", True),
-                    "file_data": b""  # Empty for history display
+                    "is_active": c.get("is_active", True)
                 }
-                
-                # Create contract object safely
-                contract_obj = Contract(
-                    id=contract_dict["id"],
-                    assignment_id=contract_dict["assignment_id"],
-                    itnr=contract_dict["itnr"],
-                    student_name=contract_dict["student_name"],
-                    filename=contract_dict["filename"],
-                    file_data=contract_dict["file_data"],
-                    form_fields=contract_dict["form_fields"],
-                    uploaded_at=contract_dict["uploaded_at"],
-                    is_active=contract_dict["is_active"]
-                )
-                contract_data.append(contract_obj.dict())
+                contract_data.append(contract_dict)
             except Exception as ce:
                 print(f"Skipping contract {c.get('id')}: {ce}")
                 continue

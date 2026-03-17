@@ -42,7 +42,15 @@ const IPadDetailViewer = ({ ipadId, onClose }) => {
     return null;
   }
 
-  const { ipad, current_assignment, assignment_history, current_contract, contract_history } = ipadData;
+  const { ipad, assignments, contracts } = ipadData;
+  
+  // Find current assignment (active one)
+  const current_assignment = assignments?.find(a => a.is_active);
+  const assignment_history = assignments || [];
+  
+  // Find current contract (active one linked to current assignment)
+  const current_contract = contracts?.find(c => c.is_active && c.assignment_id === current_assignment?.id);
+  const contract_history = contracts || [];
 
   const handleDownload = async (contractId, filename) => {
     try {
@@ -186,19 +194,25 @@ const IPadDetailViewer = ({ ipadId, onClose }) => {
           {contract_history && contract_history.length > 0 && (
             <Card className="mb-6">
               <CardHeader>
-                <CardTitle>Vertragshistorie ({contract_history.length})</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Verträge ({contract_history.length})
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
+                <div className="space-y-2 max-h-60 overflow-y-auto">
                   {contract_history.map((contract) => (
-                    <div key={contract.id} className="p-3 rounded-lg text-sm bg-gray-50 border-l-4 border-gray-400">
-                      <div className="flex justify-between items-start">
-                        <div>
+                    <div key={contract.id} className={`p-3 rounded-lg text-sm ${contract.is_active ? 'bg-blue-50 border-l-4 border-blue-400' : 'bg-gray-50 border-l-4 border-gray-400'}`}>
+                      <div className="flex justify-between items-center">
+                        <div className="flex-1">
                           <div><strong>Datei:</strong> {contract.filename}</div>
+                          <div><strong>Schüler:</strong> {contract.student_name || 'Nicht zugewiesen'}</div>
                           <div><strong>Hochgeladen:</strong> {new Date(contract.uploaded_at).toLocaleDateString('de-DE')}</div>
                         </div>
-                        <div className="flex gap-2">
-                          <Badge className="bg-gray-100 text-gray-800">Historisch</Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge className={contract.is_active ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}>
+                            {contract.is_active ? 'Aktiv' : 'Historisch'}
+                          </Badge>
                           <Button 
                             variant="outline" 
                             size="sm"
