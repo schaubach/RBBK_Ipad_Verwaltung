@@ -11,11 +11,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { Checkbox } from '../ui/checkbox';
 import { toast } from 'sonner';
-import { Upload, FileText, Download, Trash2, Search, Link, ArrowUpDown, ArrowUp, ArrowDown, Eye } from 'lucide-react';
+import { Upload, FileText, Download, Trash2, Search, Link, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
 
 const ContractsManagement = () => {
   const [contracts, setContracts] = useState([]);
   const [availableAssignments, setAvailableAssignments] = useState([]);
+  const [allAssignments, setAllAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   
@@ -36,6 +37,7 @@ const ContractsManagement = () => {
   const [selectedContract, setSelectedContract] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [assigning, setAssigning] = useState(false);
+  const [isReassign, setIsReassign] = useState(false);
   
   // Detail viewers
   const [selectedStudentId, setSelectedStudentId] = useState(null);
@@ -44,16 +46,20 @@ const ContractsManagement = () => {
   // Delete dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [contractToDelete, setContractToDelete] = useState(null);
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [contractsRes, assignmentsRes] = await Promise.all([
+      const [contractsRes, availableRes, allAssignmentsRes] = await Promise.all([
         api.get('/contracts'),
-        api.get('/assignments/available-for-contracts')
+        api.get('/assignments/available-for-contracts'),
+        api.get('/assignments')
       ]);
       setContracts(contractsRes.data);
-      setAvailableAssignments(assignmentsRes.data);
+      setAvailableAssignments(availableRes.data);
+      setAllAssignments(allAssignmentsRes.data);
     } catch (error) {
       toast.error('Fehler beim Laden der Vertragsdaten');
     } finally {
@@ -107,9 +113,10 @@ const ContractsManagement = () => {
     }
   };
 
-  const openAssignDialog = (contract) => {
+  const openAssignDialog = (contract, reassign = false) => {
     setSelectedContract(contract);
     setSearchTerm('');
+    setIsReassign(reassign);
     setAssignDialogOpen(true);
   };
 
@@ -118,10 +125,16 @@ const ContractsManagement = () => {
     
     setAssigning(true);
     try {
+      // If reassigning, first unassign from current assignment
+      if (isReassign && selectedContract.assignment_id) {
+        await api.post(`/contracts/${selectedContract.id}/unassign`);
+      }
+      
       await api.post(`/contracts/${selectedContract.id}/assign/${assignmentId}`);
-      toast.success('Vertrag erfolgreich zugeordnet');
+      toast.success(isReassign ? 'Vertrag erfolgreich neu zugeordnet' : 'Vertrag erfolgreich zugeordnet');
       setAssignDialogOpen(false);
       setSelectedContract(null);
+      setIsReassign(false);
       loadData();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler bei der Zuordnung');
@@ -132,6 +145,7 @@ const ContractsManagement = () => {
 
   const handleDeleteContract = async () => {
     if (!contractToDelete) return;
+    setDeleting(true);
     try {
       await api.delete(`/contracts/${contractToDelete.id}`);
       toast.success('Vertrag gelöscht');
@@ -140,6 +154,33 @@ const ContractsManagement = () => {
       loadData();
     } catch (error) {
       toast.error('Fehler beim Löschen des Vertrags');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    setDeleting(true);
+    try {
+      const response = await api.post('/contracts/batch-delete', {
+        contract_ids: selectedContracts
+      });
+      
+      const { deleted_count, errors } = response.data;
+      
+      if (deleted_count > 0) {
+        toast.success(`${deleted_count} Vertrag/Verträge gelöscht`);
+      }
+      if (errors && errors.length > 0) {
+        toast.error(`${errors.length} Vertrag/Verträge konnten nicht gelöscht werden`);
+      }
+    } catch (error) {
+      toast.error('Fehler beim Löschen der Verträge');
+    } finally {
+      setDeleting(false);
+      setBatchDeleteDialogOpen(false);
+      setSelectedContracts([]);
+      loadData();
     }
   };
 
@@ -202,15 +243,17 @@ const ContractsManagement = () => {
       return matchesFilename && matchesStudent && matchesItnr;
     })
     .sort((a, b) => {
-      let aVal = a[sortField] || '';
-      let bVal = b[sortField] || '';
+      let aVal, bVal;
       
-      if (sortField === 'uploaded_at') {
-        aVal = new Date(aVal).getTime();
-        bVal = new Date(bVal).getTime();
-      } else if (typeof aVal === 'string') {
-        aVal = aVal.toLowerCase();
-        bVal = bVal.toLowerCase();
+      if (sortField === 'assigned') {
+        aVal = a.assignment_id ? 1 : 0;
+        bVal = b.assignment_id ? 1 : 0;
+      } else if (sortField === 'uploaded_at') {
+        aVal = new Date(a[sortField]).getTime();
+        bVal = new Date(b[sortField]).getTime();
+      } else {
+        aVal = (a[sortField] || '').toString().toLowerCase();
+        bVal = (b[sortField] || '').toString().toLowerCase();
       }
       
       if (sortDirection === 'asc') {
@@ -220,8 +263,28 @@ const ContractsManagement = () => {
       }
     });
 
+  // Für Reassign: Alle Zuordnungen ohne Vertrag + die aktuelle Zuordnung des Vertrags
+  const getAssignmentsForDialog = () => {
+    if (isReassign && selectedContract?.assignment_id) {
+      // Include the current assignment (for comparison) plus all available
+      const currentAssignment = allAssignments.find(a => a.id === selectedContract.assignment_id);
+      const available = availableAssignments.filter(a => a.assignment_id !== selectedContract.assignment_id);
+      return currentAssignment 
+        ? [...available, { 
+            assignment_id: currentAssignment.id, 
+            itnr: currentAssignment.itnr, 
+            student_name: currentAssignment.student_name,
+            contracts_count: 0,
+            max_contracts: 3,
+            isCurrent: true 
+          }]
+        : available;
+    }
+    return availableAssignments;
+  };
+
   // Gefilterte Zuordnungen für Dialog
-  const filteredAssignments = availableAssignments.filter(a => {
+  const filteredAssignments = getAssignmentsForDialog().filter(a => {
     const term = searchTerm.toLowerCase();
     return (
       a.itnr?.toLowerCase().includes(term) ||
@@ -289,9 +352,21 @@ const ContractsManagement = () => {
       {/* Contracts Table */}
       <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Verträge verwalten ({contracts.length})
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Verträge verwalten ({contracts.length})
+            </span>
+            {selectedContracts.length > 0 && (
+              <Button 
+                variant="destructive" 
+                size="sm"
+                onClick={() => setBatchDeleteDialogOpen(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {selectedContracts.length} löschen
+              </Button>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -364,7 +439,14 @@ const ContractsManagement = () => {
                         ITNr {getSortIcon('itnr')}
                       </div>
                     </TableHead>
-                    <TableHead>Zuordnung</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-100"
+                      onClick={() => handleSort('assigned')}
+                    >
+                      <div className="flex items-center">
+                        Zuordnung {getSortIcon('assigned')}
+                      </div>
+                    </TableHead>
                     <TableHead 
                       className="cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('uploaded_at')}
@@ -418,7 +500,7 @@ const ContractsManagement = () => {
                         {contract.assignment_id ? (
                           <Badge 
                             className="bg-green-100 text-green-800 cursor-pointer hover:bg-green-200"
-                            title="Klicken um Details anzuzeigen"
+                            title="Klicken für Details"
                             onClick={() => {
                               if (contract.student_id) setSelectedStudentId(contract.student_id);
                               else if (contract.ipad_id) setSelectedIPadId(contract.ipad_id);
@@ -450,7 +532,16 @@ const ContractsManagement = () => {
                           >
                             <Download className="h-4 w-4" />
                           </Button>
-                          {!contract.assignment_id && (
+                          {contract.assignment_id ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openAssignDialog(contract, true)}
+                              title="Zuordnung ändern"
+                            >
+                              <RefreshCw className="h-4 w-4" />
+                            </Button>
+                          ) : (
                             <Button
                               size="sm"
                               onClick={() => openAssignDialog(contract)}
@@ -486,10 +577,13 @@ const ContractsManagement = () => {
       <AlertDialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
         <AlertDialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <AlertDialogHeader>
-            <AlertDialogTitle>Vertrag zuordnen</AlertDialogTitle>
+            <AlertDialogTitle>{isReassign ? 'Zuordnung ändern' : 'Vertrag zuordnen'}</AlertDialogTitle>
             <AlertDialogDescription>
               {selectedContract && (
-                <span>Vertrag <strong>{selectedContract.filename}</strong> einer Zuordnung zuweisen.</span>
+                <span>
+                  Vertrag <strong>{selectedContract.filename}</strong> 
+                  {isReassign ? ' einer neuen Zuordnung zuweisen.' : ' einer Zuordnung zuweisen.'}
+                </span>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -526,7 +620,10 @@ const ContractsManagement = () => {
                   </TableHeader>
                   <TableBody>
                     {filteredAssignments.map((assignment) => (
-                      <TableRow key={assignment.assignment_id} className="hover:bg-gray-50">
+                      <TableRow 
+                        key={assignment.assignment_id} 
+                        className={`hover:bg-gray-50 ${assignment.isCurrent ? 'bg-blue-50' : ''}`}
+                      >
                         <TableCell className="font-medium">{assignment.itnr}</TableCell>
                         <TableCell>{assignment.student_name}</TableCell>
                         <TableCell>
@@ -535,14 +632,18 @@ const ContractsManagement = () => {
                           </span>
                         </TableCell>
                         <TableCell>
-                          <Button
-                            size="sm"
-                            onClick={() => handleAssignContract(assignment.assignment_id)}
-                            disabled={assigning}
-                            className="bg-green-600 hover:bg-green-700"
-                          >
-                            {assigning ? 'Zuordnen...' : 'Zuordnen'}
-                          </Button>
+                          {assignment.isCurrent ? (
+                            <Badge className="bg-blue-100 text-blue-800">Aktuell</Badge>
+                          ) : (
+                            <Button
+                              size="sm"
+                              onClick={() => handleAssignContract(assignment.assignment_id)}
+                              disabled={assigning}
+                              className="bg-green-600 hover:bg-green-700"
+                            >
+                              {assigning ? 'Zuordnen...' : 'Zuordnen'}
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -553,7 +654,7 @@ const ContractsManagement = () => {
           </div>
           
           <AlertDialogFooter className="mt-4">
-            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setIsReassign(false)}>Abbrechen</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -565,13 +666,45 @@ const ContractsManagement = () => {
             <AlertDialogTitle>Vertrag löschen?</AlertDialogTitle>
             <AlertDialogDescription>
               Möchten Sie den Vertrag <strong>{contractToDelete?.filename}</strong> wirklich löschen?
-              Diese Aktion kann nicht rückgängig gemacht werden.
+              {contractToDelete?.assignment_id && (
+                <span className="block mt-2 text-orange-600">
+                  Hinweis: Der Vertrag ist einer Zuordnung zugewiesen. Diese Zuordnung verliert den Verweis auf den Vertrag.
+                </span>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteContract} className="bg-red-600 hover:bg-red-700">
-              Löschen
+            <AlertDialogAction 
+              onClick={handleDeleteContract} 
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleting}
+            >
+              {deleting ? 'Lösche...' : 'Löschen'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{selectedContracts.length} Verträge löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich <strong>{selectedContracts.length} Verträge</strong> löschen?
+              <br /><br />
+              <span className="text-red-600 font-bold">Diese Aktion kann nicht rückgängig gemacht werden!</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleBatchDelete} 
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleting}
+            >
+              {deleting ? 'Lösche...' : `${selectedContracts.length} Verträge löschen`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

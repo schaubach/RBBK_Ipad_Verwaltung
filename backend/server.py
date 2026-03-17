@@ -2340,6 +2340,13 @@ async def delete_contract(contract_id: str, current_user: dict = Depends(get_cur
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
     
+    # If contract was assigned to an assignment, remove the reference
+    if contract.get("assignment_id"):
+        await db.assignments.update_one(
+            {"id": contract["assignment_id"]},
+            {"$set": {"contract_id": None, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+    
     # Delete the contract
     result = await db.contracts.delete_one({"id": contract_id})
     
@@ -2347,6 +2354,80 @@ async def delete_contract(contract_id: str, current_user: dict = Depends(get_cur
         raise HTTPException(status_code=404, detail="Contract not found")
     
     return {"message": "Contract deleted successfully"}
+
+
+@api_router.post("/contracts/{contract_id}/unassign")
+async def unassign_contract(contract_id: str, current_user: dict = Depends(get_current_user)):
+    """Remove the assignment from a contract (keeps the contract but removes the link)"""
+    contract = await db.contracts.find_one({"id": contract_id})
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    
+    if not contract.get("assignment_id"):
+        raise HTTPException(status_code=400, detail="Contract is not assigned")
+    
+    assignment_id = contract["assignment_id"]
+    
+    # Update the assignment to remove contract reference
+    await db.assignments.update_one(
+        {"id": assignment_id},
+        {"$set": {"contract_id": None, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    # Update the contract to remove assignment reference (keep student_id and ipad_id for historical purposes)
+    await db.contracts.update_one(
+        {"id": contract_id},
+        {"$set": {"assignment_id": None, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    
+    return {"message": "Contract unassigned successfully"}
+
+
+class BatchDeleteContractsRequest(BaseModel):
+    contract_ids: List[str]
+
+
+@api_router.post("/contracts/batch-delete")
+async def batch_delete_contracts(request: BatchDeleteContractsRequest, current_user: dict = Depends(get_current_user)):
+    """Delete multiple contracts at once"""
+    if not request.contract_ids:
+        raise HTTPException(status_code=400, detail="No contract IDs provided")
+    
+    if len(request.contract_ids) > 100:
+        raise HTTPException(status_code=400, detail="Maximum 100 contracts can be deleted at once")
+    
+    deleted_count = 0
+    errors = []
+    
+    for contract_id in request.contract_ids:
+        try:
+            contract = await db.contracts.find_one({"id": contract_id})
+            if not contract:
+                errors.append({"contract_id": contract_id, "error": "Not found"})
+                continue
+            
+            # If contract was assigned to an assignment, remove the reference
+            if contract.get("assignment_id"):
+                await db.assignments.update_one(
+                    {"id": contract["assignment_id"]},
+                    {"$set": {"contract_id": None, "updated_at": datetime.now(timezone.utc).isoformat()}}
+                )
+            
+            # Delete the contract
+            result = await db.contracts.delete_one({"id": contract_id})
+            if result.deleted_count > 0:
+                deleted_count += 1
+            else:
+                errors.append({"contract_id": contract_id, "error": "Delete failed"})
+        except Exception as e:
+            errors.append({"contract_id": contract_id, "error": str(e)})
+    
+    return {
+        "message": f"{deleted_count} contracts deleted successfully",
+        "deleted_count": deleted_count,
+        "errors": errors
+    }
+
 
 # Global Settings endpoints
 @api_router.get("/settings/global")
@@ -3426,7 +3507,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', 'http://localhost:3000,https://device-assignment.preview.emergentagent.com').split(','),
+    allow_origins=os.environ.get('CORS_ORIGINS', 'http://localhost:3000,https://vertraege-lab.preview.emergentagent.com').split(','),
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
