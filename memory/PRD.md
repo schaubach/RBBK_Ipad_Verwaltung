@@ -24,6 +24,14 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 
 ## What's Been Implemented
 
+### Session 8 - März 2025: Bearbeitungsfunktion in Detailansichten
+- **iPad-Bearbeitung**: Alle Felder (ITNr, SNr, Typ, Pencil, Karton, Status, Anschaffungsjahr, Ausleihdatum) in Detailansicht editierbar
+- **Schüler-Bearbeitung**: Alle Felder inkl. Erziehungsberechtigte 1 & 2 in Detailansicht editierbar
+- **Bearbeitungsmodus**: "Bearbeiten"-Button öffnet editierbare Felder, "Speichern"/"Abbrechen" Buttons
+- **Daten-Propagation**: Bei Namensänderung werden auch student_name in Assignments/Contracts aktualisiert
+- **Neuer Endpoint**: `PUT /api/ipads/{ipad_id}` für vollständige iPad-Bearbeitung
+- **Neuer Endpoint**: `PUT /api/students/{student_id}` für vollständige Schüler-Bearbeitung
+
 ### Session 7 - März 2025: Verträge-Tab Verbesserungen
 - **Sortierung "Zuordnung"-Spalte**: Die Zuordnung-Spalte in der Verträge-Tabelle ist jetzt sortierbar
 - **Zuordnung ändern Feature**: Bereits zugewiesene Verträge können einer neuen Zuordnung zugewiesen werden
@@ -73,6 +81,8 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - `POST /api/contracts/batch-delete` - Batch-Löschung von Verträgen (body: {contract_ids: []})
 - `POST /api/contracts/{id}/unassign` - Vertrag von Zuordnung trennen
 - `DELETE /api/contracts/{id}` - Einzelner Vertrag löschen (setzt Assignment.contract_id auf null)
+- `PUT /api/ipads/{ipad_id}` - iPad vollständig bearbeiten (alle Felder)
+- `PUT /api/students/{student_id}` - Schüler vollständig bearbeiten (alle Felder inkl. Erziehungsberechtigte)
 
 ## Credentials
 - Admin: `admin` / `admin123`
