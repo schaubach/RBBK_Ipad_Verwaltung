@@ -1100,6 +1100,99 @@ async def get_student_details(student_id: str, current_user: dict = Depends(get_
         "contracts": contract_data
     }
 
+
+class StudentUpdateRequest(BaseModel):
+    sname: Optional[str] = None
+    sus_nachn: Optional[str] = None
+    sus_vorn: Optional[str] = None
+    sus_kl: Optional[str] = None
+    sus_str_hnr: Optional[str] = None
+    sus_plz: Optional[str] = None
+    sus_ort: Optional[str] = None
+    sus_geb: Optional[str] = None
+    erz1_nachn: Optional[str] = None
+    erz1_vorn: Optional[str] = None
+    erz1_str_hnr: Optional[str] = None
+    erz1_plz: Optional[str] = None
+    erz1_ort: Optional[str] = None
+    erz2_nachn: Optional[str] = None
+    erz2_vorn: Optional[str] = None
+    erz2_str_hnr: Optional[str] = None
+    erz2_plz: Optional[str] = None
+    erz2_ort: Optional[str] = None
+
+
+@api_router.put("/students/{student_id}")
+async def update_student(student_id: str, request: StudentUpdateRequest, current_user: dict = Depends(get_current_user)):
+    """Update student information"""
+    student = await db.students.find_one({"id": student_id})
+    if not student:
+        raise HTTPException(status_code=404, detail="Schüler nicht gefunden")
+    
+    # Build update dict with only provided fields
+    update_data = {}
+    fields_to_check = [
+        "sname", "sus_nachn", "sus_vorn", "sus_kl", "sus_str_hnr", "sus_plz", "sus_ort", "sus_geb",
+        "erz1_nachn", "erz1_vorn", "erz1_str_hnr", "erz1_plz", "erz1_ort",
+        "erz2_nachn", "erz2_vorn", "erz2_str_hnr", "erz2_plz", "erz2_ort"
+    ]
+    
+    for field in fields_to_check:
+        value = getattr(request, field, None)
+        if value is not None:
+            update_data[field] = value
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Keine Änderungen angegeben")
+    
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.students.update_one(
+        {"id": student_id},
+        {"$set": update_data}
+    )
+    
+    # If name changed, update related assignments and contracts
+    if "sus_vorn" in update_data or "sus_nachn" in update_data:
+        updated_student = await db.students.find_one({"id": student_id})
+        new_name = f"{updated_student.get('sus_vorn', '')} {updated_student.get('sus_nachn', '')}"
+        await db.assignments.update_many(
+            {"student_id": student_id},
+            {"$set": {"student_name": new_name}}
+        )
+        await db.contracts.update_many(
+            {"student_id": student_id},
+            {"$set": {"student_name": new_name}}
+        )
+    
+    # Get updated student
+    updated_student = await db.students.find_one({"id": student_id})
+    return {
+        "message": "Schüler erfolgreich aktualisiert",
+        "student": {
+            "id": updated_student["id"],
+            "sname": updated_student.get("sname"),
+            "sus_nachn": updated_student.get("sus_nachn"),
+            "sus_vorn": updated_student.get("sus_vorn"),
+            "sus_kl": updated_student.get("sus_kl"),
+            "sus_str_hnr": updated_student.get("sus_str_hnr"),
+            "sus_plz": updated_student.get("sus_plz"),
+            "sus_ort": updated_student.get("sus_ort"),
+            "sus_geb": updated_student.get("sus_geb"),
+            "erz1_nachn": updated_student.get("erz1_nachn"),
+            "erz1_vorn": updated_student.get("erz1_vorn"),
+            "erz1_str_hnr": updated_student.get("erz1_str_hnr"),
+            "erz1_plz": updated_student.get("erz1_plz"),
+            "erz1_ort": updated_student.get("erz1_ort"),
+            "erz2_nachn": updated_student.get("erz2_nachn"),
+            "erz2_vorn": updated_student.get("erz2_vorn"),
+            "erz2_str_hnr": updated_student.get("erz2_str_hnr"),
+            "erz2_plz": updated_student.get("erz2_plz"),
+            "erz2_ort": updated_student.get("erz2_ort")
+        }
+    }
+
+
 @api_router.delete("/students/{student_id}")
 async def delete_student(student_id: str, current_user: dict = Depends(get_current_user)):
     """Delete a student and handle related data (assignments, contracts)"""
@@ -2018,6 +2111,89 @@ async def update_ipad_status(ipad_id: str, status: str, current_user: dict = Dep
     )
     
     return {"message": f"iPad status updated to {status}"}
+
+
+class IPadUpdateRequest(BaseModel):
+    itnr: Optional[str] = None
+    snr: Optional[str] = None
+    karton: Optional[str] = None
+    pencil: Optional[str] = None
+    typ: Optional[str] = None
+    ansch_jahr: Optional[str] = None
+    ausleihe_datum: Optional[str] = None
+    status: Optional[str] = None
+
+
+@api_router.put("/ipads/{ipad_id}")
+async def update_ipad(ipad_id: str, request: IPadUpdateRequest, current_user: dict = Depends(get_current_user)):
+    """Update iPad information"""
+    ipad = await db.ipads.find_one({"id": ipad_id})
+    if not ipad:
+        raise HTTPException(status_code=404, detail="iPad not found")
+    
+    # Build update dict with only provided fields
+    update_data = {}
+    if request.itnr is not None:
+        # Check if ITNr is unique (excluding current iPad)
+        existing = await db.ipads.find_one({"itnr": request.itnr, "id": {"$ne": ipad_id}})
+        if existing:
+            raise HTTPException(status_code=400, detail="ITNr bereits vergeben")
+        update_data["itnr"] = request.itnr
+    if request.snr is not None:
+        update_data["snr"] = request.snr
+    if request.karton is not None:
+        update_data["karton"] = request.karton
+    if request.pencil is not None:
+        update_data["pencil"] = request.pencil
+    if request.typ is not None:
+        update_data["typ"] = request.typ
+    if request.ansch_jahr is not None:
+        update_data["ansch_jahr"] = request.ansch_jahr
+    if request.ausleihe_datum is not None:
+        update_data["ausleihe_datum"] = request.ausleihe_datum
+    if request.status is not None:
+        valid_statuses = ["ok", "defekt", "gestohlen"]
+        if request.status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Ungültiger Status. Erlaubt: {valid_statuses}")
+        update_data["status"] = request.status
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Keine Änderungen angegeben")
+    
+    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    
+    await db.ipads.update_one(
+        {"id": ipad_id},
+        {"$set": update_data}
+    )
+    
+    # If ITNr changed, update related assignments and contracts
+    if "itnr" in update_data:
+        await db.assignments.update_many(
+            {"ipad_id": ipad_id},
+            {"$set": {"itnr": update_data["itnr"]}}
+        )
+        await db.contracts.update_many(
+            {"ipad_id": ipad_id},
+            {"$set": {"itnr": update_data["itnr"]}}
+        )
+    
+    # Get updated iPad
+    updated_ipad = await db.ipads.find_one({"id": ipad_id})
+    return {
+        "message": "iPad erfolgreich aktualisiert",
+        "ipad": {
+            "id": updated_ipad["id"],
+            "itnr": updated_ipad["itnr"],
+            "snr": updated_ipad.get("snr"),
+            "karton": updated_ipad.get("karton"),
+            "pencil": updated_ipad.get("pencil"),
+            "typ": updated_ipad.get("typ"),
+            "ansch_jahr": updated_ipad.get("ansch_jahr"),
+            "ausleihe_datum": updated_ipad.get("ausleihe_datum"),
+            "status": updated_ipad.get("status", "ok")
+        }
+    }
 
 
 @api_router.post("/ipads/migrate-status")
