@@ -900,7 +900,8 @@ const IPadsManagement = () => {
       {selectedIPadId && (
         <IPadDetailViewer 
           ipadId={selectedIPadId} 
-          onClose={() => setSelectedIPadId(null)} 
+          onClose={() => setSelectedIPadId(null)}
+          onUpdate={loadIPads}
         />
       )}
     </div>

@@ -1001,7 +1001,8 @@ const AssignmentsManagement = () => {
       {selectedStudentId && (
         <StudentDetailViewer 
           studentId={selectedStudentId} 
-          onClose={() => setSelectedStudentId(null)} 
+          onClose={() => setSelectedStudentId(null)}
+          onUpdate={loadAllData}
         />
       )}
 
@@ -1009,7 +1010,8 @@ const AssignmentsManagement = () => {
       {selectedIPadId && (
         <IPadDetailViewer 
           ipadId={selectedIPadId} 
-          onClose={() => setSelectedIPadId(null)} 
+          onClose={() => setSelectedIPadId(null)}
+          onUpdate={loadAllData}
         />
       )}
 

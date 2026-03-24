@@ -851,7 +851,8 @@ const StudentsManagement = () => {
       {selectedStudentId && (
         <StudentDetailViewer 
           studentId={selectedStudentId} 
-          onClose={() => setSelectedStudentId(null)} 
+          onClose={() => setSelectedStudentId(null)}
+          onUpdate={loadStudents}
         />
       )}
     </div>

@@ -714,7 +714,8 @@ const ContractsManagement = () => {
       {selectedStudentId && (
         <StudentDetailViewer 
           studentId={selectedStudentId} 
-          onClose={() => setSelectedStudentId(null)} 
+          onClose={() => setSelectedStudentId(null)}
+          onUpdate={loadData}
         />
       )}
 
@@ -722,7 +723,8 @@ const ContractsManagement = () => {
       {selectedIPadId && (
         <IPadDetailViewer 
           ipadId={selectedIPadId} 
-          onClose={() => setSelectedIPadId(null)} 
+          onClose={() => setSelectedIPadId(null)}
+          onUpdate={loadData}
         />
       )}
     </div>
