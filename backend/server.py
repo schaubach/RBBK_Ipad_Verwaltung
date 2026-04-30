@@ -1575,19 +1575,24 @@ async def get_assignments(current_user: dict = Depends(get_current_user)):
             if contract and contract.get("form_fields"):
                 fields = contract["form_fields"]
                 
-                # Check validation: Warning appears when (NutzungEinhaltung == NutzungKenntnisnahme) OR (ausgabeNeu == ausgabeGebraucht)
+                # Validierungslogik für Vertrags-Checkboxen:
+                # 1. Beide Nutzungs-Checkboxen MÜSSEN angekreuzt sein
+                # 2. Bei Ausgabe MUSS genau eine angekreuzt sein (neu ODER gebraucht)
+                
                 nutzung_einhaltung = fields.get('NutzungEinhaltung') == '/Yes'
                 # Note: The actual field name in contracts is 'NutzungKenntnisname', not 'NutzungKenntnisnahme'
-                # Also, this field contains text values, not checkbox values, so we check if it's empty or not
                 nutzung_kenntnisnahme_field = fields.get('NutzungKenntnisnahme') or fields.get('NutzungKenntnisname', '')
-                nutzung_kenntnisnahme = bool(nutzung_kenntnisnahme_field and nutzung_kenntnisnahme_field != '')
+                nutzung_kenntnisnahme = nutzung_kenntnisnahme_field == '/Yes' or bool(nutzung_kenntnisnahme_field and nutzung_kenntnisnahme_field not in ['', '/Off'])
                 ausgabe_neu = fields.get('ausgabeNeu') == '/Yes'
                 ausgabe_gebraucht = fields.get('ausgabeGebraucht') == '/Yes'
                 
-                # New validation logic - warning appears when:
-                # 1. Both usage checkboxes are the same (both on or both off) OR
-                # 2. Both output checkboxes are the same (both on or both off)
-                warning_needed = (nutzung_einhaltung == nutzung_kenntnisnahme) or (ausgabe_neu == ausgabe_gebraucht)
+                # Validierung:
+                # - nutzung_ok: Beide Nutzungs-Checkboxen müssen angekreuzt sein
+                # - ausgabe_ok: Genau eine Ausgabe-Checkbox muss angekreuzt sein (XOR)
+                nutzung_ok = nutzung_einhaltung and nutzung_kenntnisnahme
+                ausgabe_ok = ausgabe_neu != ausgabe_gebraucht  # XOR: genau eine muss True sein
+                
+                warning_needed = not (nutzung_ok and ausgabe_ok)
                 
                 if warning_needed:
                     assignment["contract_warning"] = True
@@ -1684,15 +1689,23 @@ async def upload_contract_for_assignment(
         warning_dismissed = False
         
         if form_fields:
-            # Apply the same validation logic as in get_assignments
+            # Validierungslogik für Vertrags-Checkboxen:
+            # 1. Beide Nutzungs-Checkboxen MÜSSEN angekreuzt sein
+            # 2. Bei Ausgabe MUSS genau eine angekreuzt sein (neu ODER gebraucht)
+            
             nutzung_einhaltung = form_fields.get('NutzungEinhaltung') == '/Yes'
             nutzung_kenntnisnahme_field = form_fields.get('NutzungKenntnisnahme') or form_fields.get('NutzungKenntnisname', '')
-            nutzung_kenntnisnahme = bool(nutzung_kenntnisnahme_field and nutzung_kenntnisnahme_field != '')
+            nutzung_kenntnisnahme = nutzung_kenntnisnahme_field == '/Yes' or bool(nutzung_kenntnisnahme_field and nutzung_kenntnisnahme_field not in ['', '/Off'])
             ausgabe_neu = form_fields.get('ausgabeNeu') == '/Yes'
             ausgabe_gebraucht = form_fields.get('ausgabeGebraucht') == '/Yes'
             
-            # New validation logic: warning appears when checkboxes are same
-            warning_needed = (nutzung_einhaltung == nutzung_kenntnisnahme) or (ausgabe_neu == ausgabe_gebraucht)
+            # Validierung:
+            # - nutzung_ok: Beide Nutzungs-Checkboxen müssen angekreuzt sein
+            # - ausgabe_ok: Genau eine Ausgabe-Checkbox muss angekreuzt sein (XOR)
+            nutzung_ok = nutzung_einhaltung and nutzung_kenntnisnahme
+            ausgabe_ok = ausgabe_neu != ausgabe_gebraucht  # XOR: genau eine muss True sein
+            
+            warning_needed = not (nutzung_ok and ausgabe_ok)
             
             if warning_needed:
                 contract_warning = True
