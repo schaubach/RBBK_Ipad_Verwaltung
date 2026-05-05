@@ -671,7 +671,7 @@ const AssignmentsManagement = () => {
                   className="bg-gradient-to-r from-ipad-blue to-ipad-dark-blue hover:from-ipad-dark-blue hover:to-ipad-dark-gray"
                 >
                   <Download className="h-4 w-4 mr-2" />
-                  {exporting ? 'Exportiere...' : `Gefilterte exportieren (${filteredAssignments.length})`}
+                  {exporting ? 'Exportiere...' : `Gefilterte Zuordnungen exportieren (${filteredAssignments.length})`}
                 </Button>
                 
                 <Button 
@@ -680,7 +680,7 @@ const AssignmentsManagement = () => {
                   className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  {dissolving ? 'Löse auf...' : `Gefilterte lösen (${filteredAssignments.length})`}
+                  {dissolving ? 'Löse auf...' : `Gefilterte Zuordnungen lösen (${filteredAssignments.length})`}
                 </Button>
                 
                 <Button 
