@@ -146,13 +146,27 @@ const AssignmentsManagement = () => {
     if (!sortField) return;
     
     const sorted = [...filteredAssignments].sort((a, b) => {
-      let aVal = a[sortField] || '';
-      let bVal = b[sortField] || '';
+      let aVal, bVal;
       
-      // String comparison
-      if (typeof aVal === 'string') {
-        aVal = aVal.toLowerCase();
-        bVal = bVal.toLowerCase();
+      // Spezielle Behandlung für Vertrag-Sortierung
+      if (sortField === 'contract_status') {
+        // Sortierung: Vorhanden mit Warnung > Fehlend > Vorhanden ohne Warnung
+        const getContractSortValue = (assignment) => {
+          if (!assignment.contract_id) return 1; // Fehlend
+          if (assignment.contract_warning && !assignment.warning_dismissed) return 0; // Vorhanden mit Warnung (höchste Priorität)
+          return 2; // Vorhanden ohne Warnung
+        };
+        aVal = getContractSortValue(a);
+        bVal = getContractSortValue(b);
+      } else {
+        aVal = a[sortField] || '';
+        bVal = b[sortField] || '';
+        
+        // String comparison
+        if (typeof aVal === 'string') {
+          aVal = aVal.toLowerCase();
+          bVal = bVal.toLowerCase();
+        }
       }
       
       if (sortDirection === 'asc') {
@@ -616,44 +630,49 @@ const AssignmentsManagement = () => {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex flex-wrap gap-2 mb-4">
-            <Button 
-              onClick={() => handleExport(false)}
-              disabled={exporting}
-              className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              {exporting ? 'Exportiere...' : 'Alle Zuordnungen exportieren'}
-            </Button>
+          <div className="flex flex-col gap-3 mb-4">
+            {/* Alle Zuordnungen Buttons */}
+            <div className="flex flex-wrap gap-2">
+              <Button 
+                onClick={() => handleExport(false)}
+                disabled={exporting}
+                className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {exporting ? 'Exportiere...' : 'Alle Zuordnungen exportieren'}
+              </Button>
+              
+              <Button 
+                onClick={() => setDissolveAllDialogOpen(true)}
+                disabled={dissolving || assignments.length === 0}
+                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                {dissolving ? 'Löse auf...' : `Alle Zuordnungen lösen (${assignments.length})`}
+              </Button>
+              
+              {/* Contract Generation Buttons */}
+              <Button 
+                onClick={() => handleGenerateContracts(false)}
+                disabled={generatingContracts || assignments.length === 0}
+                className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                {generatingContracts ? 'Erstelle Verträge...' : `Alle Verträge erstellen (${assignments.length})`}
+              </Button>
+            </div>
             
-            <Button 
-              onClick={() => setDissolveAllDialogOpen(true)}
-              disabled={dissolving || assignments.length === 0}
-              className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              {dissolving ? 'Löse auf...' : `Alle Zuordnungen lösen (${assignments.length})`}
-            </Button>
-            
-            {/* Contract Generation Buttons */}
-            <Button 
-              onClick={() => handleGenerateContracts(false)}
-              disabled={generatingContracts || assignments.length === 0}
-              className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
-            >
-              <FileText className="h-4 w-4 mr-2" />
-              {generatingContracts ? 'Erstelle Verträge...' : `Alle Verträge erstellen (${assignments.length})`}
-            </Button>
-            
+            {/* Gefilterte Zuordnungen Buttons - nur anzeigen wenn Filter aktiv */}
             {(vornameFilter || nachnameFilter || klasseFilter || itnrFilter) && filteredAssignments.length > 0 && (
-              <>
+              <div className="flex flex-wrap gap-2 pl-4 border-l-4 border-blue-300">
+                <span className="text-sm text-gray-500 self-center mr-2">Gefiltert:</span>
                 <Button 
                   onClick={() => handleExport(true)}
                   disabled={exporting}
                   className="bg-gradient-to-r from-ipad-blue to-ipad-dark-blue hover:from-ipad-dark-blue hover:to-ipad-dark-gray"
                 >
                   <Download className="h-4 w-4 mr-2" />
-                  {exporting ? 'Exportiere...' : `Gefilterte Zuordnungen exportieren (${filteredAssignments.length})`}
+                  {exporting ? 'Exportiere...' : `Gefilterte exportieren (${filteredAssignments.length})`}
                 </Button>
                 
                 <Button 
@@ -662,7 +681,7 @@ const AssignmentsManagement = () => {
                   className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  {dissolving ? 'Löse auf...' : `Gefilterte Zuordnungen lösen (${filteredAssignments.length})`}
+                  {dissolving ? 'Löse auf...' : `Gefilterte lösen (${filteredAssignments.length})`}
                 </Button>
                 
                 <Button 
@@ -673,7 +692,7 @@ const AssignmentsManagement = () => {
                   <FileText className="h-4 w-4 mr-2" />
                   {generatingContracts ? 'Erstelle...' : `Gefilterte Verträge erstellen (${filteredAssignments.length})`}
                 </Button>
-              </>
+              </div>
             )}
           </div>
           
@@ -743,7 +762,17 @@ const AssignmentsManagement = () => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead>Vertrag</TableHead>
+                    <TableHead 
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleSort('contract_status')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Vertrag
+                        {sortField === 'contract_status' && (
+                          sortDirection === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                        )}
+                      </div>
+                    </TableHead>
                     <TableHead>Aktionen</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -822,8 +851,8 @@ const AssignmentsManagement = () => {
                             <Eye className="h-4 w-4" />
                           </Button>
                           
-                          {/* Contract Upload Button - Only show for assignments with validation warnings */}
-                          {assignment.contract_warning && !assignment.warning_dismissed && (
+                          {/* Contract Upload Button - Show for assignments without contract OR with validation warnings */}
+                          {(!assignment.contract_id || (assignment.contract_warning && !assignment.warning_dismissed)) && (
                             <div className="relative">
                               <input
                                 type="file"
@@ -840,8 +869,8 @@ const AssignmentsManagement = () => {
                               <Button 
                                 variant="outline" 
                                 size="sm"
-                                title="Neuen korrekten Vertrag hochladen"
-                                className="hover:bg-yellow-50 hover:text-yellow-600"
+                                title={assignment.contract_id ? "Neuen korrekten Vertrag hochladen" : "Vertrag hochladen"}
+                                className={assignment.contract_id ? "hover:bg-yellow-50 hover:text-yellow-600" : "hover:bg-green-50 hover:text-green-600"}
                                 disabled={uploadingContractForAssignment === assignment.id}
                               >
                                 {uploadingContractForAssignment === assignment.id ? (
