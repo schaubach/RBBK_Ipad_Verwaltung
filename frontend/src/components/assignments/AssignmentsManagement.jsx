@@ -665,7 +665,6 @@ const AssignmentsManagement = () => {
             {/* Gefilterte Zuordnungen Buttons - nur anzeigen wenn Filter aktiv */}
             {(vornameFilter || nachnameFilter || klasseFilter || itnrFilter) && filteredAssignments.length > 0 && (
               <div className="flex flex-wrap gap-2 pl-4 border-l-4 border-blue-300">
-                <span className="text-sm text-gray-500 self-center mr-2">Gefiltert:</span>
                 <Button 
                   onClick={() => handleExport(true)}
                   disabled={exporting}
