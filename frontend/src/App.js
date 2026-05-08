@@ -226,7 +226,16 @@ function App() {
     setSessionWarningShown(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Call server to delete HttpOnly cookie
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      // Ignore errors - logout locally anyway
+      console.log('Logout request failed, clearing local state anyway');
+    }
+    
+    // Clear local storage
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
     localStorage.removeItem('username');
