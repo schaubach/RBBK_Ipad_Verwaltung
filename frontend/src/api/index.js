@@ -27,12 +27,16 @@ console.log('[App] API Base:', API_BASE_URL || '(relative - same origin)');
 console.log('[App] Environment:', APP_ENV);
 console.log('[App] Session Timeout:', SESSION_TIMEOUT / 60000, 'minutes');
 
-// API configuration
+// API configuration with HttpOnly Cookie support
 const api = axios.create({
   baseURL: API_BASE_URL,
+  withCredentials: true,  // IMPORTANT: Send HttpOnly cookies with every request
 });
 
+// Request interceptor - still supports Bearer token for backwards compatibility
 api.interceptors.request.use((config) => {
+  // Legacy support: If token exists in localStorage, send it as Bearer
+  // This will be phased out - HttpOnly cookie is preferred
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -46,11 +50,18 @@ let isLoggingOut = false;
 // Response Interceptor für automatischen Logout bei Session-Ablauf
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     if (error.response?.status === 401 && !isLoggingOut) {
       isLoggingOut = true;
       
-      // Token abgelaufen oder ungültig
+      // Versuche den Logout-Endpoint aufzurufen um den HttpOnly Cookie zu löschen
+      try {
+        await axios.post(`${API_BASE_URL}/auth/logout`, {}, { withCredentials: true });
+      } catch {
+        // Ignoriere Fehler beim Logout
+      }
+      
+      // Legacy: Token aus localStorage entfernen
       localStorage.removeItem('token');
       localStorage.removeItem('username');
       localStorage.removeItem('role');

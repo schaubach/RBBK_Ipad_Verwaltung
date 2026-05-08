@@ -15,14 +15,34 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 9. **HTTPS/SSL**: Nginx Reverse Proxy mit selbstsignierten Zertifikaten
 10. **Docker-Deployment**: Sichere docker-compose.yml (keine Ports nach außen exponiert)
 
+## Security Features (NEW - Session 9)
+1. **Rate Limiting**: 
+   - Login: 5/Minute (Brute-Force-Schutz)
+   - API: 60/Minute (Mass Exfiltration Schutz)
+   - Exports: 10/Minute (Stricter für Daten-Export)
+   - Nginx: 30r/s mit Burst
+2. **HttpOnly Cookies**: JWT Token wird als HttpOnly Cookie gesetzt (JavaScript kann nicht zugreifen)
+3. **RBAC (Role-Based Access Control)**: Admin-Only Endpoints geschützt
+4. **CSP Hardening**: 'unsafe-eval' entfernt aus Content-Security-Policy
+
 ## Tech Stack
 - **Frontend**: React, TailwindCSS, ShadCN/UI
-- **Backend**: FastAPI, Python
+- **Backend**: FastAPI, Python, Slowapi (Rate Limiting)
 - **Database**: MongoDB
-- **Auth**: JWT mit 30-min Session Timeout
-- **Deployment**: Docker, docker-compose, Nginx (Reverse Proxy mit SSL)
+- **Auth**: JWT mit HttpOnly Cookie + Bearer Token (fallback), 30-min Session Timeout
+- **Deployment**: Docker, docker-compose, Nginx (Reverse Proxy mit SSL + Rate Limiting)
 
 ## What's Been Implemented
+
+### Session 9 - Mai 2025: Sicherheitsverbesserungen
+- **Rate Limiting (Backend)**: Slowapi-basiertes Rate Limiting für alle kritischen Endpoints
+- **Rate Limiting (Nginx)**: Zusätzliche Nginx-basierte Rate Limiting Zones
+- **HttpOnly Cookies**: Login setzt Token als HttpOnly, Secure, SameSite=Strict Cookie
+- **RBAC Audit**: Admin-Only Endpoints mit `require_admin()` geschützt
+- **CSP Verbesserung**: 'unsafe-eval' aus CSP entfernt
+- **Neue Endpoints**: `/api/auth/logout` (Cookie löschen), `/api/auth/me` (Auth-Status prüfen)
+- **Zuordnungen-Tab**: Vertrag-Spalte sortierbar, gefilterte Buttons unter ungefilterten
+- **Upload-Button**: Auch bei Zuordnungen ohne Vertrag sichtbar
 
 ### Session 8 - März 2025: Bearbeitungsfunktion in Detailansichten
 - **iPad-Bearbeitung**: Alle Felder (ITNr, SNr, Typ, Pencil, Karton, Status, Anschaffungsjahr, Ausleihdatum) in Detailansicht editierbar

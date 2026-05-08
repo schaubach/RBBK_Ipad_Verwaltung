@@ -33,6 +33,9 @@ const Login = ({ onLogin }) => {
         return;
       }
       
+      // Store token in localStorage for backwards compatibility
+      // Note: HttpOnly cookie is also set automatically by the server
+      // The cookie is more secure as JavaScript cannot access it
       localStorage.setItem('token', access_token);
       localStorage.setItem('userRole', role);
       localStorage.setItem('username', loggedInUsername);

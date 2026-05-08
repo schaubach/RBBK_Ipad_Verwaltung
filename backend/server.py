@@ -1,6 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Depends, status, Cookie
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -225,9 +225,26 @@ def create_access_token(data: dict, user_id: str, expires_delta: Optional[timede
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm="HS256")
     return encoded_jwt
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+async def get_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    access_token: str = Cookie(default=None)
+):
+    """Get current user from JWT token (supports both Bearer header and HttpOnly cookie)"""
+    token = None
+    
+    # Priority 1: HttpOnly Cookie (more secure)
+    if access_token:
+        token = access_token
+    # Priority 2: Bearer token header (legacy support)
+    elif credentials:
+        token = credentials.credentials
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
     try:
-        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=["HS256"])
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         username: str = payload.get("sub")
         user_id: str = payload.get("user_id")
         exp: int = payload.get("exp")
@@ -490,7 +507,7 @@ async def change_password_forced(
         raise HTTPException(status_code=500, detail=f"Error changing password: {str(e)}")
 
 
-@api_router.post("/auth/login", response_model=LoginResponse)
+@api_router.post("/auth/login")
 @limiter.limit("5/minute")  # Max 5 login attempts per minute
 async def login(request: Request, user_data: UserLogin):
     user = await db.users.find_one({"username": user_data.username})
@@ -506,12 +523,52 @@ async def login(request: Request, user_data: UserLogin):
         user_id=user["id"]
     )
     
-    return {
-        "access_token": access_token, 
+    # Create response with HttpOnly cookie
+    response = JSONResponse(content={
+        "message": "Login successful",
+        "access_token": access_token,  # Still return for backwards compatibility
         "token_type": "bearer",
         "role": user.get("role", "user"),
         "username": user["username"],
         "force_password_change": user.get("force_password_change", False)
+    })
+    
+    # Set HttpOnly cookie - JavaScript cannot access this!
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,      # Prevents JavaScript access (XSS protection)
+        secure=True,        # Only send over HTTPS
+        samesite="strict",  # CSRF protection
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,  # Cookie expiry matches token
+        path="/api"         # Only sent to API routes
+    )
+    
+    return response
+
+
+@api_router.post("/auth/logout")
+async def logout(request: Request):
+    """Logout user by clearing the HttpOnly cookie"""
+    response = JSONResponse(content={"message": "Logged out successfully"})
+    response.delete_cookie(
+        key="access_token",
+        path="/api",
+        httponly=True,
+        secure=True,
+        samesite="strict"
+    )
+    return response
+
+
+@api_router.get("/auth/me")
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    """Get current authenticated user info (used to verify auth status)"""
+    return {
+        "id": current_user["id"],
+        "username": current_user["username"],
+        "role": current_user.get("role", "user"),
+        "is_active": current_user.get("is_active", True)
     }
 
 
@@ -564,7 +621,8 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
     )
 
 @api_router.get("/admin/users", response_model=List[UserResponse])
-async def list_users(current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def list_users(request: Request, current_user: dict = Depends(get_current_user)):
     """List all users (admin only)"""
     require_admin(current_user)
     
@@ -842,7 +900,8 @@ async def reset_user_password(user_id: str, current_user: dict = Depends(get_cur
 
 @api_router.post("/ipads", response_model=iPad)
 async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_user)):
-    """Manuell ein neues iPad anlegen"""
+    """Manuell ein neues iPad anlegen (Admin only)"""
+    require_admin(current_user)
     try:
         # Validate required fields
         if not ipad_data.get('itnr') or not ipad_data.get('snr'):
@@ -882,7 +941,8 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_
         raise HTTPException(status_code=500, detail=f"Fehler beim Anlegen: {str(e)}")
 
 @api_router.get("/ipads", response_model=List[iPad])
-async def get_ipads(current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def get_ipads(request: Request, current_user: dict = Depends(get_current_user)):
     # Apply user filter
     user_filter = await get_user_filter(current_user)
     ipads = await db.ipads.find(user_filter).to_list(length=None)
@@ -892,9 +952,10 @@ async def get_ipads(current_user: dict = Depends(get_current_user)):
 @api_router.delete("/ipads/{ipad_id}")
 async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_user)):
     """
-    Delete an iPad permanently from the database.
+    Delete an iPad permanently from the database (Admin only).
     Only allowed if iPad is not currently assigned.
     """
+    require_admin(current_user)
     # Get iPad
     user_filter = await get_user_filter(current_user)
     ipad = await db.ipads.find_one({"id": ipad_id, **user_filter})
@@ -942,7 +1003,8 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
 
 @api_router.post("/students", response_model=Student)
 async def create_student(student_data: dict, current_user: dict = Depends(get_current_user)):
-    """Manuell einen neuen Schüler anlegen"""
+    """Manuell einen neuen Schüler anlegen (Admin only)"""
+    require_admin(current_user)
     try:
         # Validate required fields
         if not student_data.get('sus_vorn') or not student_data.get('sus_nachn'):
@@ -993,7 +1055,8 @@ async def create_student(student_data: dict, current_user: dict = Depends(get_cu
         raise HTTPException(status_code=500, detail=f"Fehler beim Anlegen: {str(e)}")
 
 @api_router.get("/students", response_model=List[StudentWithAssignmentCount])
-async def get_students(current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def get_students(request: Request, current_user: dict = Depends(get_current_user)):
     # Apply user filter
     user_filter = await get_user_filter(current_user)
     students = await db.students.find(user_filter).to_list(length=None)
@@ -1014,7 +1077,8 @@ async def get_students(current_user: dict = Depends(get_current_user)):
     return students_with_count
 
 @api_router.get("/students/available-for-assignment")
-async def get_available_students(current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def get_available_students(request: Request, current_user: dict = Depends(get_current_user)):
     """Get students that can still receive iPads (haven't reached MAX_IPADS_PER_STUDENT limit)"""
     user_filter = await get_user_filter(current_user)
     students = await db.students.find(user_filter, {"_id": 0}).to_list(length=None)
@@ -1041,7 +1105,8 @@ async def get_available_students(current_user: dict = Depends(get_current_user))
 
 
 @api_router.get("/students/{student_id}")
-async def get_student_details(student_id: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def get_student_details(request: Request, student_id: str, current_user: dict = Depends(get_current_user)):
     """Get detailed information about a specific student"""
     # Validate resource ownership
     await validate_resource_ownership("student", student_id, current_user)
@@ -1195,7 +1260,8 @@ async def update_student(student_id: str, request: StudentUpdateRequest, current
 
 @api_router.delete("/students/{student_id}")
 async def delete_student(student_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete a student and handle related data (assignments, contracts)"""
+    """Delete a student and handle related data (Admin only)"""
+    require_admin(current_user)
     # Validate resource ownership
     await validate_resource_ownership("student", student_id, current_user)
     
@@ -1276,7 +1342,7 @@ async def batch_delete_students(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Delete multiple students at once (filtered or all)
+    Delete multiple students at once (Admin only)
     
     filter_params can include:
     - "all": true (deletes all user's students)
@@ -1290,6 +1356,7 @@ async def batch_delete_students(
     - Deletes all assignment history
     - Deletes all contracts
     """
+    require_admin(current_user)
     try:
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
@@ -1399,9 +1466,10 @@ async def batch_delete_students(
 @api_router.post("/assignments/auto-assign", response_model=AssignmentResponse)
 async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
     """
-    Automatische Zuordnung: Weist nur Schülern OHNE jegliche iPad-Zuordnung ein iPad zu.
+    Automatische Zuordnung (Admin only): Weist nur Schülern OHNE jegliche iPad-Zuordnung ein iPad zu.
     Schüler mit bereits 1, 2 oder 3 iPads werden NICHT berücksichtigt.
     """
+    require_admin(current_user)
     # Apply user filter
     user_filter = await get_user_filter(current_user)
     
@@ -1543,7 +1611,8 @@ async def manual_assign(
         raise HTTPException(status_code=500, detail=f"Fehler bei manueller Zuordnung: {str(e)}")
 
 @api_router.get("/ipads/available-for-assignment")
-async def get_available_ipads(current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def get_available_ipads(request: Request, current_user: dict = Depends(get_current_user)):
     """Get iPads without current assignment"""
     user_filter = await get_user_filter(current_user)
     ipads = await db.ipads.find({
@@ -1559,7 +1628,8 @@ async def get_available_ipads(current_user: dict = Depends(get_current_user)):
     } for i in ipads]
 
 @api_router.get("/assignments", response_model=List[Assignment])
-async def get_assignments(current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def get_assignments(request: Request, current_user: dict = Depends(get_current_user)):
     # Apply user filter
     user_filter = await get_user_filter(current_user)
     assignment_filter = {**user_filter, "is_active": True}
@@ -1934,7 +2004,8 @@ async def upload_multiple_contracts(files: List[UploadFile] = File(...), current
     }
 
 @api_router.get("/contracts")
-async def get_all_contracts(current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def get_all_contracts(request: Request, current_user: dict = Depends(get_current_user)):
     """Get all contracts (assigned and unassigned)"""
     user_filter = await get_user_filter(current_user)
     contracts = await db.contracts.find(user_filter, {"_id": 0, "file_data": 0}).to_list(length=None)
@@ -1962,7 +2033,8 @@ async def get_all_contracts(current_user: dict = Depends(get_current_user)):
     return result
 
 @api_router.get("/contracts/unassigned")
-async def get_unassigned_contracts(current_user: dict = Depends(get_current_user)):
+@limiter.limit("60/minute")
+async def get_unassigned_contracts(request: Request, current_user: dict = Depends(get_current_user)):
     # Apply user filter - unassigned = no assignment_id
     user_filter = await get_user_filter(current_user)
     contract_filter = {
@@ -2320,6 +2392,8 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
 # Assignment dissolution
 @api_router.delete("/assignments/{assignment_id}")
 async def dissolve_assignment(assignment_id: str, current_user: dict = Depends(get_current_user)):
+    """Dissolve an assignment (Admin only)"""
+    require_admin(current_user)
     # Validate resource ownership
     await validate_resource_ownership("assignment", assignment_id, current_user)
     
@@ -2512,7 +2586,8 @@ async def get_contract(contract_id: str, current_user: dict = Depends(get_curren
     }
 
 @api_router.get("/contracts/{contract_id}/download")
-async def download_contract(contract_id: str, current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def download_contract(request: Request, contract_id: str, current_user: dict = Depends(get_current_user)):
     contract = await db.contracts.find_one({"id": contract_id})
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -3116,7 +3191,8 @@ async def download_import_template(current_user: dict = Depends(get_current_user
 
 
 @api_router.get("/exports/inventory")
-async def export_inventory(current_user: dict = Depends(get_current_user)):
+@limiter.limit("10/minute")  # Stricter limit for exports
+async def export_inventory(request: Request, current_user: dict = Depends(get_current_user)):
     """Export complete data backup: all students, all iPads, and all assignments (1:n support)"""
     try:
         # Apply user filter - CRITICAL for RBAC!
@@ -3334,7 +3410,9 @@ async def add_missing_timestamps():
 
 # Export functionality
 @api_router.get("/assignments/export")
+@limiter.limit("10/minute")  # Stricter limit for exports
 async def export_assignments(
+    request: Request,
     sus_vorn: Optional[str] = None,
     sus_nachn: Optional[str] = None, 
     sus_kl: Optional[str] = None,
