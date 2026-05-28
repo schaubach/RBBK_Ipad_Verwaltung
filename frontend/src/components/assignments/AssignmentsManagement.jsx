@@ -525,7 +525,8 @@ const AssignmentsManagement = () => {
     
     setGeneratingContracts(true);
     try {
-      const response = await api.post('/assignments/generate-contracts-selected', {
+      // Use the same endpoint but with assignment_ids in body
+      const response = await api.post('/assignments/generate-contracts', {
         assignment_ids: selectedAssignments
       }, {
         responseType: 'blob'

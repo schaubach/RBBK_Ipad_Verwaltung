@@ -3560,47 +3560,68 @@ async def export_assignments(
     )
 
 # Contract Generation
+class GenerateContractsRequest(BaseModel):
+    assignment_ids: Optional[List[str]] = None
+
+
 @api_router.post("/assignments/generate-contracts")
 async def generate_contracts(
+    request: Optional[GenerateContractsRequest] = None,
     sus_vorn: Optional[str] = None,
     sus_nachn: Optional[str] = None, 
     sus_kl: Optional[str] = None,
     itnr: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Generate PDF contracts as encrypted ZIP archives for all or filtered assignments"""
+    """
+    Generate PDF contracts as encrypted ZIP archives.
+    
+    Supports two modes:
+    1. Filter-based: Use query parameters (sus_vorn, sus_nachn, sus_kl, itnr)
+    2. Selection-based: Pass assignment_ids in request body
+    """
     try:
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
         
-        # Build filter query for students (with user filter!)
-        student_filter = user_filter.copy()
-        if sus_vorn:
-            student_filter["sus_vorn"] = {"$regex": sus_vorn, "$options": "i"}
-        if sus_nachn:
-            student_filter["sus_nachn"] = {"$regex": sus_nachn, "$options": "i"}
-        if sus_kl:
-            student_filter["sus_kl"] = {"$regex": sus_kl, "$options": "i"}
-        
-        # Build filter query for assignments (IT-Nummer) with user filter!
-        assignment_filter = user_filter.copy()
-        assignment_filter["is_active"] = True
-        if itnr:
-            assignment_filter["itnr"] = {"$regex": itnr, "$options": "i"}
-        
-        if sus_vorn or sus_nachn or sus_kl:
-            # Get matching students (filtered by user_id!)
-            students = await db.students.find(student_filter).to_list(length=None)
-            student_ids = [s["id"] for s in students]
+        # Mode 1: Selection-based (assignment_ids provided)
+        if request and request.assignment_ids:
+            assignment_filter = {
+                "id": {"$in": request.assignment_ids},
+                "is_active": True,
+                **user_filter
+            }
+            assignments = await db.assignments.find(assignment_filter).to_list(length=None)
+        else:
+            # Mode 2: Filter-based (query parameters)
+            # Build filter query for students (with user filter!)
+            student_filter = user_filter.copy()
+            if sus_vorn:
+                student_filter["sus_vorn"] = {"$regex": sus_vorn, "$options": "i"}
+            if sus_nachn:
+                student_filter["sus_nachn"] = {"$regex": sus_nachn, "$options": "i"}
+            if sus_kl:
+                student_filter["sus_kl"] = {"$regex": sus_kl, "$options": "i"}
             
-            if not student_ids:
-                raise HTTPException(status_code=404, detail="Keine passenden Zuordnungen gefunden")
+            # Build filter query for assignments (IT-Nummer) with user filter!
+            assignment_filter = user_filter.copy()
+            assignment_filter["is_active"] = True
+            if itnr:
+                assignment_filter["itnr"] = {"$regex": itnr, "$options": "i"}
             
-            # Add student filter to assignment filter
-            assignment_filter["student_id"] = {"$in": student_ids}
-        
-        # Get assignments matching all filters (filtered by user_id!)
-        assignments = await db.assignments.find(assignment_filter).to_list(length=None)
+            if sus_vorn or sus_nachn or sus_kl:
+                # Get matching students (filtered by user_id!)
+                students = await db.students.find(student_filter).to_list(length=None)
+                student_ids = [s["id"] for s in students]
+                
+                if not student_ids:
+                    raise HTTPException(status_code=404, detail="Keine passenden Zuordnungen gefunden")
+                
+                # Add student filter to assignment filter
+                assignment_filter["student_id"] = {"$in": student_ids}
+            
+            # Get assignments matching all filters (filtered by user_id!)
+            assignments = await db.assignments.find(assignment_filter).to_list(length=None)
         
         if not assignments:
             raise HTTPException(status_code=404, detail="Keine Zuordnungen gefunden")
@@ -3764,85 +3785,6 @@ async def get_filtered_assignments(
     except Exception as e:
         print(f"Filter error: {e}")
         raise HTTPException(status_code=500, detail=f"Filter error: {str(e)}")
-
-
-class GenerateContractsSelectedRequest(BaseModel):
-    assignment_ids: List[str]
-
-
-@api_router.post("/assignments/generate-contracts-selected")
-async def generate_contracts_for_selected(
-    request: GenerateContractsSelectedRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Erstellt Verträge für ausgewählte Zuordnungen (per Checkbox).
-    """
-    if not request.assignment_ids:
-        raise HTTPException(status_code=400, detail="Keine Zuordnungen ausgewählt")
-    
-    user_filter = await get_user_filter(current_user)
-    
-    # Get selected assignments (respecting user filter)
-    assignments = await db.assignments.find({
-        "id": {"$in": request.assignment_ids},
-        "is_active": True,
-        **user_filter
-    }).to_list(length=None)
-    
-    if not assignments:
-        raise HTTPException(status_code=404, detail="Keine gültigen Zuordnungen gefunden")
-    
-    # Get student and iPad data for each assignment
-    contract_data = []
-    for assignment in assignments:
-        student = await db.students.find_one({"id": assignment["student_id"], **user_filter})
-        ipad = await db.ipads.find_one({"id": assignment["ipad_id"], **user_filter})
-        
-        if student and ipad:
-            contract_data.append({
-                "sus_vorn": student.get("sus_vorn", ""),
-                "sus_nachn": student.get("sus_nachn", ""),
-                "sus_kl": student.get("sus_kl", ""),
-                "sus_geb": student.get("sus_geb", ""),
-                "sus_str_hnr": student.get("sus_str_hnr", ""),
-                "sus_plz": student.get("sus_plz", ""),
-                "sus_ort": student.get("sus_ort", ""),
-                "erz1_vorn": student.get("erz1_vorn", ""),
-                "erz1_nachn": student.get("erz1_nachn", ""),
-                "erz1_str_hnr": student.get("erz1_str_hnr", ""),
-                "erz1_plz": student.get("erz1_plz", ""),
-                "erz1_ort": student.get("erz1_ort", ""),
-                "erz2_vorn": student.get("erz2_vorn", ""),
-                "erz2_nachn": student.get("erz2_nachn", ""),
-                "erz2_str_hnr": student.get("erz2_str_hnr", ""),
-                "erz2_plz": student.get("erz2_plz", ""),
-                "erz2_ort": student.get("erz2_ort", ""),
-                "itnr": ipad.get("itnr", ""),
-                "snr": ipad.get("snr", ""),
-            })
-    
-    if not contract_data:
-        raise HTTPException(status_code=404, detail="Keine gültigen Daten für Vertragserstellung")
-    
-    # Generate contracts
-    zip_bytes, success_count, error_count, errors = create_contracts_from_assignments(contract_data)
-    
-    if error_count > 0:
-        logger.warning(f"Contract generation had {error_count} errors: {errors}")
-    
-    # Return ZIP file
-    filename = f"Vertraege_Auswahl_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-    
-    return StreamingResponse(
-        io.BytesIO(zip_bytes),
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": f"attachment; filename={filename}",
-            "X-Success-Count": str(success_count),
-            "X-Error-Count": str(error_count)
-        }
-    )
 
 
 # Include the router
