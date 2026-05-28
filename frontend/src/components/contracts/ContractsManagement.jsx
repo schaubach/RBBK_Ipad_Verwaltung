@@ -49,6 +49,13 @@ const ContractsManagement = () => {
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Verträge erstellen - Filter
+  const [createVornameFilter, setCreateVornameFilter] = useState('');
+  const [createNachnameFilter, setCreateNachnameFilter] = useState('');
+  const [createKlasseFilter, setCreateKlasseFilter] = useState('');
+  const [createItnrFilter, setCreateItnrFilter] = useState('');
+  const [generatingContracts, setGeneratingContracts] = useState(false);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -202,6 +209,64 @@ const ContractsManagement = () => {
     }
   };
 
+  // Verträge erstellen
+  const handleGenerateContracts = async (filtered = false) => {
+    setGeneratingContracts(true);
+    try {
+      let url = '/assignments/generate-contracts';
+      const params = new URLSearchParams();
+      
+      if (filtered) {
+        if (createVornameFilter) params.append('sus_vorn', createVornameFilter);
+        if (createNachnameFilter) params.append('sus_nachn', createNachnameFilter);
+        if (createKlasseFilter) params.append('sus_kl', createKlasseFilter);
+        if (createItnrFilter) params.append('itnr', createItnrFilter);
+      }
+      
+      if (params.toString()) {
+        url += '?' + params.toString();
+      }
+      
+      const response = await api.post(url, {}, {
+        responseType: 'blob'
+      });
+      
+      const blob = new Blob([response.data], { type: 'application/zip' });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = 'Vertraege.zip';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename=(.+)/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+      
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(link);
+      
+      const successCount = response.headers['x-success-count'];
+      toast.success(`${successCount || 'Verträge'} erfolgreich erstellt`);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        toast.error('Keine Zuordnungen für Vertragserstellung gefunden');
+      } else {
+        toast.error('Fehler bei der Vertragserstellung');
+      }
+      console.error('Contract generation error:', error);
+    } finally {
+      setGeneratingContracts(false);
+    }
+  };
+
+  const hasCreateFilters = createVornameFilter || createNachnameFilter || createKlasseFilter || createItnrFilter;
+
   // Sorting
   const handleSort = (field) => {
     if (sortField === field) {
@@ -346,6 +411,105 @@ const ContractsManagement = () => {
             />
             {uploading && <div className="mt-2 text-sm text-gray-600">Hochladen...</div>}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Verträge erstellen */}
+      <Card className="shadow-lg border-l-4 border-l-green-500">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-green-600" />
+            Verträge erstellen
+          </CardTitle>
+          <CardDescription>
+            PDF-Verträge für Zuordnungen generieren (verschlüsselt als ZIP)
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Filter */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <Label htmlFor="create-vorname" className="text-xs">Vorname</Label>
+              <Input
+                id="create-vorname"
+                placeholder="z.B. Max"
+                value={createVornameFilter}
+                onChange={(e) => setCreateVornameFilter(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div>
+              <Label htmlFor="create-nachname" className="text-xs">Nachname</Label>
+              <Input
+                id="create-nachname"
+                placeholder="z.B. Müller"
+                value={createNachnameFilter}
+                onChange={(e) => setCreateNachnameFilter(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div>
+              <Label htmlFor="create-klasse" className="text-xs">Klasse</Label>
+              <Input
+                id="create-klasse"
+                placeholder="z.B. 10A"
+                value={createKlasseFilter}
+                onChange={(e) => setCreateKlasseFilter(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div>
+              <Label htmlFor="create-itnr" className="text-xs">ITNr</Label>
+              <Input
+                id="create-itnr"
+                placeholder="z.B. IT-001"
+                value={createItnrFilter}
+                onChange={(e) => setCreateItnrFilter(e.target.value)}
+                className="h-9"
+              />
+            </div>
+          </div>
+          
+          {/* Buttons */}
+          <div className="flex flex-wrap gap-2">
+            <Button 
+              onClick={() => handleGenerateContracts(false)}
+              disabled={generatingContracts}
+              className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+            >
+              <FileText className="h-4 w-4 mr-2" />
+              {generatingContracts ? 'Erstelle...' : 'Alle Verträge erstellen'}
+            </Button>
+            
+            {hasCreateFilters && (
+              <Button 
+                onClick={() => handleGenerateContracts(true)}
+                disabled={generatingContracts}
+                className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
+              >
+                <Search className="h-4 w-4 mr-2" />
+                {generatingContracts ? 'Erstelle...' : 'Gefilterte Verträge erstellen'}
+              </Button>
+            )}
+            
+            {hasCreateFilters && (
+              <Button 
+                variant="outline"
+                onClick={() => {
+                  setCreateVornameFilter('');
+                  setCreateNachnameFilter('');
+                  setCreateKlasseFilter('');
+                  setCreateItnrFilter('');
+                }}
+              >
+                Filter zurücksetzen
+              </Button>
+            )}
+          </div>
+          
+          <p className="text-xs text-gray-500">
+            Hinweis: ZIP-Dateien sind mit dem Geburtsdatum des Schülers verschlüsselt (Format: YYYY-MM-DD)
+          </p>
         </CardContent>
       </Card>
 
