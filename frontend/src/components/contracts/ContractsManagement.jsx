@@ -211,6 +211,43 @@ const ContractsManagement = () => {
   };
 
   // Verträge erstellen
+  const [warnDialogOpen, setWarnDialogOpen] = useState(false);
+  const [pendingGenerateMode, setPendingGenerateMode] = useState(null); // 'all' | 'filtered'
+
+  // Count assignments with missing fields among selected/all
+  const getIncompleteCount = (mode) => {
+    if (mode === 'filtered') {
+      return filteredAvailableAssignments
+        .filter(a => selectedForGeneration.includes(a.assignment_id))
+        .filter(a => (a.missing_fields?.length || 0) > 0)
+        .length;
+    }
+    return availableAssignments.filter(a => (a.missing_fields?.length || 0) > 0).length;
+  };
+
+  const requestGenerateContracts = (filtered = false) => {
+    const mode = filtered ? 'filtered' : 'all';
+    if (mode === 'filtered' && selectedForGeneration.length === 0) {
+      toast.error('Keine Zuordnungen ausgewählt');
+      return;
+    }
+    const incomplete = getIncompleteCount(mode);
+    if (incomplete > 0) {
+      setPendingGenerateMode(mode);
+      setWarnDialogOpen(true);
+      return;
+    }
+    handleGenerateContracts(filtered);
+  };
+
+  const confirmGenerateWithWarnings = () => {
+    setWarnDialogOpen(false);
+    if (pendingGenerateMode) {
+      handleGenerateContracts(pendingGenerateMode === 'filtered');
+      setPendingGenerateMode(null);
+    }
+  };
+
   const handleGenerateContracts = async (filtered = false) => {
     setGeneratingContracts(true);
     try {
@@ -506,7 +543,7 @@ const ContractsManagement = () => {
           {/* Buttons */}
           <div className="flex flex-wrap gap-2">
             <Button 
-              onClick={() => handleGenerateContracts(false)}
+              onClick={() => requestGenerateContracts(false)}
               disabled={generatingContracts}
               className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
               data-testid="generate-all-contracts-btn"
@@ -517,7 +554,7 @@ const ContractsManagement = () => {
             
             {hasCreateFilters && (
               <Button 
-                onClick={() => handleGenerateContracts(true)}
+                onClick={() => requestGenerateContracts(true)}
                 disabled={generatingContracts || selectedForGeneration.length === 0}
                 className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
                 data-testid="generate-filtered-contracts-btn"
@@ -921,9 +958,41 @@ const ContractsManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+      {/* Incomplete Contracts Warning Dialog */}
+      <AlertDialog open={warnDialogOpen} onOpenChange={setWarnDialogOpen}>
         <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              Unvollständige Verträge erkannt
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p>
+                  <strong>{pendingGenerateMode ? getIncompleteCount(pendingGenerateMode) : 0}</strong> der ausgewählten Zuordnungen haben fehlende Pflichtfelder (Modell, SNr oder Geburtsdatum).
+                </p>
+                <p className="mt-2">
+                  Diese Verträge werden unvollständig generiert und das ZIP-Archiv kann ohne Geburtsdatum nicht korrekt verschlüsselt werden.
+                </p>
+                <p className="mt-2 font-medium">Trotzdem fortfahren?</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingGenerateMode(null)}>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmGenerateWithWarnings}
+              className="bg-amber-600 hover:bg-amber-700"
+              data-testid="confirm-generate-warnings-btn"
+            >
+              Trotzdem erstellen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>        <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Vertrag löschen?</AlertDialogTitle>
             <AlertDialogDescription>

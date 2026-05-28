@@ -123,3 +123,4 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - Button-Text: "Verträge erstellen (X von Y)"
 - Backend `/assignments/available-for-contracts` liefert nun zusätzlich `sus_vorn`, `sus_nachn`, `sus_kl` für Client-side Filterung
 - ⚠️ Warn-Icon in Vorschau-Tabelle bei fehlenden Pflichtfeldern (Modell/SNr/Geburtsdatum) mit Tooltip + amber Zeilen-Highlight
+- Bestätigungs-Dialog beim Erstellen: wenn ausgewählte Verträge unvollständig sind, wird Anzahl der Problem-Verträge angezeigt + Bestätigung "Trotzdem erstellen" notwendig
