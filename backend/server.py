@@ -2103,6 +2103,17 @@ async def get_assignments_available_for_contracts(current_user: dict = Depends(g
         if student_id and student_contract_count.get(student_id, 0) < MAX_CONTRACTS_PER_STUDENT:
             # Get student data for filtering (vorname, nachname, klasse)
             student = await db.students.find_one({"id": student_id})
+            # Get iPad data for completeness warnings
+            ipad = await db.ipads.find_one({"id": a.get("ipad_id")})
+            
+            missing_fields = []
+            if not (ipad and (ipad.get("typ") or "").strip()):
+                missing_fields.append("Modell")
+            if not (ipad and (ipad.get("snr") or "").strip()):
+                missing_fields.append("SNr")
+            if not (student and (student.get("sus_geb") or "").strip()):
+                missing_fields.append("Geburtsdatum")
+            
             available.append({
                 "assignment_id": a["id"], 
                 "itnr": a["itnr"], 
@@ -2110,6 +2121,9 @@ async def get_assignments_available_for_contracts(current_user: dict = Depends(g
                 "sus_vorn": student.get("sus_vorn", "") if student else "",
                 "sus_nachn": student.get("sus_nachn", "") if student else "",
                 "sus_kl": student.get("sus_kl", "") if student else "",
+                "ipad_typ": ipad.get("typ", "") if ipad else "",
+                "ipad_snr": ipad.get("snr", "") if ipad else "",
+                "missing_fields": missing_fields,
                 "contracts_count": student_contract_count.get(student_id, 0),
                 "max_contracts": MAX_CONTRACTS_PER_STUDENT
             })

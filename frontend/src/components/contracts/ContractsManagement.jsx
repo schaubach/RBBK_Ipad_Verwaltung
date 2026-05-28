@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { Checkbox } from '../ui/checkbox';
 import { toast } from 'sonner';
-import { Upload, FileText, Download, Trash2, Search, Link, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
+import { Upload, FileText, Download, Trash2, Search, Link, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, AlertTriangle } from 'lucide-react';
 
 const ContractsManagement = () => {
   const [contracts, setContracts] = useState([]);
@@ -571,7 +571,7 @@ const ContractsManagement = () => {
                   </TableHeader>
                   <TableBody>
                     {filteredAvailableAssignments.map(a => (
-                      <TableRow key={a.assignment_id}>
+                      <TableRow key={a.assignment_id} className={a.missing_fields?.length > 0 ? 'bg-amber-50' : ''}>
                         <TableCell>
                           <Checkbox
                             checked={selectedForGeneration.includes(a.assignment_id)}
@@ -579,7 +579,19 @@ const ContractsManagement = () => {
                             data-testid={`generation-checkbox-${a.assignment_id}`}
                           />
                         </TableCell>
-                        <TableCell className="font-medium">{a.itnr}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            {a.itnr}
+                            {a.missing_fields?.length > 0 && (
+                              <span
+                                title={`Fehlende Pflichtfelder: ${a.missing_fields.join(', ')}. Vertrag wird unvollständig generiert.`}
+                                data-testid={`generation-warning-${a.assignment_id}`}
+                              >
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                              </span>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>{a.sus_vorn} {a.sus_nachn}</TableCell>
                         <TableCell>{a.sus_kl || '-'}</TableCell>
                         <TableCell>
