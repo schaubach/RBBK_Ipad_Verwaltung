@@ -2101,10 +2101,15 @@ async def get_assignments_available_for_contracts(current_user: dict = Depends(g
     for a in assignments:
         student_id = a.get("student_id")
         if student_id and student_contract_count.get(student_id, 0) < MAX_CONTRACTS_PER_STUDENT:
+            # Get student data for filtering (vorname, nachname, klasse)
+            student = await db.students.find_one({"id": student_id})
             available.append({
                 "assignment_id": a["id"], 
                 "itnr": a["itnr"], 
                 "student_name": a["student_name"],
+                "sus_vorn": student.get("sus_vorn", "") if student else "",
+                "sus_nachn": student.get("sus_nachn", "") if student else "",
+                "sus_kl": student.get("sus_kl", "") if student else "",
                 "contracts_count": student_contract_count.get(student_id, 0),
                 "max_contracts": MAX_CONTRACTS_PER_STUDENT
             })

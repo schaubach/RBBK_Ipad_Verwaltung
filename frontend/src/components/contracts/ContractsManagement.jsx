@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../../api';
 import StudentDetailViewer from '../students/StudentDetailViewer';
 import IPadDetailViewer from '../ipads/IPadDetailViewer';
@@ -55,6 +55,7 @@ const ContractsManagement = () => {
   const [createKlasseFilter, setCreateKlasseFilter] = useState('');
   const [createItnrFilter, setCreateItnrFilter] = useState('');
   const [generatingContracts, setGeneratingContracts] = useState(false);
+  const [selectedForGeneration, setSelectedForGeneration] = useState([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -214,20 +215,19 @@ const ContractsManagement = () => {
     setGeneratingContracts(true);
     try {
       let url = '/assignments/generate-contracts';
-      const params = new URLSearchParams();
+      let body = {};
       
       if (filtered) {
-        if (createVornameFilter) params.append('sus_vorn', createVornameFilter);
-        if (createNachnameFilter) params.append('sus_nachn', createNachnameFilter);
-        if (createKlasseFilter) params.append('sus_kl', createKlasseFilter);
-        if (createItnrFilter) params.append('itnr', createItnrFilter);
+        // Use selected assignment IDs from the filtered table
+        if (selectedForGeneration.length === 0) {
+          toast.error('Keine Zuordnungen ausgewählt');
+          setGeneratingContracts(false);
+          return;
+        }
+        body = { assignment_ids: selectedForGeneration };
       }
       
-      if (params.toString()) {
-        url += '?' + params.toString();
-      }
-      
-      const response = await api.post(url, {}, {
+      const response = await api.post(url, body, {
         responseType: 'blob'
       });
       
@@ -266,6 +266,39 @@ const ContractsManagement = () => {
   };
 
   const hasCreateFilters = createVornameFilter || createNachnameFilter || createKlasseFilter || createItnrFilter;
+
+  // Filter available assignments client-side based on create filters
+  const filteredAvailableAssignments = useMemo(() => {
+    if (!hasCreateFilters) return [];
+    return availableAssignments.filter(a => {
+      if (createVornameFilter && !(a.sus_vorn || '').toLowerCase().includes(createVornameFilter.toLowerCase())) return false;
+      if (createNachnameFilter && !(a.sus_nachn || '').toLowerCase().includes(createNachnameFilter.toLowerCase())) return false;
+      if (createKlasseFilter && !(a.sus_kl || '').toLowerCase().includes(createKlasseFilter.toLowerCase())) return false;
+      if (createItnrFilter && !(a.itnr || '').toLowerCase().includes(createItnrFilter.toLowerCase())) return false;
+      return true;
+    });
+  }, [availableAssignments, createVornameFilter, createNachnameFilter, createKlasseFilter, createItnrFilter, hasCreateFilters]);
+
+  // Preselect all filtered assignments whenever filtered list changes
+  useEffect(() => {
+    setSelectedForGeneration(filteredAvailableAssignments.map(a => a.assignment_id));
+  }, [filteredAvailableAssignments]);
+
+  const toggleGenerationSelection = (assignmentId) => {
+    setSelectedForGeneration(prev =>
+      prev.includes(assignmentId)
+        ? prev.filter(id => id !== assignmentId)
+        : [...prev, assignmentId]
+    );
+  };
+
+  const toggleAllGenerationSelection = () => {
+    if (selectedForGeneration.length === filteredAvailableAssignments.length) {
+      setSelectedForGeneration([]);
+    } else {
+      setSelectedForGeneration(filteredAvailableAssignments.map(a => a.assignment_id));
+    }
+  };
 
   // Sorting
   const handleSort = (field) => {
@@ -476,19 +509,21 @@ const ContractsManagement = () => {
               onClick={() => handleGenerateContracts(false)}
               disabled={generatingContracts}
               className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+              data-testid="generate-all-contracts-btn"
             >
               <FileText className="h-4 w-4 mr-2" />
-              {generatingContracts ? 'Erstelle...' : 'Alle Verträge erstellen'}
+              {generatingContracts ? 'Erstelle...' : `Alle Verträge erstellen (${availableAssignments.length})`}
             </Button>
             
             {hasCreateFilters && (
               <Button 
                 onClick={() => handleGenerateContracts(true)}
-                disabled={generatingContracts}
+                disabled={generatingContracts || selectedForGeneration.length === 0}
                 className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
+                data-testid="generate-filtered-contracts-btn"
               >
                 <Search className="h-4 w-4 mr-2" />
-                {generatingContracts ? 'Erstelle...' : 'Gefilterte Verträge erstellen'}
+                {generatingContracts ? 'Erstelle...' : `Verträge erstellen (${selectedForGeneration.length} von ${filteredAvailableAssignments.length})`}
               </Button>
             )}
             
@@ -506,6 +541,57 @@ const ContractsManagement = () => {
               </Button>
             )}
           </div>
+
+          {/* Gefilterte Zuordnungen Tabelle mit Auswahl-Checkboxen */}
+          {hasCreateFilters && (
+            <div className="mt-4 border rounded-lg overflow-hidden" data-testid="generation-selection-table">
+              {filteredAvailableAssignments.length === 0 ? (
+                <div className="p-6 text-center text-sm text-gray-500">
+                  Keine passenden Zuordnungen ohne Vertrag gefunden.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">
+                        <Checkbox
+                          checked={
+                            selectedForGeneration.length === filteredAvailableAssignments.length &&
+                            filteredAvailableAssignments.length > 0
+                          }
+                          onCheckedChange={toggleAllGenerationSelection}
+                          data-testid="generation-select-all-checkbox"
+                        />
+                      </TableHead>
+                      <TableHead>ITNr</TableHead>
+                      <TableHead>Schüler</TableHead>
+                      <TableHead>Klasse</TableHead>
+                      <TableHead>Verträge</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredAvailableAssignments.map(a => (
+                      <TableRow key={a.assignment_id}>
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedForGeneration.includes(a.assignment_id)}
+                            onCheckedChange={() => toggleGenerationSelection(a.assignment_id)}
+                            data-testid={`generation-checkbox-${a.assignment_id}`}
+                          />
+                        </TableCell>
+                        <TableCell className="font-medium">{a.itnr}</TableCell>
+                        <TableCell>{a.sus_vorn} {a.sus_nachn}</TableCell>
+                        <TableCell>{a.sus_kl || '-'}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{a.contracts_count} / {a.max_contracts}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+          )}
           
           <p className="text-xs text-gray-500">
             Hinweis: ZIP-Dateien sind mit dem Geburtsdatum des Schülers verschlüsselt (Format: YYYY-MM-DD)

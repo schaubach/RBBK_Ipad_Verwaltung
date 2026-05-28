@@ -115,3 +115,10 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - Bug behoben: `setDissolveSelectedDialogOpen` (nicht existent) durch `setBatchDeleteDialogOpen` ersetzt
 - "Ausgewählte exportieren" + "Ausgewählte lösen"-Buttons erscheinen jetzt korrekt bei Checkbox-Auswahl
 - Verifiziert via Screenshot
+
+## Session 11 (Feb 2026) - UX-Verbesserungen Verträge
+- "Alle Zuordnungen exportieren" zeigt jetzt Anzahl: "Alle Zuordnungen exportieren (10)"
+- Vertragserstellung mit Filter zeigt nun eine Vorschau-Tabelle mit Checkboxen
+- Standardmäßig sind alle gefilterten Einträge vorausgewählt → User kann einzelne abwählen
+- Button-Text: "Verträge erstellen (X von Y)"
+- Backend `/assignments/available-for-contracts` liefert nun zusätzlich `sus_vorn`, `sus_nachn`, `sus_kl` für Client-side Filterung

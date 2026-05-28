@@ -607,7 +607,7 @@ const AssignmentsManagement = () => {
                 className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
               >
                 <Download className="h-4 w-4 mr-2" />
-                {exporting ? 'Exportiere...' : 'Alle Zuordnungen exportieren'}
+                {exporting ? 'Exportiere...' : `Alle Zuordnungen exportieren (${assignments.length})`}
               </Button>
               
               <Button 
