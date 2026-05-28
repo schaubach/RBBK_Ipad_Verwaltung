@@ -643,7 +643,7 @@ const ContractsManagement = () => {
           )}
           
           <p className="text-xs text-gray-500">
-            Hinweis: ZIP-Dateien sind mit dem Geburtsdatum des Schülers verschlüsselt (Format: YYYY-MM-DD)
+            Hinweis: ZIP-Dateien sind mit dem Geburtsdatum des Schülers verschlüsselt (Format: TT.MM.JJJJ).
           </p>
         </CardContent>
       </Card>
