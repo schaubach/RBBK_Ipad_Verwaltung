@@ -127,9 +127,11 @@ def create_single_contract(row_data: dict, template_bytes: bytes) -> tuple:
                 zf.writestr(pdf_filename, pdf_final_buffer.getvalue())
             return zip_filename, zip_buffer.getvalue()
         
-        # Mit AES-Verschlüsselung
+        # Mit Standard-ZIP-Verschlüsselung (ZipCrypto) - Windows Explorer kompatibel
+        # Hinweis: ZipCrypto ist weniger sicher als AES, aber der einzige Standard,
+        # den Windows Explorer ohne Zusatztools unterstützt.
         zip_buffer = io.BytesIO()
-        with pyzipper.AESZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+        with pyzipper.ZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED) as zf:
             zf.setpassword(zip_password.encode('utf-8'))
             zf.writestr(pdf_filename, pdf_final_buffer.getvalue())
         

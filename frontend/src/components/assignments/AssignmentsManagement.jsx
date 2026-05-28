@@ -516,6 +516,59 @@ const AssignmentsManagement = () => {
     }
   };
 
+  // Generate contracts for selected assignments (checkbox)
+  const handleGenerateContractsForSelected = async () => {
+    if (selectedAssignments.length === 0) {
+      toast.error('Keine Zuordnungen ausgewählt');
+      return;
+    }
+    
+    setGeneratingContracts(true);
+    try {
+      const response = await api.post('/assignments/generate-contracts-selected', {
+        assignment_ids: selectedAssignments
+      }, {
+        responseType: 'blob'
+      });
+      
+      const blob = new Blob([response.data], {
+        type: 'application/zip'
+      });
+      
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = 'Vertraege_Auswahl.zip';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename=(.+)/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+      
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(link);
+      
+      const successCount = response.headers['x-success-count'] || selectedAssignments.length;
+      toast.success(`${successCount} Verträge für ausgewählte Zuordnungen erstellt`);
+      setSelectedAssignments([]);
+    } catch (error) {
+      if (error.response?.status === 404) {
+        toast.error('Keine Zuordnungen für Vertragserstellung gefunden');
+      } else {
+        toast.error('Fehler bei der Vertragserstellung');
+      }
+      console.error('Contract generation error:', error);
+    } finally {
+      setGeneratingContracts(false);
+    }
+  };
+
   const clearFilters = () => {
     setVornameFilter('');
     setNachnameFilter('');
@@ -671,7 +724,7 @@ const AssignmentsManagement = () => {
                   className="bg-gradient-to-r from-ipad-blue to-ipad-dark-blue hover:from-ipad-dark-blue hover:to-ipad-dark-gray"
                 >
                   <Download className="h-4 w-4 mr-2" />
-                  {exporting ? 'Exportiere...' : `Gefilterte Zuordnungen exportieren (${filteredAssignments.length})`}
+                  {exporting ? 'Exportiere...' : `Gefilterte exportieren (${filteredAssignments.length})`}
                 </Button>
                 
                 <Button 
@@ -680,7 +733,7 @@ const AssignmentsManagement = () => {
                   className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
-                  {dissolving ? 'Löse auf...' : `Gefilterte Zuordnungen lösen (${filteredAssignments.length})`}
+                  {dissolving ? 'Löse auf...' : `Gefilterte lösen (${filteredAssignments.length})`}
                 </Button>
                 
                 <Button 
@@ -690,6 +743,29 @@ const AssignmentsManagement = () => {
                 >
                   <FileText className="h-4 w-4 mr-2" />
                   {generatingContracts ? 'Erstelle...' : `Gefilterte Verträge erstellen (${filteredAssignments.length})`}
+                </Button>
+              </div>
+            )}
+            
+            {/* Ausgewählte Zuordnungen Buttons - bei Checkbox-Auswahl */}
+            {selectedAssignments.length > 0 && (
+              <div className="flex flex-wrap gap-2 pl-4 border-l-4 border-green-300">
+                <Button 
+                  onClick={() => setDissolveSelectedDialogOpen(true)}
+                  disabled={dissolving}
+                  className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  {dissolving ? 'Löse auf...' : `Ausgewählte lösen (${selectedAssignments.length})`}
+                </Button>
+                
+                <Button 
+                  onClick={() => handleGenerateContractsForSelected()}
+                  disabled={generatingContracts}
+                  className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  {generatingContracts ? 'Erstelle...' : `Ausgewählte Verträge erstellen (${selectedAssignments.length})`}
                 </Button>
               </div>
             )}

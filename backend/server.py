@@ -3765,6 +3765,86 @@ async def get_filtered_assignments(
         print(f"Filter error: {e}")
         raise HTTPException(status_code=500, detail=f"Filter error: {str(e)}")
 
+
+class GenerateContractsSelectedRequest(BaseModel):
+    assignment_ids: List[str]
+
+
+@api_router.post("/assignments/generate-contracts-selected")
+async def generate_contracts_for_selected(
+    request: GenerateContractsSelectedRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Erstellt Verträge für ausgewählte Zuordnungen (per Checkbox).
+    """
+    if not request.assignment_ids:
+        raise HTTPException(status_code=400, detail="Keine Zuordnungen ausgewählt")
+    
+    user_filter = await get_user_filter(current_user)
+    
+    # Get selected assignments (respecting user filter)
+    assignments = await db.assignments.find({
+        "id": {"$in": request.assignment_ids},
+        "is_active": True,
+        **user_filter
+    }).to_list(length=None)
+    
+    if not assignments:
+        raise HTTPException(status_code=404, detail="Keine gültigen Zuordnungen gefunden")
+    
+    # Get student and iPad data for each assignment
+    contract_data = []
+    for assignment in assignments:
+        student = await db.students.find_one({"id": assignment["student_id"], **user_filter})
+        ipad = await db.ipads.find_one({"id": assignment["ipad_id"], **user_filter})
+        
+        if student and ipad:
+            contract_data.append({
+                "sus_vorn": student.get("sus_vorn", ""),
+                "sus_nachn": student.get("sus_nachn", ""),
+                "sus_kl": student.get("sus_kl", ""),
+                "sus_geb": student.get("sus_geb", ""),
+                "sus_str_hnr": student.get("sus_str_hnr", ""),
+                "sus_plz": student.get("sus_plz", ""),
+                "sus_ort": student.get("sus_ort", ""),
+                "erz1_vorn": student.get("erz1_vorn", ""),
+                "erz1_nachn": student.get("erz1_nachn", ""),
+                "erz1_str_hnr": student.get("erz1_str_hnr", ""),
+                "erz1_plz": student.get("erz1_plz", ""),
+                "erz1_ort": student.get("erz1_ort", ""),
+                "erz2_vorn": student.get("erz2_vorn", ""),
+                "erz2_nachn": student.get("erz2_nachn", ""),
+                "erz2_str_hnr": student.get("erz2_str_hnr", ""),
+                "erz2_plz": student.get("erz2_plz", ""),
+                "erz2_ort": student.get("erz2_ort", ""),
+                "itnr": ipad.get("itnr", ""),
+                "snr": ipad.get("snr", ""),
+            })
+    
+    if not contract_data:
+        raise HTTPException(status_code=404, detail="Keine gültigen Daten für Vertragserstellung")
+    
+    # Generate contracts
+    zip_bytes, success_count, error_count, errors = create_contracts_from_assignments(contract_data)
+    
+    if error_count > 0:
+        logger.warning(f"Contract generation had {error_count} errors: {errors}")
+    
+    # Return ZIP file
+    filename = f"Vertraege_Auswahl_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    
+    return StreamingResponse(
+        io.BytesIO(zip_bytes),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}",
+            "X-Success-Count": str(success_count),
+            "X-Error-Count": str(error_count)
+        }
+    )
+
+
 # Include the router
 app.include_router(api_router)
 
