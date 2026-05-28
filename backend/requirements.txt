@@ -63,6 +63,7 @@ python-multipart==0.0.20
 pytokens==0.3.0
 pytz==2025.2
 pyzipper==0.3.6
+pyminizip==0.2.6
 requests==2.32.5
 requests-oauthlib==2.0.0
 rich==14.1.0

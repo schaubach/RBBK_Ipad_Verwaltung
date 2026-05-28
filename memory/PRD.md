@@ -124,3 +124,9 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - Backend `/assignments/available-for-contracts` liefert nun zusätzlich `sus_vorn`, `sus_nachn`, `sus_kl` für Client-side Filterung
 - ⚠️ Warn-Icon in Vorschau-Tabelle bei fehlenden Pflichtfeldern (Modell/SNr/Geburtsdatum) mit Tooltip + amber Zeilen-Highlight
 - Bestätigungs-Dialog beim Erstellen: wenn ausgewählte Verträge unvollständig sind, wird Anzahl der Problem-Verträge angezeigt + Bestätigung "Trotzdem erstellen" notwendig
+
+## Session 12 (Feb 2026) - Live-Bug-Fixes
+- **Bug 1 (White Screen):** Browser cached alte `index.html`. Fix: Nginx-Config in `default.conf` ergänzt — `index.html` und `config.js` haben jetzt `Cache-Control: no-store`, statische JS/CSS-Hashes bleiben 1 Jahr gecached
+- **Bug 2 (500 bei Vertragserstellung):** pyzipper 0.3.6 unterstützt kein ZipCrypto-Schreiben. Migration auf **pyminizip** (echtes Windows-kompatibles ZipCrypto). Verifiziert: ZIP wird verschlüsselt, falsches Passwort wird abgelehnt, korrektes Passwort entpackt PDF
+- requirements.txt: `pyminizip==0.2.6` hinzugefügt
+- Hinweis für Live-Deployment: Backend-Container muss neugebaut werden (deploy-smart.sh Option 4 mit `--no-cache backend`)

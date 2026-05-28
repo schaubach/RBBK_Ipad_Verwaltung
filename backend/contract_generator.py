@@ -7,7 +7,7 @@ from datetime import datetime
 import pandas as pd
 from pypdf import PdfReader, PdfWriter
 import pikepdf
-import pyzipper
+import pyminizip
 import logging
 import tempfile
 import zipfile
@@ -130,12 +130,22 @@ def create_single_contract(row_data: dict, template_bytes: bytes) -> tuple:
         # Mit Standard-ZIP-Verschlüsselung (ZipCrypto) - Windows Explorer kompatibel
         # Hinweis: ZipCrypto ist weniger sicher als AES, aber der einzige Standard,
         # den Windows Explorer ohne Zusatztools unterstützt.
-        zip_buffer = io.BytesIO()
-        with pyzipper.ZipFile(zip_buffer, 'w', compression=pyzipper.ZIP_DEFLATED) as zf:
-            zf.setpassword(zip_password.encode('utf-8'))
-            zf.writestr(pdf_filename, pdf_final_buffer.getvalue())
+        # pyminizip benötigt Dateien auf der Disk → temporäre Dateien verwenden
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_temp_path = os.path.join(tmpdir, pdf_filename)
+            zip_temp_path = os.path.join(tmpdir, zip_filename)
+            
+            with open(pdf_temp_path, 'wb') as f:
+                f.write(pdf_final_buffer.getvalue())
+            
+            # pyminizip.compress(src_file, src_prefix, dst_zip, password, compress_level)
+            # compress_level: 0-9 (0=keine Kompression, 9=maximal)
+            pyminizip.compress(pdf_temp_path, None, zip_temp_path, zip_password, 5)
+            
+            with open(zip_temp_path, 'rb') as f:
+                zip_bytes = f.read()
         
-        return zip_filename, zip_buffer.getvalue()
+        return zip_filename, zip_bytes
         
     except Exception as e:
         logger.error(f"Fehler bei Vertragserstellung: {e}", exc_info=True)
