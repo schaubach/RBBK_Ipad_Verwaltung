@@ -28,7 +28,6 @@ const AssignmentsManagement = () => {
   const [selectedContractId, setSelectedContractId] = useState(null);
   const [uploadingContractForAssignment, setUploadingContractForAssignment] = useState(null);
   const [importing, setImporting] = useState(false);
-  const [generatingContracts, setGeneratingContracts] = useState(false);
   
   // Filter states
   const [vornameFilter, setVornameFilter] = useState('');
@@ -446,129 +445,44 @@ const AssignmentsManagement = () => {
     }
   };
 
-  // Generate contracts for assignments
-  const handleGenerateContracts = async (filtered = false) => {
-    setGeneratingContracts(true);
-    try {
-      // Build query parameters for filtered generation
-      const params = new URLSearchParams();
-      if (filtered) {
-        if (vornameFilter) params.append('sus_vorn', vornameFilter);
-        if (nachnameFilter) params.append('sus_nachn', nachnameFilter);
-        if (klasseFilter) params.append('sus_kl', klasseFilter);
-        if (itnrFilter) params.append('itnr', itnrFilter);
-      }
-      
-      const queryString = params.toString();
-      const url = queryString ? `/assignments/generate-contracts?${queryString}` : '/assignments/generate-contracts';
-      
-      const response = await api.post(url, {}, {
-        responseType: 'blob'
-      });
-      
-      const blob = new Blob([response.data], {
-        type: 'application/zip'
-      });
-      
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      
-      // Get filename from header or use default
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'Vertraege.zip';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename=(.+)/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
-      
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(downloadUrl);
-      document.body.removeChild(link);
-      
-      const successCount = response.headers['x-success-count'] || '?';
-      const message = filtered 
-        ? `${successCount} Verträge für gefilterte Zuordnungen erstellt` 
-        : `${successCount} Verträge erstellt`;
-      toast.success(message);
-    } catch (error) {
-      if (error.response?.status === 404) {
-        toast.error('Keine Zuordnungen für Vertragserstellung gefunden');
-      } else if (error.response?.data) {
-        // Try to read error message from blob
-        const text = await error.response.data.text?.() || 'Unbekannter Fehler';
-        try {
-          const json = JSON.parse(text);
-          toast.error(json.detail || 'Fehler bei der Vertragserstellung');
-        } catch {
-          toast.error('Fehler bei der Vertragserstellung');
-        }
-      } else {
-        toast.error('Fehler bei der Vertragserstellung');
-      }
-      console.error('Contract generation error:', error);
-    } finally {
-      setGeneratingContracts(false);
-    }
-  };
-
-  // Generate contracts for selected assignments (checkbox)
-  const handleGenerateContractsForSelected = async () => {
+  // Export selected assignments (by checkbox)
+  const handleExportSelected = async () => {
     if (selectedAssignments.length === 0) {
       toast.error('Keine Zuordnungen ausgewählt');
       return;
     }
     
-    setGeneratingContracts(true);
+    setExporting(true);
     try {
-      // Use the same endpoint but with assignment_ids in body
-      const response = await api.post('/assignments/generate-contracts', {
+      const response = await api.post('/assignments/export-selected', {
         assignment_ids: selectedAssignments
       }, {
         responseType: 'blob'
       });
       
       const blob = new Blob([response.data], {
-        type: 'application/zip'
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
       
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'Vertraege_Auswahl.zip';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename=(.+)/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
-      
-      link.download = filename;
+      link.download = 'zuordnungen_auswahl_export.xlsx';
       document.body.appendChild(link);
       link.click();
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(link);
       
-      const successCount = response.headers['x-success-count'] || selectedAssignments.length;
-      toast.success(`${successCount} Verträge für ausgewählte Zuordnungen erstellt`);
+      toast.success(`${selectedAssignments.length} Zuordnungen erfolgreich exportiert`);
       setSelectedAssignments([]);
     } catch (error) {
-      if (error.response?.status === 404) {
-        toast.error('Keine Zuordnungen für Vertragserstellung gefunden');
-      } else {
-        toast.error('Fehler bei der Vertragserstellung');
-      }
-      console.error('Contract generation error:', error);
+      toast.error('Fehler beim Export');
+      console.error('Export error:', error);
     } finally {
-      setGeneratingContracts(false);
+      setExporting(false);
     }
   };
+
 
   const clearFilters = () => {
     setVornameFilter('');
@@ -704,16 +618,6 @@ const AssignmentsManagement = () => {
                 <Trash2 className="h-4 w-4 mr-2" />
                 {dissolving ? 'Löse auf...' : `Alle Zuordnungen lösen (${assignments.length})`}
               </Button>
-              
-              {/* Contract Generation Buttons */}
-              <Button 
-                onClick={() => handleGenerateContracts(false)}
-                disabled={generatingContracts || assignments.length === 0}
-                className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
-              >
-                <FileText className="h-4 w-4 mr-2" />
-                {generatingContracts ? 'Erstelle Verträge...' : `Alle Verträge erstellen (${assignments.length})`}
-              </Button>
             </div>
             
             {/* Gefilterte Zuordnungen Buttons - nur anzeigen wenn Filter aktiv */}
@@ -736,15 +640,6 @@ const AssignmentsManagement = () => {
                   <Trash2 className="h-4 w-4 mr-2" />
                   {dissolving ? 'Löse auf...' : `Gefilterte lösen (${filteredAssignments.length})`}
                 </Button>
-                
-                <Button 
-                  onClick={() => handleGenerateContracts(true)}
-                  disabled={generatingContracts}
-                  className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  {generatingContracts ? 'Erstelle...' : `Gefilterte Verträge erstellen (${filteredAssignments.length})`}
-                </Button>
               </div>
             )}
             
@@ -752,38 +647,25 @@ const AssignmentsManagement = () => {
             {selectedAssignments.length > 0 && (
               <div className="flex flex-wrap gap-2 pl-4 border-l-4 border-green-300">
                 <Button 
-                  onClick={() => setDissolveSelectedDialogOpen(true)}
+                  onClick={() => handleExportSelected()}
+                  disabled={exporting}
+                  className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  {exporting ? 'Exportiere...' : `Ausgewählte exportieren (${selectedAssignments.length})`}
+                </Button>
+                
+                <Button 
+                  onClick={() => setBatchDeleteDialogOpen(true)}
                   disabled={dissolving}
                   className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
                 >
                   <Trash2 className="h-4 w-4 mr-2" />
                   {dissolving ? 'Löse auf...' : `Ausgewählte lösen (${selectedAssignments.length})`}
                 </Button>
-                
-                <Button 
-                  onClick={() => handleGenerateContractsForSelected()}
-                  disabled={generatingContracts}
-                  className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  {generatingContracts ? 'Erstelle...' : `Ausgewählte Verträge erstellen (${selectedAssignments.length})`}
-                </Button>
               </div>
             )}
           </div>
-          
-          {/* Batch Delete Button */}
-          {selectedAssignments.length > 0 && (
-            <div className="mb-4">
-              <Button
-                onClick={openBatchDissolveDialog}
-                variant="destructive"
-                disabled={dissolving}
-              >
-                {dissolving ? 'Löse auf...' : `${selectedAssignments.length} Zuordnung(en) auflösen`}
-              </Button>
-            </div>
-          )}
 
           {loading ? (
             <div className="text-center py-8">Lade Zuordnungen...</div>

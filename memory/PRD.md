@@ -109,3 +109,9 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 
 ## Known Issues
 - `libmagic` muss im Pod installiert sein (`sudo apt-get install -y libmagic1`)
+
+## Session 10 (Feb 2026) - Checkbox-UI Fix
+- Doppelten "X Zuordnung(en) auflösen"-Button aus AssignmentsManagement.jsx entfernt
+- Bug behoben: `setDissolveSelectedDialogOpen` (nicht existent) durch `setBatchDeleteDialogOpen` ersetzt
+- "Ausgewählte exportieren" + "Ausgewählte lösen"-Buttons erscheinen jetzt korrekt bei Checkbox-Auswahl
+- Verifiziert via Screenshot

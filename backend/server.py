@@ -3559,6 +3559,108 @@ async def export_assignments(
         headers={"Content-Disposition": "attachment; filename=zuordnungen_export.xlsx"}
     )
 
+
+class ExportSelectedRequest(BaseModel):
+    assignment_ids: List[str]
+
+
+@api_router.post("/assignments/export-selected")
+@limiter.limit("10/minute")
+async def export_selected_assignments(
+    request: Request,
+    body: ExportSelectedRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Export selected assignments to Excel (by checkbox selection)"""
+    if not body.assignment_ids:
+        raise HTTPException(status_code=400, detail="Keine Zuordnungen ausgewählt")
+    
+    # Apply user filter - CRITICAL for RBAC!
+    user_filter = await get_user_filter(current_user)
+    
+    # Get selected assignments (respecting user filter)
+    assignments = await db.assignments.find({
+        "id": {"$in": body.assignment_ids},
+        "is_active": True,
+        **user_filter
+    }).to_list(length=None)
+    
+    if not assignments:
+        raise HTTPException(status_code=404, detail="Keine gültigen Zuordnungen gefunden")
+    
+    # Build export data
+    export_data = []
+    for assignment in assignments:
+        student = await db.students.find_one({"id": assignment["student_id"], **user_filter})
+        ipad = await db.ipads.find_one({"id": assignment["ipad_id"], **user_filter})
+        
+        if student and ipad:
+            # Format Geburtstag to TT.MM.JJJJ
+            geburtstag_formatted = ""
+            if student.get("sus_geb"):
+                try:
+                    geb_str = student.get("sus_geb", "")
+                    if "-" in geb_str:
+                        date_obj = datetime.fromisoformat(geb_str.replace('Z', '+00:00')) if 'T' in geb_str else datetime.strptime(geb_str, "%Y-%m-%d")
+                        geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
+                    elif "." in geb_str:
+                        geburtstag_formatted = geb_str
+                except:
+                    geburtstag_formatted = student.get("sus_geb", "")
+            
+            # Format AusleiheDatum
+            ausleihe_datum_formatted = ""
+            if assignment.get("assigned_at"):
+                try:
+                    assigned_date = datetime.fromisoformat(assignment["assigned_at"].replace('Z', '+00:00'))
+                    ausleihe_datum_formatted = assigned_date.strftime("%d.%m.%Y")
+                except:
+                    ausleihe_datum_formatted = ""
+            
+            row_data = {
+                "Sname": student.get("sname", ""),
+                "SuSNachn": student.get("sus_nachn", ""),
+                "SuSVorn": student.get("sus_vorn", ""),
+                "SuSKl": student.get("sus_kl", ""),
+                "SuSStrHNr": student.get("sus_str_hnr", ""),
+                "SuSPLZ": student.get("sus_plz", ""),
+                "SuSOrt": student.get("sus_ort", ""),
+                "SuSGeb": geburtstag_formatted,
+                "Erz1Nachn": student.get("erz1_nachn", ""),
+                "Erz1Vorn": student.get("erz1_vorn", ""),
+                "Erz1StrHNr": student.get("erz1_str_hnr", ""),
+                "Erz1PLZ": student.get("erz1_plz", ""),
+                "Erz1Ort": student.get("erz1_ort", ""),
+                "Erz2Nachn": student.get("erz2_nachn", ""),
+                "Erz2Vorn": student.get("erz2_vorn", ""),
+                "Erz2StrHNr": student.get("erz2_str_hnr", ""),
+                "Erz2PLZ": student.get("erz2_plz", ""),
+                "Erz2Ort": student.get("erz2_ort", ""),
+                "Pencil": ipad.get("pencil", ""),
+                "ITNr": ipad.get("itnr", ""),
+                "SNr": ipad.get("snr", ""),
+                "Typ": ipad.get("typ", ""),
+                "AnschJahr": ipad.get("ansch_jahr", ""),
+                "AusleiheDatum": ausleihe_datum_formatted,
+                "Rückgabe": ""
+            }
+            export_data.append(row_data)
+    
+    # Create Excel file
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df = pd.DataFrame(export_data)
+        df.to_excel(writer, sheet_name='Zuordnungen', index=False)
+    
+    output.seek(0)
+    
+    return StreamingResponse(
+        io.BytesIO(output.read()),
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={"Content-Disposition": "attachment; filename=zuordnungen_auswahl_export.xlsx"}
+    )
+
+
 # Contract Generation
 class GenerateContractsRequest(BaseModel):
     assignment_ids: Optional[List[str]] = None
