@@ -140,8 +140,8 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - `DELETE /ipads/{id}` — iPad löschen
 
 **User → Admin (jetzt nur noch Admin):**
-- `DELETE /contracts/{id}` — Vertrag löschen
-- `POST /contracts/batch-delete` — Verträge Batch-Löschen
 - `PUT /settings/global` — globale Einstellungen ändern
 
-Getestet via curl mit echtem User-Token: alle 5 RBAC-Checks bestanden ✅
+**Hinweis:** iPad-Batch-Löschen läuft im Frontend über mehrere einzelne `DELETE /ipads/{id}`-Calls → durch User-Berechtigung auf einzelnem Endpoint bereits abgedeckt.
+
+Getestet via curl mit echtem User-Token: alle RBAC-Checks bestanden ✅

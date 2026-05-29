@@ -2614,7 +2614,6 @@ async def download_contract(request: Request, contract_id: str, current_user: di
 
 @api_router.delete("/contracts/{contract_id}")
 async def delete_contract(contract_id: str, current_user: dict = Depends(get_current_user)):
-    require_admin(current_user)
     contract = await db.contracts.find_one({"id": contract_id})
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -2668,8 +2667,7 @@ class BatchDeleteContractsRequest(BaseModel):
 
 @api_router.post("/contracts/batch-delete")
 async def batch_delete_contracts(request: BatchDeleteContractsRequest, current_user: dict = Depends(get_current_user)):
-    """Delete multiple contracts at once (Admin only)"""
-    require_admin(current_user)
+    """Delete multiple contracts at once"""
     if not request.contract_ids:
         raise HTTPException(status_code=400, detail="No contract IDs provided")
     
