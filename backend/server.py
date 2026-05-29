@@ -952,10 +952,9 @@ async def get_ipads(request: Request, current_user: dict = Depends(get_current_u
 @api_router.delete("/ipads/{ipad_id}")
 async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_user)):
     """
-    Delete an iPad permanently from the database (Admin only).
+    Delete an iPad permanently from the database.
     Only allowed if iPad is not currently assigned.
     """
-    require_admin(current_user)
     # Get iPad
     user_filter = await get_user_filter(current_user)
     ipad = await db.ipads.find_one({"id": ipad_id, **user_filter})
@@ -1260,8 +1259,7 @@ async def update_student(student_id: str, request: StudentUpdateRequest, current
 
 @api_router.delete("/students/{student_id}")
 async def delete_student(student_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete a student and handle related data (Admin only)"""
-    require_admin(current_user)
+    """Delete a student and handle related data"""
     # Validate resource ownership
     await validate_resource_ownership("student", student_id, current_user)
     
@@ -1342,7 +1340,7 @@ async def batch_delete_students(
     current_user: dict = Depends(get_current_user)
 ):
     """
-    Delete multiple students at once (Admin only)
+    Delete multiple students at once
     
     filter_params can include:
     - "all": true (deletes all user's students)
@@ -1356,7 +1354,6 @@ async def batch_delete_students(
     - Deletes all assignment history
     - Deletes all contracts
     """
-    require_admin(current_user)
     try:
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
@@ -1466,10 +1463,9 @@ async def batch_delete_students(
 @api_router.post("/assignments/auto-assign", response_model=AssignmentResponse)
 async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
     """
-    Automatische Zuordnung (Admin only): Weist nur Schülern OHNE jegliche iPad-Zuordnung ein iPad zu.
+    Automatische Zuordnung: Weist nur Schülern OHNE jegliche iPad-Zuordnung ein iPad zu.
     Schüler mit bereits 1, 2 oder 3 iPads werden NICHT berücksichtigt.
     """
-    require_admin(current_user)
     # Apply user filter
     user_filter = await get_user_filter(current_user)
     
@@ -2411,8 +2407,7 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
 # Assignment dissolution
 @api_router.delete("/assignments/{assignment_id}")
 async def dissolve_assignment(assignment_id: str, current_user: dict = Depends(get_current_user)):
-    """Dissolve an assignment (Admin only)"""
-    require_admin(current_user)
+    """Dissolve an assignment"""
     # Validate resource ownership
     await validate_resource_ownership("assignment", assignment_id, current_user)
     
@@ -2619,6 +2614,7 @@ async def download_contract(request: Request, contract_id: str, current_user: di
 
 @api_router.delete("/contracts/{contract_id}")
 async def delete_contract(contract_id: str, current_user: dict = Depends(get_current_user)):
+    require_admin(current_user)
     contract = await db.contracts.find_one({"id": contract_id})
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -2672,7 +2668,8 @@ class BatchDeleteContractsRequest(BaseModel):
 
 @api_router.post("/contracts/batch-delete")
 async def batch_delete_contracts(request: BatchDeleteContractsRequest, current_user: dict = Depends(get_current_user)):
-    """Delete multiple contracts at once"""
+    """Delete multiple contracts at once (Admin only)"""
+    require_admin(current_user)
     if not request.contract_ids:
         raise HTTPException(status_code=400, detail="No contract IDs provided")
     
@@ -2742,7 +2739,8 @@ async def update_global_settings(
     settings: dict,
     current_user: dict = Depends(get_current_user)
 ):
-    """Update global application settings"""
+    """Update global application settings (Admin only)"""
+    require_admin(current_user)
     try:
         ipad_typ = settings.get("ipad_typ", "Apple iPad")
         pencil = settings.get("pencil", "ohne Apple Pencil")

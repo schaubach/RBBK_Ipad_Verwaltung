@@ -130,3 +130,18 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - **Bug 2 (500 bei Vertragserstellung):** pyzipper 0.3.6 unterstützt kein ZipCrypto-Schreiben. Migration auf **pyminizip** (echtes Windows-kompatibles ZipCrypto). Verifiziert: ZIP wird verschlüsselt, falsches Passwort wird abgelehnt, korrektes Passwort entpackt PDF
 - requirements.txt: `pyminizip==0.2.6` hinzugefügt
 - Hinweis für Live-Deployment: Backend-Container muss neugebaut werden (deploy-smart.sh Option 4 mit `--no-cache backend`)
+
+## Session 13 (Feb 2026) - RBAC Anpassung
+**Admin → User (jetzt für alle Benutzer):**
+- `DELETE /assignments/{id}` — einzelne Zuordnung auflösen
+- `POST /assignments/auto-assign` — automatische Zuordnung
+- `DELETE /students/{id}` — einzelnen Schüler löschen
+- `POST /students/batch-delete` — Schüler-Batch-Löschen
+- `DELETE /ipads/{id}` — iPad löschen
+
+**User → Admin (jetzt nur noch Admin):**
+- `DELETE /contracts/{id}` — Vertrag löschen
+- `POST /contracts/batch-delete` — Verträge Batch-Löschen
+- `PUT /settings/global` — globale Einstellungen ändern
+
+Getestet via curl mit echtem User-Token: alle 5 RBAC-Checks bestanden ✅
