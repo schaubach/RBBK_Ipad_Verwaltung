@@ -900,8 +900,7 @@ async def reset_user_password(user_id: str, current_user: dict = Depends(get_cur
 
 @api_router.post("/ipads", response_model=iPad)
 async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_user)):
-    """Manuell ein neues iPad anlegen (Admin only)"""
-    require_admin(current_user)
+    """Manuell ein neues iPad anlegen"""
     try:
         # Validate required fields
         if not ipad_data.get('itnr') or not ipad_data.get('snr'):
@@ -1002,8 +1001,7 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
 
 @api_router.post("/students", response_model=Student)
 async def create_student(student_data: dict, current_user: dict = Depends(get_current_user)):
-    """Manuell einen neuen Schüler anlegen (Admin only)"""
-    require_admin(current_user)
+    """Manuell einen neuen Schüler anlegen"""
     try:
         # Validate required fields
         if not student_data.get('sus_vorn') or not student_data.get('sus_nachn'):
