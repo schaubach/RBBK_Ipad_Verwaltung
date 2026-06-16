@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Depends, status, Cookie
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, Depends, status, Cookie
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
@@ -82,7 +82,7 @@ class UserLogin(BaseModel):
 
 class iPad(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str  # Owner of this iPad
+    user_id: Optional[str] = None  # Owner of this iPad (None = orphan in pool)
     itnr: str  # IT-Number (required)
     snr: str  # Serial Number (required)
     karton: Optional[str] = None
@@ -92,6 +92,8 @@ class iPad(BaseModel):
     ausleihe_datum: Optional[str] = None
     status: str = "ok"  # ok, defekt, gestohlen
     current_assignment_id: Optional[str] = None
+    is_in_pool: bool = False  # If True, iPad is in shared pool visible to all users
+    pool_history: List[dict] = Field(default_factory=list)  # Audit: [{action, by, at}]
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -330,10 +332,21 @@ async def validate_resource_ownership(resource_type: str, resource_id: str, user
     if not resource:
         raise HTTPException(status_code=404, detail=f"{resource_type.capitalize()} not found")
     
+    # Pool iPads are accessible to all authenticated users
+    if resource_type == "ipad" and resource.get("is_in_pool"):
+        return True
+    
     if resource.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Access denied to this resource")
     
     return True
+
+async def get_ipad_filter_with_pool(user: dict) -> dict:
+    """Get MongoDB filter for iPads including pool items visible to user"""
+    if is_admin(user):
+        return {}  # Admin sees all iPads
+    # Regular user sees own iPads + all pool iPads
+    return {"$or": [{"user_id": user["id"]}, {"is_in_pool": True}]}
 
 # Security: Input sanitization
 def sanitize_input(value: str, max_length: int = 255, allow_html: bool = False) -> str:
@@ -756,7 +769,8 @@ async def delete_user_complete(user_id: str, current_user: dict = Depends(get_cu
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     
     # Count resources before deletion
-    ipads_count = await db.ipads.count_documents({"user_id": user_id})
+    ipads_count = await db.ipads.count_documents({"user_id": user_id, "is_in_pool": False})
+    pool_ipads_count = await db.ipads.count_documents({"user_id": user_id, "is_in_pool": True})
     students_count = await db.students.count_documents({"user_id": user_id})
     assignments_count = await db.assignments.count_documents({"user_id": user_id})
     contracts_count = await db.contracts.count_documents({"user_id": user_id})
@@ -769,8 +783,15 @@ async def delete_user_complete(user_id: str, current_user: dict = Depends(get_cu
         # Delete contracts
         await db.contracts.delete_many({"user_id": user_id})
         
-        # Delete iPads
-        await db.ipads.delete_many({"user_id": user_id})
+        # Delete iPads owned by user (NOT in pool)
+        await db.ipads.delete_many({"user_id": user_id, "is_in_pool": False})
+        
+        # Pool iPads imported by this user: release ownership (keep in pool, user_id=null)
+        if pool_ipads_count > 0:
+            await db.ipads.update_many(
+                {"user_id": user_id, "is_in_pool": True},
+                {"$set": {"user_id": None, "updated_at": datetime.now(timezone.utc).isoformat()}}
+            )
         
         # Delete students
         await db.students.delete_many({"user_id": user_id})
@@ -784,6 +805,7 @@ async def delete_user_complete(user_id: str, current_user: dict = Depends(get_cu
             "deleted_username": target_user["username"],
             "deleted_resources": {
                 "ipads": ipads_count,
+                "pool_ipads_orphaned": pool_ipads_count,
                 "students": students_count,
                 "assignments": assignments_count,
                 "contracts": contracts_count
@@ -900,19 +922,26 @@ async def reset_user_password(user_id: str, current_user: dict = Depends(get_cur
 
 @api_router.post("/ipads", response_model=iPad)
 async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_user)):
-    """Manuell ein neues iPad anlegen"""
+    """Manuell ein neues iPad anlegen. Optional: is_in_pool=true für Pool-Anlage"""
     try:
         # Validate required fields
         if not ipad_data.get('itnr') or not ipad_data.get('snr'):
             raise HTTPException(status_code=400, detail="ITNr und SNr sind erforderlich")
         
-        # Check if iPad already exists for this user
-        existing = await db.ipads.find_one({
-            "itnr": ipad_data['itnr'], 
-            "user_id": current_user["id"]
-        })
-        if existing:
-            raise HTTPException(status_code=400, detail=f"iPad mit ITNr {ipad_data['itnr']} existiert bereits")
+        is_in_pool = bool(ipad_data.get('is_in_pool', False))
+        
+        # Pool: global uniqueness check; non-pool: per-user uniqueness
+        if is_in_pool:
+            existing = await db.ipads.find_one({"itnr": ipad_data['itnr']})
+            if existing:
+                raise HTTPException(status_code=400, detail=f"iPad mit ITNr {ipad_data['itnr']} existiert bereits (Pool-Import erfordert globale Eindeutigkeit)")
+        else:
+            existing = await db.ipads.find_one({
+                "itnr": ipad_data['itnr'], 
+                "user_id": current_user["id"]
+            })
+            if existing:
+                raise HTTPException(status_code=400, detail=f"iPad mit ITNr {ipad_data['itnr']} existiert bereits")
         
         # Create iPad object
         ipad = iPad(
@@ -924,7 +953,13 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_
             typ=ipad_data.get('typ', ''),
             ansch_jahr=ipad_data.get('ansch_jahr', ''),
             ausleihe_datum=ipad_data.get('ausleihe_datum', ''),
-            status=ipad_data.get('status', 'ok')
+            status=ipad_data.get('status', 'ok'),
+            is_in_pool=is_in_pool,
+            pool_history=[{
+                "action": "imported_to_pool",
+                "by": current_user["id"],
+                "at": datetime.now(timezone.utc).isoformat()
+            }] if is_in_pool else []
         )
         
         ipad_dict = prepare_for_mongo(ipad.dict())
@@ -942,10 +977,144 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_
 @api_router.get("/ipads", response_model=List[iPad])
 @limiter.limit("60/minute")
 async def get_ipads(request: Request, current_user: dict = Depends(get_current_user)):
-    # Apply user filter
-    user_filter = await get_user_filter(current_user)
-    ipads = await db.ipads.find(user_filter).to_list(length=None)
+    # Apply filter including pool iPads
+    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    ipads = await db.ipads.find(ipad_filter).to_list(length=None)
     return [iPad(**parse_from_mongo(ipad)) for ipad in ipads]
+
+
+@api_router.post("/ipads/{ipad_id}/claim")
+@limiter.limit("60/minute")
+async def claim_ipad_from_pool(ipad_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """Claim an iPad from the shared pool into own inventory (atomic operation)."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    
+    # Atomic claim: only succeeds if iPad is still in pool
+    result = await db.ipads.find_one_and_update(
+        {"id": ipad_id, "is_in_pool": True},
+        {
+            "$set": {
+                "is_in_pool": False,
+                "user_id": current_user["id"],
+                "updated_at": now_iso
+            },
+            "$push": {
+                "pool_history": {
+                    "action": "claimed",
+                    "by": current_user["id"],
+                    "at": now_iso
+                }
+            }
+        }
+    )
+    
+    if not result:
+        # Either iPad doesn't exist or was already claimed by someone else
+        existing = await db.ipads.find_one({"id": ipad_id})
+        if not existing:
+            raise HTTPException(status_code=404, detail="iPad nicht gefunden")
+        raise HTTPException(status_code=409, detail="iPad ist nicht (mehr) im Pool verfügbar")
+    
+    return {"message": f"iPad {result.get('itnr')} erfolgreich übernommen", "itnr": result.get("itnr")}
+
+
+class BulkClaimRequest(BaseModel):
+    ipad_ids: List[str]
+
+
+@api_router.post("/ipads/bulk-claim")
+@limiter.limit("30/minute")
+async def bulk_claim_ipads(payload: BulkClaimRequest, request: Request, current_user: dict = Depends(get_current_user)):
+    """Claim multiple iPads from the pool. Reports success and failure counts."""
+    if not payload.ipad_ids:
+        raise HTTPException(status_code=400, detail="Keine iPads ausgewählt")
+    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    success = []
+    failed = []
+    
+    for ipad_id in payload.ipad_ids:
+        result = await db.ipads.find_one_and_update(
+            {"id": ipad_id, "is_in_pool": True},
+            {
+                "$set": {
+                    "is_in_pool": False,
+                    "user_id": current_user["id"],
+                    "updated_at": now_iso
+                },
+                "$push": {
+                    "pool_history": {
+                        "action": "claimed",
+                        "by": current_user["id"],
+                        "at": now_iso
+                    }
+                }
+            }
+        )
+        if result:
+            success.append(result.get("itnr"))
+        else:
+            failed.append(ipad_id)
+    
+    return {
+        "success_count": len(success),
+        "failed_count": len(failed),
+        "claimed_itnrs": success
+    }
+
+
+@api_router.post("/ipads/{ipad_id}/release-to-pool")
+@limiter.limit("60/minute")
+async def release_ipad_to_pool(ipad_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    """Release an own iPad to the shared pool. Auto-dissolves active assignment."""
+    # Validate ownership (admin can release any iPad)
+    user_filter = await get_user_filter(current_user)
+    ipad = await db.ipads.find_one({"id": ipad_id, **user_filter})
+    if not ipad:
+        raise HTTPException(status_code=404, detail="iPad nicht gefunden oder kein Zugriff")
+    
+    if ipad.get("is_in_pool"):
+        raise HTTPException(status_code=400, detail="iPad ist bereits im Pool")
+    
+    # Auto-dissolve active assignment if exists
+    dissolved_assignment = False
+    if ipad.get("current_assignment_id"):
+        assignment_id = ipad["current_assignment_id"]
+        await db.assignments.update_one(
+            {"id": assignment_id},
+            {"$set": {"is_active": False, "dissolved_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        # Mark contracts inactive
+        await db.contracts.update_many(
+            {"assignment_id": assignment_id},
+            {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+        )
+        dissolved_assignment = True
+    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.ipads.update_one(
+        {"id": ipad_id},
+        {
+            "$set": {
+                "is_in_pool": True,
+                "current_assignment_id": None,
+                "updated_at": now_iso
+            },
+            "$push": {
+                "pool_history": {
+                    "action": "released",
+                    "by": current_user["id"],
+                    "at": now_iso
+                }
+            }
+        }
+    )
+    
+    return {
+        "message": f"iPad {ipad['itnr']} in den Pool freigegeben",
+        "itnr": ipad["itnr"],
+        "dissolved_assignment": dissolved_assignment
+    }
 
 
 @api_router.delete("/ipads/{ipad_id}")
@@ -953,13 +1122,21 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
     """
     Delete an iPad permanently from the database.
     Only allowed if iPad is not currently assigned.
+    Admin can delete any iPad including pool iPads.
     """
-    # Get iPad
-    user_filter = await get_user_filter(current_user)
-    ipad = await db.ipads.find_one({"id": ipad_id, **user_filter})
+    # Get iPad - admin sees all, user sees own + pool
+    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    ipad = await db.ipads.find_one({"id": ipad_id, **ipad_filter})
     
     if not ipad:
         raise HTTPException(status_code=404, detail="iPad not found or access denied")
+    
+    # Non-admin users cannot delete pool iPads unless they are the importer
+    if not is_admin(current_user) and ipad.get("is_in_pool") and ipad.get("user_id") != current_user["id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Pool-iPads können nur vom Importeur oder Admin gelöscht werden"
+        )
     
     # Check if iPad is currently assigned
     if ipad.get("current_assignment_id"):
@@ -1534,6 +1711,7 @@ async def manual_assign(
     """
     Manually assign an iPad to a student without creating a contract.
     Only allowed if iPad is not currently assigned.
+    If iPad is in pool, it will be auto-claimed by the current user first.
     """
     try:
         # Apply user filter for security
@@ -1544,14 +1722,39 @@ async def manual_assign(
         if not student:
             raise HTTPException(status_code=404, detail="Student not found or access denied")
         
-        # Validate iPad ownership
-        ipad = await db.ipads.find_one({"id": request.ipad_id, **user_filter})
+        # Validate iPad - either own or in pool
+        ipad_filter = await get_ipad_filter_with_pool(current_user)
+        ipad = await db.ipads.find_one({"id": request.ipad_id, **ipad_filter})
         if not ipad:
             raise HTTPException(status_code=404, detail="iPad not found or access denied")
         
         # Check if iPad is already assigned
         if ipad.get("current_assignment_id"):
             raise HTTPException(status_code=400, detail="iPad ist bereits zugewiesen")
+        
+        # If iPad is in pool, claim it first (atomic)
+        was_in_pool = ipad.get("is_in_pool", False)
+        if was_in_pool:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            claim_result = await db.ipads.find_one_and_update(
+                {"id": request.ipad_id, "is_in_pool": True, "current_assignment_id": None},
+                {
+                    "$set": {
+                        "is_in_pool": False,
+                        "user_id": current_user["id"],
+                        "updated_at": now_iso
+                    },
+                    "$push": {
+                        "pool_history": {
+                            "action": "claimed",
+                            "by": current_user["id"],
+                            "at": now_iso
+                        }
+                    }
+                }
+            )
+            if not claim_result:
+                raise HTTPException(status_code=409, detail="iPad wurde gerade von einem anderen Benutzer übernommen")
         
         # Check if student already has maximum number of iPads (1:n relationship)
         student_assignments = await db.assignments.count_documents({
@@ -1596,7 +1799,8 @@ async def manual_assign(
             "message": f"iPad {ipad['itnr']} erfolgreich {student['sus_vorn']} {student['sus_nachn']} zugewiesen",
             "assignment_id": assignment.id,
             "student_name": f"{student['sus_vorn']} {student['sus_nachn']}",
-            "itnr": ipad['itnr']
+            "itnr": ipad['itnr'],
+            "claimed_from_pool": was_in_pool
         }
         
     except HTTPException:
@@ -1607,10 +1811,10 @@ async def manual_assign(
 @api_router.get("/ipads/available-for-assignment")
 @limiter.limit("60/minute")
 async def get_available_ipads(request: Request, current_user: dict = Depends(get_current_user)):
-    """Get iPads without current assignment"""
-    user_filter = await get_user_filter(current_user)
+    """Get iPads without current assignment. Includes pool iPads."""
+    ipad_filter = await get_ipad_filter_with_pool(current_user)
     ipads = await db.ipads.find({
-        **user_filter,
+        **ipad_filter,
         "current_assignment_id": None
     }, {"_id": 0}).to_list(length=None)
     
@@ -1618,7 +1822,8 @@ async def get_available_ipads(request: Request, current_user: dict = Depends(get
         "id": i["id"],
         "itnr": i["itnr"],
         "snr": i.get("snr", "N/A"),
-        "status": i.get("status", "ok")
+        "status": i.get("status", "ok"),
+        "is_in_pool": i.get("is_in_pool", False)
     } for i in ipads]
 
 @api_router.get("/assignments", response_model=List[Assignment])
@@ -2762,7 +2967,11 @@ async def update_global_settings(
         raise HTTPException(status_code=500, detail=f"Error updating settings: {str(e)}")
 
 @api_router.post("/imports/inventory")
-async def import_inventory(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
+async def import_inventory(
+    file: UploadFile = File(...),
+    import_to_pool: bool = Form(False),
+    current_user: dict = Depends(get_current_user)
+):
     """
     Import complete inventory list with iPads and student assignments from Excel file.
     
@@ -2770,6 +2979,9 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
     all iPads will be assigned to that student (up to MAX_IPADS_PER_STUDENT limit).
     
     Compatible with both old (1:1) and new (1:n) export formats.
+    
+    Pool import (import_to_pool=true): Only iPads will be imported into the shared pool.
+    Student/assignment rows are ignored. iPads must have globally unique ITNr.
     """
     try:
         # Load global settings for default values
@@ -2845,42 +3057,79 @@ async def import_inventory(file: UploadFile = File(...), current_user: dict = De
                 
                 # Process iPad data if present
                 if has_ipad_data:
-                    # Check if iPad already exists for this user
-                    existing_ipad = await db.ipads.find_one({"itnr": itnr, "user_id": current_user["id"]})
-                    
-                    if existing_ipad:
-                        ipads_skipped += 1
-                        ipad_id = existing_ipad["id"]
-                        ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
+                    if import_to_pool:
+                        # Pool-Import: global uniqueness check (across all users)
+                        existing_pool_ipad = await db.ipads.find_one({"itnr": itnr})
+                        if existing_pool_ipad:
+                            ipads_skipped += 1
+                            ipad_id = existing_pool_ipad["id"]
+                            ipad_already_assigned = existing_pool_ipad.get("current_assignment_id") is not None
+                        else:
+                            # Create new pool iPad
+                            imported_status = safe_str(row.get('Status', ''))
+                            valid_statuses = ['ok', 'defekt', 'gestohlen']
+                            ipad_status = imported_status.lower() if imported_status.lower() in valid_statuses else 'ok'
+                            
+                            imported_typ = safe_str(row.get('Typ', ''))
+                            imported_pencil = safe_str(row.get('Pencil', ''))
+                            
+                            new_ipad = iPad(
+                                user_id=current_user["id"],
+                                itnr=itnr,
+                                snr=safe_str(row.get('SNr', '')),
+                                typ=imported_typ if imported_typ else default_ipad_typ,
+                                pencil=imported_pencil if imported_pencil else default_pencil,
+                                ansch_jahr=safe_str(row.get('AnschJahr', '')),
+                                status=ipad_status,
+                                is_in_pool=True,
+                                pool_history=[{
+                                    "action": "imported_to_pool",
+                                    "by": current_user["id"],
+                                    "at": datetime.now(timezone.utc).isoformat()
+                                }]
+                            )
+                            ipad_dict = prepare_for_mongo(new_ipad.dict())
+                            await db.ipads.insert_one(ipad_dict)
+                            ipad_id = new_ipad.id
+                            ipads_created += 1
+                            ipad_already_assigned = False
                     else:
-                        # Create new iPad - Status aus Import oder Default 'ok'
-                        imported_status = safe_str(row.get('Status', ''))
-                        # Validiere Status-Wert
-                        valid_statuses = ['ok', 'defekt', 'gestohlen']
-                        ipad_status = imported_status.lower() if imported_status.lower() in valid_statuses else 'ok'
+                        # Check if iPad already exists for this user
+                        existing_ipad = await db.ipads.find_one({"itnr": itnr, "user_id": current_user["id"]})
                         
-                        # Use global settings as defaults if fields are empty
-                        imported_typ = safe_str(row.get('Typ', ''))
-                        imported_pencil = safe_str(row.get('Pencil', ''))
-                        
-                        new_ipad = iPad(
-                            user_id=current_user["id"],
-                            itnr=itnr,
-                            snr=safe_str(row.get('SNr', '')),
-                            typ=imported_typ if imported_typ else default_ipad_typ,
-                            pencil=imported_pencil if imported_pencil else default_pencil,
-                            ansch_jahr=safe_str(row.get('AnschJahr', '')),
-                            status=ipad_status
-                        )
-                        
-                        ipad_dict = prepare_for_mongo(new_ipad.dict())
-                        await db.ipads.insert_one(ipad_dict)
-                        ipad_id = new_ipad.id
-                        ipads_created += 1
-                        ipad_already_assigned = False
+                        if existing_ipad:
+                            ipads_skipped += 1
+                            ipad_id = existing_ipad["id"]
+                            ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
+                        else:
+                            # Create new iPad - Status aus Import oder Default 'ok'
+                            imported_status = safe_str(row.get('Status', ''))
+                            # Validiere Status-Wert
+                            valid_statuses = ['ok', 'defekt', 'gestohlen']
+                            ipad_status = imported_status.lower() if imported_status.lower() in valid_statuses else 'ok'
+                            
+                            # Use global settings as defaults if fields are empty
+                            imported_typ = safe_str(row.get('Typ', ''))
+                            imported_pencil = safe_str(row.get('Pencil', ''))
+                            
+                            new_ipad = iPad(
+                                user_id=current_user["id"],
+                                itnr=itnr,
+                                snr=safe_str(row.get('SNr', '')),
+                                typ=imported_typ if imported_typ else default_ipad_typ,
+                                pencil=imported_pencil if imported_pencil else default_pencil,
+                                ansch_jahr=safe_str(row.get('AnschJahr', '')),
+                                status=ipad_status
+                            )
+                            
+                            ipad_dict = prepare_for_mongo(new_ipad.dict())
+                            await db.ipads.insert_one(ipad_dict)
+                            ipad_id = new_ipad.id
+                            ipads_created += 1
+                            ipad_already_assigned = False
                 
-                # Process student data if present
-                if has_student_data:
+                # Process student data if present (skip when pool import)
+                if has_student_data and not import_to_pool:
                     # Use cache key based on name only (not class) for 1:n support
                     # This allows the same student to receive multiple iPads
                     cache_key = (sus_vorn, sus_nachn)

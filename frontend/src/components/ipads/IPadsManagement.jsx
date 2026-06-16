@@ -22,6 +22,7 @@ const IPadsManagement = () => {
   // Filter states
   const [itnrFilter, setItnrFilter] = useState('');
   const [snrFilter, setSnrFilter] = useState('');
+  const [poolFilter, setPoolFilter] = useState('all'); // 'all' | 'own' | 'pool'
   
   // Autocomplete states (now dialog-based)
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
@@ -48,7 +49,8 @@ const IPadsManagement = () => {
     snr: '',
     typ: '',
     pencil: '',
-    status: 'ok'
+    status: 'ok',
+    is_in_pool: false
   });
   const [creating, setCreating] = useState(false);
   
@@ -114,11 +116,75 @@ const IPadsManagement = () => {
     }
   };
   
+  // Pool: claim single iPad
+  const handleClaimIPad = async (ipadId, itnr) => {
+    try {
+      await api.post(`/ipads/${ipadId}/claim`);
+      toast.success(`iPad ${itnr} übernommen`);
+      loadIPads();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Übernehmen');
+    }
+  };
+  
+  // Pool: claim multiple iPads (bulk)
+  const [bulkClaiming, setBulkClaiming] = useState(false);
+  const handleBulkClaim = async () => {
+    const poolIds = selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool);
+    if (poolIds.length === 0) {
+      toast.error('Keine Pool-iPads ausgewählt');
+      return;
+    }
+    setBulkClaiming(true);
+    try {
+      const response = await api.post('/ipads/bulk-claim', { ipad_ids: poolIds });
+      const { success_count, failed_count } = response.data;
+      if (success_count > 0) toast.success(`${success_count} iPad(s) übernommen`);
+      if (failed_count > 0) toast.warning(`${failed_count} iPad(s) konnten nicht übernommen werden (evtl. schon weg)`);
+      setSelectedIPads([]);
+      loadIPads();
+    } catch (error) {
+      toast.error('Fehler beim Bulk-Übernehmen');
+    } finally {
+      setBulkClaiming(false);
+    }
+  };
+  
+  // Release confirmation dialog
+  const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
+  const [ipadToRelease, setIpadToRelease] = useState(null);
+  
+  const openReleaseDialog = (ipad) => {
+    setIpadToRelease(ipad);
+    setReleaseDialogOpen(true);
+  };
+  
+  const confirmReleaseToPool = async () => {
+    if (!ipadToRelease) return;
+    try {
+      const response = await api.post(`/ipads/${ipadToRelease.id}/release-to-pool`);
+      const { dissolved_assignment } = response.data;
+      toast.success(
+        dissolved_assignment
+          ? `iPad ${ipadToRelease.itnr} freigegeben (Zuordnung aufgelöst)`
+          : `iPad ${ipadToRelease.itnr} in den Pool freigegeben`
+      );
+      setReleaseDialogOpen(false);
+      setIpadToRelease(null);
+      loadIPads();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Freigeben');
+    }
+  };
+  
   // Filtered and sorted iPads
   const filteredIPads = ipads.filter(ipad => {
     const itnrMatch = !itnrFilter || ipad.itnr?.toLowerCase().includes(itnrFilter.toLowerCase());
     const snrMatch = !snrFilter || ipad.snr?.toLowerCase().includes(snrFilter.toLowerCase());
-    return itnrMatch && snrMatch;
+    let poolMatch = true;
+    if (poolFilter === 'own') poolMatch = !ipad.is_in_pool;
+    else if (poolFilter === 'pool') poolMatch = ipad.is_in_pool === true;
+    return itnrMatch && snrMatch && poolMatch;
   }).sort((a, b) => {
     if (!sortField) return 0;
     
@@ -240,7 +306,8 @@ const IPadsManagement = () => {
       snr: '',
       typ: globalSettings.ipad_typ || 'Apple iPad',
       pencil: globalSettings.pencil || 'ohne Apple Pencil',
-      status: 'ok'
+      status: 'ok',
+      is_in_pool: false
     });
     setCreateDialogOpen(true);
   };
@@ -263,7 +330,12 @@ const IPadsManagement = () => {
         ipad_id: ipadId,
         student_id: studentId
       });
-      toast.success(response.data.message);
+      // Show special toast if iPad was claimed from pool
+      if (response.data.claimed_from_pool) {
+        toast.success(`iPad ${response.data.itnr} aus Pool übernommen und ${response.data.student_name} zugewiesen`);
+      } else {
+        toast.success(response.data.message);
+      }
       // Reload both lists to update availability
       await loadIPads();
       await loadAvailableStudents();
@@ -360,10 +432,13 @@ const IPadsManagement = () => {
     return acc;
   }, {});
 
-  // Frei & OK = Status "ok" und keine aktive Zuordnung
-  const freeAndOkCount = ipads.filter(ipad => 
+  // Frei & OK = Status "ok" und keine aktive Zuordnung (eigene iPads, Pool-iPads getrennt)
+  const ownIPads = ipads.filter(i => !i.is_in_pool);
+  const poolIPads = ipads.filter(i => i.is_in_pool);
+  const freeAndOkCount = ownIPads.filter(ipad => 
     ipad.status === 'ok' && !ipad.current_assignment_id
   ).length;
+  const poolAvailableCount = poolIPads.filter(i => i.status === 'ok' && !i.current_assignment_id).length;
 
   return (
     <div className="space-y-6">
@@ -375,7 +450,7 @@ const IPadsManagement = () => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
             <div className="bg-slate-100 p-3 rounded-lg">
               <div className="font-medium text-slate-800">Gesamt</div>
               <div className="text-2xl font-bold text-slate-600">{ipads.length}</div>
@@ -383,6 +458,10 @@ const IPadsManagement = () => {
             <div className="bg-green-50 p-3 rounded-lg">
               <div className="font-medium text-green-800">Frei & OK</div>
               <div className="text-2xl font-bold text-green-600">{freeAndOkCount}</div>
+            </div>
+            <div className="bg-violet-50 p-3 rounded-lg border border-violet-200">
+              <div className="font-medium text-violet-800">🌐 Pool verfügbar</div>
+              <div className="text-2xl font-bold text-violet-600">{poolAvailableCount}</div>
             </div>
             <div className="bg-red-50 p-3 rounded-lg">
               <div className="font-medium text-red-800">Defekt</div>
@@ -433,11 +512,42 @@ const IPadsManagement = () => {
               </div>
             </div>
             
-            {(itnrFilter || snrFilter) && (
+            {/* Pool Filter Toggle */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-sm font-medium mr-2">Anzeigen:</Label>
+              <Button
+                size="sm"
+                variant={poolFilter === 'all' ? 'default' : 'outline'}
+                onClick={() => setPoolFilter('all')}
+                data-testid="pool-filter-all"
+              >
+                Alle ({ipads.length})
+              </Button>
+              <Button
+                size="sm"
+                variant={poolFilter === 'own' ? 'default' : 'outline'}
+                onClick={() => setPoolFilter('own')}
+                data-testid="pool-filter-own"
+              >
+                Meine ({ownIPads.length})
+              </Button>
+              <Button
+                size="sm"
+                variant={poolFilter === 'pool' ? 'default' : 'outline'}
+                onClick={() => setPoolFilter('pool')}
+                className={poolFilter === 'pool' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+                data-testid="pool-filter-pool"
+              >
+                🌐 Pool ({poolIPads.length})
+              </Button>
+            </div>
+            
+            {(itnrFilter || snrFilter || poolFilter !== 'all') && (
               <Button 
                 onClick={() => {
                   setItnrFilter('');
                   setSnrFilter('');
+                  setPoolFilter('all');
                 }}
                 variant="outline"
               >
@@ -446,9 +556,19 @@ const IPadsManagement = () => {
             )}
           </div>
           
-          {/* Batch Delete Button */}
+          {/* Batch Actions */}
           {selectedIPads.length > 0 && (
-            <div className="mb-4">
+            <div className="mb-4 flex flex-wrap gap-2">
+              {selectedIPads.some(id => ipads.find(i => i.id === id)?.is_in_pool) && (
+                <Button
+                  onClick={handleBulkClaim}
+                  disabled={bulkClaiming}
+                  className="bg-violet-600 hover:bg-violet-700"
+                  data-testid="bulk-claim-btn"
+                >
+                  {bulkClaiming ? 'Übernehme...' : `${selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) übernehmen`}
+                </Button>
+              )}
               <Button
                 onClick={openBatchDeleteDialog}
                 variant="destructive"
@@ -536,7 +656,10 @@ const IPadsManagement = () => {
                 </TableHeader>
                 <TableBody>
                   {filteredIPads.map((ipad) => (
-                    <TableRow key={ipad.id} className={getRowClassName(ipad.status)}>
+                    <TableRow 
+                      key={ipad.id} 
+                      className={`${getRowClassName(ipad.status)} ${ipad.is_in_pool ? 'bg-violet-50/60 hover:bg-violet-50' : ''}`}
+                    >
                       <TableCell>
                         <Checkbox
                           checked={selectedIPads.includes(ipad.id)}
@@ -545,12 +668,19 @@ const IPadsManagement = () => {
                         />
                       </TableCell>
                       <TableCell className="font-medium">
-                        <button
-                          onClick={() => setSelectedIPadId(ipad.id)}
-                          className="text-blue-600 hover:text-blue-800 hover:underline"
-                        >
-                          {ipad.itnr}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSelectedIPadId(ipad.id)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                          >
+                            {ipad.itnr}
+                          </button>
+                          {ipad.is_in_pool && (
+                            <Badge className="bg-violet-100 text-violet-800 hover:bg-violet-200" title="Im gemeinsamen Pool">
+                              🌐 Pool
+                            </Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell>
                         <button
@@ -606,6 +736,18 @@ const IPadsManagement = () => {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
+                          {ipad.is_in_pool && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleClaimIPad(ipad.id, ipad.itnr)}
+                              title="iPad aus Pool übernehmen"
+                              className="bg-violet-50 border-violet-300 text-violet-700 hover:bg-violet-100"
+                              data-testid={`claim-btn-${ipad.id}`}
+                            >
+                              📥 Übernehmen
+                            </Button>
+                          )}
                           {!ipad.current_assignment_id && (
                             <Button
                               variant="outline"
@@ -615,8 +757,22 @@ const IPadsManagement = () => {
                                 setSearchDialogOpen(true);
                                 setStudentSearchQuery('');
                               }}
+                              className={ipad.is_in_pool ? 'border-violet-300' : ''}
+                              title={ipad.is_in_pool ? 'iPad aus Pool übernehmen + Schüler zuordnen' : 'Schüler zuordnen'}
                             >
                               Schüler zuordnen
+                            </Button>
+                          )}
+                          {!ipad.is_in_pool && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openReleaseDialog(ipad)}
+                              title="In Pool freigeben"
+                              className="bg-violet-50 border-violet-300 text-violet-700 hover:bg-violet-100"
+                              data-testid={`release-btn-${ipad.id}`}
+                            >
+                              📤 In Pool
                             </Button>
                           )}
                           {!ipad.current_assignment_id && (
@@ -712,6 +868,17 @@ const IPadsManagement = () => {
                   <SelectItem value="gestohlen">Gestohlen</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="flex items-center gap-2 p-3 bg-violet-50 rounded-lg border border-violet-200">
+              <Checkbox
+                id="create-is-pool"
+                checked={newIPadData.is_in_pool}
+                onCheckedChange={(checked) => setNewIPadData({...newIPadData, is_in_pool: !!checked})}
+                data-testid="create-pool-checkbox"
+              />
+              <Label htmlFor="create-is-pool" className="cursor-pointer text-sm">
+                🌐 Direkt in den gemeinsamen Pool anlegen (für alle Nutzer sichtbar)
+              </Label>
             </div>
           </div>
           <AlertDialogFooter>
@@ -904,6 +1071,35 @@ const IPadsManagement = () => {
           onUpdate={loadIPads}
         />
       )}
+      
+      {/* Release to Pool Confirmation Dialog */}
+      <AlertDialog open={releaseDialogOpen} onOpenChange={setReleaseDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>iPad in den Pool freigeben?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p>iPad <strong>{ipadToRelease?.itnr}</strong> wird in den gemeinsamen Pool gelegt und ist dann für andere Nutzer übernehmbar.</p>
+                {ipadToRelease?.current_assignment_id && (
+                  <p className="mt-2 text-amber-700 font-medium">
+                    ⚠️ Die aktive Zuordnung zum Schüler wird dabei automatisch aufgelöst.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmReleaseToPool}
+              className="bg-violet-600 hover:bg-violet-700"
+              data-testid="confirm-release-btn"
+            >
+              In Pool freigeben
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

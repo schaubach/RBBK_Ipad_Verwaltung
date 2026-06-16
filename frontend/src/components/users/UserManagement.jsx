@@ -203,7 +203,12 @@ const UserManagement = () => {
     
     try {
       const response = await api.delete(`/admin/users/${selectedUser.id}/complete`);
-      toast.success(response.data.message);
+      const resources = response.data.deleted_resources || {};
+      let successMsg = response.data.message;
+      if (resources.pool_ipads_orphaned > 0) {
+        successMsg += `. Hinweis: ${resources.pool_ipads_orphaned} Pool-iPad(s) bleiben weiter im Pool verfügbar.`;
+      }
+      toast.success(successMsg);
       setShowDeleteConfirmDialog(false);
       setSelectedUser(null);
       setDeleteConfirmText('');

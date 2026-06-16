@@ -11,6 +11,7 @@ const Settings = () => {
   const [cleaning, setCleaning] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importToPool, setImportToPool] = useState(false);
   const [globalSettings, setGlobalSettings] = useState({
     ipad_typ: 'Apple iPad',
     pencil: 'ohne Apple Pencil'
@@ -93,15 +94,16 @@ const Settings = () => {
     }
   };
 
-  const handleInventoryImport = async (file) => {
+  const handleInventoryImport = async (file, importToPool = false) => {
     if (!file) return;
     
     setImporting(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
+      formData.append('import_to_pool', importToPool ? 'true' : 'false');
       
-      toast.info('Importiere Datensicherung...');
+      toast.info(importToPool ? 'Importiere iPads in den Pool...' : 'Importiere Datensicherung...');
       
       const response = await api.post('/imports/inventory', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
@@ -348,10 +350,23 @@ const Settings = () => {
                 Status-Werte: <code className="bg-blue-100 px-1 rounded">ok</code>, <code className="bg-blue-100 px-1 rounded">defekt</code>, <code className="bg-blue-100 px-1 rounded">gestohlen</code> (Standard: ok)
               </p>
               <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center hover:border-blue-500 transition-colors bg-white">
+                <div className="flex items-center justify-center gap-2 mb-3 p-2 bg-violet-50 rounded-md border border-violet-200">
+                  <input
+                    type="checkbox"
+                    id="import-to-pool"
+                    checked={importToPool}
+                    onChange={(e) => setImportToPool(e.target.checked)}
+                    className="w-4 h-4 cursor-pointer"
+                    data-testid="import-to-pool-checkbox"
+                  />
+                  <label htmlFor="import-to-pool" className="text-sm cursor-pointer text-violet-800">
+                    🌐 Diese iPads in den gemeinsamen Pool importieren (für alle Nutzer sichtbar)
+                  </label>
+                </div>
                 <Input
                   type="file"
                   accept=".xlsx,.xls"
-                  onChange={(e) => e.target.files[0] && handleInventoryImport(e.target.files[0])}
+                  onChange={(e) => e.target.files[0] && handleInventoryImport(e.target.files[0], importToPool)}
                   disabled={importing}
                   className="mb-2"
                   data-testid="data-import-input"

@@ -142,6 +142,38 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 **User → Admin (jetzt nur noch Admin):**
 - `PUT /settings/global` — globale Einstellungen ändern
 
+## Session 14 (Feb 2026) - iPad-Pool Feature
+
+**Konzept:** Gemeinsamer Geräte-Pool über User-Grenzen hinweg. iPads können im Pool importiert werden und sind dann für alle Nutzer sichtbar/übernehmbar.
+
+**Datenmodell:**
+- iPad: neue Felder `is_in_pool: bool` (default false), `pool_history: list` (Audit-Trail), `user_id: Optional[str]` (None = orphan)
+
+**Neue Backend-Endpoints:**
+- `POST /ipads/{id}/claim` — Pool-iPad atomar in eigenen Bestand übernehmen
+- `POST /ipads/bulk-claim` — mehrere Pool-iPads auf einmal
+- `POST /ipads/{id}/release-to-pool` — eigenes iPad freigeben (auto-dissolves assignments)
+
+**Modifizierte Endpoints:**
+- `GET /ipads` — liefert eigene + Pool-iPads
+- `GET /ipads/available-for-assignment` — eigene + Pool-iPads
+- `POST /ipads` — neuer Parameter `is_in_pool`
+- `POST /imports/inventory` — neuer Form-Parameter `import_to_pool=true`
+- `POST /assignments/manual` — Auto-Claim für Pool-iPads (one-step: claim + assign)
+- `DELETE /ipads/{id}` — Admin kann beliebige Pool-iPads löschen
+- `DELETE /admin/users/{id}/complete` — Pool-iPads bleiben mit `user_id=null` erhalten
+
+**Frontend:**
+- `IPadsManagement.jsx`: Filter "Alle/Meine/Pool", Pool-Badge + violetter Hintergrund, "📥 Übernehmen"/"📤 In Pool"-Buttons, Bulk-Claim, Stat-Card "🌐 Pool verfügbar", Create-Dialog mit Pool-Checkbox
+- `Settings.jsx`: Import-Checkbox "🌐 In Pool importieren"
+- `UserManagement.jsx`: Toast informiert über orphaned Pool-iPads
+- One-step Claim+Assign mit Erfolgs-Toast: "iPad X aus Pool übernommen und Schüler Y zugewiesen"
+
+**Sicherheit:**
+- Atomare Claim-Operationen (MongoDB `find_one_and_update` verhindert Race Conditions)
+- Globale ITNr-Eindeutigkeitsprüfung beim Pool-Import
+- Verträge bleiben beim ursprünglichen User wenn iPad zum Pool zurückgegeben wird
+
 **Hinweis:** iPad-Batch-Löschen läuft im Frontend über mehrere einzelne `DELETE /ipads/{id}`-Calls → durch User-Berechtigung auf einzelnem Endpoint bereits abgedeckt.
 
 Getestet via curl mit echtem User-Token: alle RBAC-Checks bestanden ✅
