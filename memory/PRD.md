@@ -142,11 +142,11 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 **User → Admin (jetzt nur noch Admin):**
 - `PUT /settings/global` — globale Einstellungen ändern
 
-## Session 15 (Feb 2026) - iPad-Generation Feld
-- Neues Optional-Feld `generation: Optional[str] = None` im iPad-Modell
+## Session 15 (Feb 2026) - iPad-Modell Feld
+- Neues Optional-Feld `modell: Optional[str] = None` im iPad-Modell
 - Bestehende iPads zeigen automatisch `null` (keine DB-Migration nötig)
-- Backend: POST/PUT `/ipads`, Import (`Generation`-Spalte in Excel), Export (`Generation`-Spalte) berücksichtigt das Feld
-- Frontend: Eingabefeld im Create-Dialog (optional), Anzeige + Bearbeiten im Detail-Viewer
+- Backend: POST/PUT `/ipads`, Import (`Modell`-Spalte in Excel), Export (`Modell`-Spalte) berücksichtigt das Feld
+- Frontend: Eingabefeld im Create-Dialog (optional), Anzeige + Bearbeiten im Detail-Viewer ("z.B. iPad 9. Gen")
 - Empty-String wird automatisch zu `null` konvertiert
 
 ## Session 14 (Feb 2026) - iPad-Pool Feature
