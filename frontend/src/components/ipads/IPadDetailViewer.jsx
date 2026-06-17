@@ -356,6 +356,40 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
             </Card>
           )}
 
+          {/* Pool History */}
+          {ipadData.pool_history && ipadData.pool_history.length > 0 && (
+            <Card className="mb-6 border-violet-200" data-testid="pool-history-card">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-violet-800">
+                  🌐 Pool-Historie ({ipadData.pool_history.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {[...ipadData.pool_history].reverse().map((entry, idx) => {
+                    const actionLabel = {
+                      'imported_to_pool': '📥 In Pool importiert',
+                      'claimed': '🤝 Aus Pool übernommen',
+                      'released': '📤 In Pool freigegeben'
+                    }[entry.action] || entry.action;
+                    const date = entry.at ? new Date(entry.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A';
+                    return (
+                      <div key={idx} className="p-3 rounded-lg text-sm bg-violet-50 border-l-4 border-violet-400">
+                        <div className="flex justify-between items-start gap-3 flex-wrap">
+                          <div>
+                            <div className="font-medium">{actionLabel}</div>
+                            <div className="text-gray-700">durch <strong>{entry.by_username}</strong></div>
+                          </div>
+                          <div className="text-xs text-gray-600 whitespace-nowrap">{date}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Assignment History */}
           {assignment_history && assignment_history.length > 0 && (
             <Card className="mb-6">

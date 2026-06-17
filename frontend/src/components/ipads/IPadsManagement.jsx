@@ -658,7 +658,7 @@ const IPadsManagement = () => {
                   {filteredIPads.map((ipad) => (
                     <TableRow 
                       key={ipad.id} 
-                      className={`${getRowClassName(ipad.status)} ${ipad.is_in_pool ? 'bg-violet-50/60 hover:bg-violet-50' : ''}`}
+                      className={getRowClassName(ipad.status)}
                     >
                       <TableCell>
                         <Checkbox
@@ -736,18 +736,6 @@ const IPadsManagement = () => {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          {ipad.is_in_pool && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleClaimIPad(ipad.id, ipad.itnr)}
-                              title="iPad aus Pool übernehmen"
-                              className="bg-violet-50 border-violet-300 text-violet-700 hover:bg-violet-100"
-                              data-testid={`claim-btn-${ipad.id}`}
-                            >
-                              📥 Übernehmen
-                            </Button>
-                          )}
                           {!ipad.current_assignment_id && (
                             <Button
                               variant="outline"
@@ -757,19 +745,27 @@ const IPadsManagement = () => {
                                 setSearchDialogOpen(true);
                                 setStudentSearchQuery('');
                               }}
-                              className={ipad.is_in_pool ? 'border-violet-300' : ''}
                               title={ipad.is_in_pool ? 'iPad aus Pool übernehmen + Schüler zuordnen' : 'Schüler zuordnen'}
                             >
                               Schüler zuordnen
                             </Button>
                           )}
-                          {!ipad.is_in_pool && (
+                          {ipad.is_in_pool ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleClaimIPad(ipad.id, ipad.itnr)}
+                              title="iPad aus Pool übernehmen"
+                              data-testid={`claim-btn-${ipad.id}`}
+                            >
+                              📥 Übernehmen
+                            </Button>
+                          ) : (
                             <Button
                               variant="outline"
                               size="sm"
                               onClick={() => openReleaseDialog(ipad)}
                               title="In Pool freigeben"
-                              className="bg-violet-50 border-violet-300 text-violet-700 hover:bg-violet-100"
                               data-testid={`release-btn-${ipad.id}`}
                             >
                               📤 In Pool

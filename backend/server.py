@@ -2608,11 +2608,29 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
         if owner:
             owner_username = owner.get("username")
     
+    # Enrich pool_history with username info
+    raw_history = ipad.get("pool_history", []) or []
+    user_id_set = {h.get("by") for h in raw_history if h.get("by")}
+    user_map = {}
+    if user_id_set:
+        async for u in db.users.find({"id": {"$in": list(user_id_set)}}):
+            user_map[u["id"]] = u.get("username", "?")
+    pool_history = [
+        {
+            "action": h.get("action"),
+            "by_user_id": h.get("by"),
+            "by_username": user_map.get(h.get("by"), "Gelöschter User"),
+            "at": h.get("at")
+        }
+        for h in raw_history
+    ]
+    
     return {
         "ipad": ipad_data,
         "assignments": assignment_data,
         "contracts": contract_data,
-        "owner_username": owner_username
+        "owner_username": owner_username,
+        "pool_history": pool_history
     }
 
 # Assignment dissolution
