@@ -48,6 +48,7 @@ const IPadsManagement = () => {
     itnr: '',
     snr: '',
     typ: '',
+    generation: '',
     pencil: '',
     status: 'ok',
     is_in_pool: false
@@ -305,6 +306,7 @@ const IPadsManagement = () => {
       itnr: '',
       snr: '',
       typ: globalSettings.ipad_typ || 'Apple iPad',
+      generation: '',
       pencil: globalSettings.pencil || 'ohne Apple Pencil',
       status: 'ok',
       is_in_pool: false
@@ -848,6 +850,19 @@ const IPadsManagement = () => {
                   onChange={(e) => setNewIPadData({...newIPadData, pencil: e.target.value})}
                 />
               </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="generation">
+                Generation
+                <span className="text-xs text-gray-500 ml-2">(optional)</span>
+              </Label>
+              <Input
+                id="generation"
+                placeholder="z.B. 9. Gen"
+                value={newIPadData.generation}
+                onChange={(e) => setNewIPadData({...newIPadData, generation: e.target.value})}
+                data-testid="create-generation-input"
+              />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="status">Status</Label>

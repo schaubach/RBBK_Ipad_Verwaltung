@@ -88,6 +88,7 @@ class iPad(BaseModel):
     karton: Optional[str] = None
     pencil: Optional[str] = None
     typ: Optional[str] = None
+    generation: Optional[str] = None
     ansch_jahr: Optional[str] = None
     ausleihe_datum: Optional[str] = None
     status: str = "ok"  # ok, defekt, gestohlen
@@ -951,6 +952,7 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_
             karton=ipad_data.get('karton', ''),
             pencil=ipad_data.get('pencil', ''),
             typ=ipad_data.get('typ', ''),
+            generation=ipad_data.get('generation') or None,
             ansch_jahr=ipad_data.get('ansch_jahr', ''),
             ausleihe_datum=ipad_data.get('ausleihe_datum', ''),
             status=ipad_data.get('status', 'ok'),
@@ -2422,6 +2424,7 @@ class IPadUpdateRequest(BaseModel):
     karton: Optional[str] = None
     pencil: Optional[str] = None
     typ: Optional[str] = None
+    generation: Optional[str] = None
     ansch_jahr: Optional[str] = None
     ausleihe_datum: Optional[str] = None
     status: Optional[str] = None
@@ -2450,6 +2453,9 @@ async def update_ipad(ipad_id: str, request: IPadUpdateRequest, current_user: di
         update_data["pencil"] = request.pencil
     if request.typ is not None:
         update_data["typ"] = request.typ
+    if request.generation is not None:
+        # Empty string from frontend → null in DB
+        update_data["generation"] = request.generation if request.generation else None
     if request.ansch_jahr is not None:
         update_data["ansch_jahr"] = request.ansch_jahr
     if request.ausleihe_datum is not None:
@@ -3098,6 +3104,7 @@ async def import_inventory(
                             
                             imported_typ = safe_str(row.get('Typ', ''))
                             imported_pencil = safe_str(row.get('Pencil', ''))
+                            imported_generation = safe_str(row.get('Generation', '')) or None
                             
                             new_ipad = iPad(
                                 user_id=current_user["id"],
@@ -3105,6 +3112,7 @@ async def import_inventory(
                                 snr=safe_str(row.get('SNr', '')),
                                 typ=imported_typ if imported_typ else default_ipad_typ,
                                 pencil=imported_pencil if imported_pencil else default_pencil,
+                                generation=imported_generation,
                                 ansch_jahr=safe_str(row.get('AnschJahr', '')),
                                 status=ipad_status,
                                 is_in_pool=True,
@@ -3137,6 +3145,7 @@ async def import_inventory(
                             # Use global settings as defaults if fields are empty
                             imported_typ = safe_str(row.get('Typ', ''))
                             imported_pencil = safe_str(row.get('Pencil', ''))
+                            imported_generation = safe_str(row.get('Generation', '')) or None
                             
                             new_ipad = iPad(
                                 user_id=current_user["id"],
@@ -3144,6 +3153,7 @@ async def import_inventory(
                                 snr=safe_str(row.get('SNr', '')),
                                 typ=imported_typ if imported_typ else default_ipad_typ,
                                 pencil=imported_pencil if imported_pencil else default_pencil,
+                                generation=imported_generation,
                                 ansch_jahr=safe_str(row.get('AnschJahr', '')),
                                 status=ipad_status
                             )
@@ -3577,6 +3587,7 @@ async def export_inventory(request: Request, current_user: dict = Depends(get_cu
                 "ITNr": ipad.get("itnr", "") if ipad else "",
                 "SNr": ipad.get("snr", "") if ipad else "",
                 "Typ": ipad_typ if ipad else "",
+                "Generation": ipad.get("generation") if ipad else "",
                 "Status": ipad.get("status", "ok") if ipad else "",
                 "AnschJahr": ipad.get("ansch_jahr", "") if ipad else "",
                 "AusleiheDatum": ausleibe_datum,
