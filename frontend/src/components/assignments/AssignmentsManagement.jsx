@@ -495,8 +495,10 @@ const AssignmentsManagement = () => {
   const unassignedStudents = students.filter(student => 
     !student.assignment_count || student.assignment_count === 0
   );
-  // Frei & OK = nicht zugewiesen UND Status = "ok" (defekte/gestohlene werden nicht automatisch zugeordnet)
-  const freeAndOkIPads = ipads.filter(ipad => !ipad.current_assignment_id && ipad.status === 'ok');
+  // Frei & OK = eigene iPads, nicht zugewiesen UND Status = "ok"
+  const freeAndOkIPads = ipads.filter(ipad => !ipad.current_assignment_id && ipad.status === 'ok' && !ipad.is_in_pool);
+  // Pool verfügbar = im Pool und Status ok und nicht zugewiesen
+  const poolAvailableIPads = ipads.filter(ipad => ipad.is_in_pool && !ipad.current_assignment_id && ipad.status === 'ok');
 
   return (
     <div className="space-y-6">
@@ -509,10 +511,14 @@ const AssignmentsManagement = () => {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col gap-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
               <div className="bg-green-50 p-3 rounded-lg">
                 <div className="font-medium text-green-800">Frei & OK</div>
                 <div className="text-2xl font-bold text-green-600">{freeAndOkIPads.length}</div>
+              </div>
+              <div className="bg-violet-50 p-3 rounded-lg border border-violet-200">
+                <div className="font-medium text-violet-800">🌐 Pool verfügbar</div>
+                <div className="text-2xl font-bold text-violet-600">{poolAvailableIPads.length}</div>
               </div>
               <div className="bg-blue-50 p-3 rounded-lg">
                 <div className="font-medium text-blue-800">Schüler ohne iPad</div>

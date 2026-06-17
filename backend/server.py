@@ -2601,10 +2601,18 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
         print(f"Error parsing contract data: {e}")
         contract_data = []
     
+    # Get owner info (current user_id of iPad)
+    owner_username = None
+    if ipad.get("user_id"):
+        owner = await db.users.find_one({"id": ipad["user_id"]})
+        if owner:
+            owner_username = owner.get("username")
+    
     return {
         "ipad": ipad_data,
         "assignments": assignment_data,
-        "contracts": contract_data
+        "contracts": contract_data,
+        "owner_username": owner_username
     }
 
 # Assignment dissolution

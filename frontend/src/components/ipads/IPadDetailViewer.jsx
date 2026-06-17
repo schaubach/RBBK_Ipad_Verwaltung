@@ -98,15 +98,72 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
     }
   };
 
+  // Pool actions
+  const handleClaim = async () => {
+    try {
+      await api.post(`/ipads/${ipadId}/claim`);
+      toast.success(`iPad ${ipad.itnr} übernommen`);
+      if (onUpdate) onUpdate();
+      onClose();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Übernehmen');
+    }
+  };
+  
+  const handleRelease = async () => {
+    if (ipad.current_assignment_id) {
+      if (!window.confirm(`iPad ${ipad.itnr} ist einem Schüler zugeordnet. Die Zuordnung wird automatisch aufgelöst. Fortfahren?`)) {
+        return;
+      }
+    }
+    try {
+      const response = await api.post(`/ipads/${ipadId}/release-to-pool`);
+      const { dissolved_assignment } = response.data;
+      toast.success(
+        dissolved_assignment
+          ? `iPad ${ipad.itnr} freigegeben (Zuordnung aufgelöst)`
+          : `iPad ${ipad.itnr} in den Pool freigegeben`
+      );
+      if (onUpdate) onUpdate();
+      onClose();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Freigeben');
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           <div className="flex justify-between items-start mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
               iPad Details: {ipad.itnr}
+              {ipad.is_in_pool && (
+                <Badge className="bg-violet-100 text-violet-800 hover:bg-violet-200">
+                  🌐 Im Pool
+                </Badge>
+              )}
             </h2>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              {!editMode && ipad.is_in_pool && (
+                <Button
+                  onClick={handleClaim}
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  data-testid="detail-claim-btn"
+                >
+                  📥 Übernehmen
+                </Button>
+              )}
+              {!editMode && !ipad.is_in_pool && (
+                <Button
+                  onClick={handleRelease}
+                  variant="outline"
+                  className="border-violet-300 text-violet-700 hover:bg-violet-50"
+                  data-testid="detail-release-btn"
+                >
+                  📤 In Pool freigeben
+                </Button>
+              )}
               {!editMode ? (
                 <Button variant="outline" onClick={() => setEditMode(true)} data-testid="edit-ipad-btn">
                   <Pencil className="h-4 w-4 mr-2" />
@@ -238,6 +295,12 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
                   <div><strong>Ansch. Jahr:</strong> {ipad.ansch_jahr || 'N/A'}</div>
                   <div><strong>Ausleihdatum:</strong> {ipad.ausleihe_datum || 'N/A'}</div>
                   <div><strong>Erstellt am:</strong> {ipad.created_at ? new Date(ipad.created_at).toLocaleDateString('de-DE') : 'N/A'}</div>
+                  <div>
+                    <strong>Verwaltet von:</strong>{' '}
+                    {ipadData.owner_username
+                      ? <span data-testid="ipad-owner">{ipadData.owner_username}{ipad.is_in_pool ? ' (Importeur)' : ''}</span>
+                      : <span className="text-gray-500">Niemand (Pool-Waise)</span>}
+                  </div>
                 </div>
               )}
             </CardContent>

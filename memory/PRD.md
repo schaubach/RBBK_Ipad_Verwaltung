@@ -167,7 +167,19 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 - `IPadsManagement.jsx`: Filter "Alle/Meine/Pool", Pool-Badge + violetter Hintergrund, "📥 Übernehmen"/"📤 In Pool"-Buttons, Bulk-Claim, Stat-Card "🌐 Pool verfügbar", Create-Dialog mit Pool-Checkbox
 - `Settings.jsx`: Import-Checkbox "🌐 In Pool importieren"
 - `UserManagement.jsx`: Toast informiert über orphaned Pool-iPads
+- `AssignmentsManagement.jsx`: Pool-Stat-Card hinzugefügt, "Frei & OK" zeigt nur eigene (nicht Pool)
+- `IPadDetailViewer.jsx`: Pool-Badge im Header + Übernehmen/Freigeben-Buttons + **"Verwaltet von"-Feld** (zeigt Owner-Username, bei Pool-iPads "(Importeur)"-Hinweis)
 - One-step Claim+Assign mit Erfolgs-Toast: "iPad X aus Pool übernommen und Schüler Y zugewiesen"
+
+**Backend ergänzt:** `GET /ipads/{id}/history` liefert nun `owner_username` Feld
+
+**E2E-Tests bestanden (alle Pool-Funktionen):**
+- ✅ Excel-Pool-Import (3 iPads, inkl. defekte)
+- ✅ Single-Claim + Bulk-Claim
+- ✅ Release-to-Pool (mit + ohne aktiver Zuordnung)
+- ✅ Auto-Claim+Assign in einem Schritt
+- ✅ "Verwaltet von" zeigt korrekten Owner nach jedem Vorgang
+- ✅ User-Delete: Pool-iPads bleiben orphaned (counter `pool_ipads_orphaned`)
 
 **Sicherheit:**
 - Atomare Claim-Operationen (MongoDB `find_one_and_update` verhindert Race Conditions)
