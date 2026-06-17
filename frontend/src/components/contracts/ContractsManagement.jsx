@@ -969,7 +969,7 @@ const ContractsManagement = () => {
             <AlertDialogDescription asChild>
               <div>
                 <p>
-                  <strong>{pendingGenerateMode ? getIncompleteCount(pendingGenerateMode) : 0}</strong> der ausgewählten Zuordnungen haben fehlende Pflichtfelder (Modell, SNr oder Geburtsdatum).
+                  <strong>{pendingGenerateMode ? getIncompleteCount(pendingGenerateMode) : 0}</strong> der ausgewählten Zuordnungen haben fehlende Pflichtfelder (Typ, SNr oder Geburtsdatum).
                 </p>
                 <p className="mt-2">
                   Diese Verträge werden unvollständig generiert und das ZIP-Archiv kann ohne Geburtsdatum nicht korrekt verschlüsselt werden.

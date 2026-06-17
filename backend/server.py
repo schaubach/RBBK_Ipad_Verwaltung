@@ -40,7 +40,7 @@ db = client["iPadDatabase"]
 
 # Security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 # Generate strong random secret key if not provided
 import secrets
 SECRET_KEY = os.environ.get("SECRET_KEY")
@@ -2309,7 +2309,7 @@ async def get_assignments_available_for_contracts(current_user: dict = Depends(g
             
             missing_fields = []
             if not (ipad and (ipad.get("typ") or "").strip()):
-                missing_fields.append("Modell")
+                missing_fields.append("Typ")
             if not (ipad and (ipad.get("snr") or "").strip()):
                 missing_fields.append("SNr")
             if not (student and (student.get("sus_geb") or "").strip()):
@@ -2498,6 +2498,7 @@ async def update_ipad(ipad_id: str, request: IPadUpdateRequest, current_user: di
             "karton": updated_ipad.get("karton"),
             "pencil": updated_ipad.get("pencil"),
             "typ": updated_ipad.get("typ"),
+            "modell": updated_ipad.get("modell"),
             "ansch_jahr": updated_ipad.get("ansch_jahr"),
             "ausleihe_datum": updated_ipad.get("ausleihe_datum"),
             "status": updated_ipad.get("status", "ok")

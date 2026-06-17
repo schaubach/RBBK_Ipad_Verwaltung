@@ -142,6 +142,27 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 **User → Admin (jetzt nur noch Admin):**
 - `PUT /settings/global` — globale Einstellungen ändern
 
+## Session 16 (Feb 2026) - Regression Test + 3 Minor-Fixes
+**Test-Bericht `/app/test_reports/iteration_4.json`**: 25 von 26 Tests bestanden, 0 kritische Bugs
+
+**Behoben aus Testergebnissen:**
+1. `HTTPBearer()` → `HTTPBearer(auto_error=False)`: Cookie-Auth funktioniert jetzt auch ohne Bearer-Header (z.B. für `/auth/me`)
+2. PUT `/ipads/{id}` response inkludiert jetzt `modell` Feld
+3. `available-for-contracts` Label: `Modell` → `Typ` (passt zum tatsächlich geprüften Feld `ipad.typ`)
+4. Frontend-Warning-Dialog-Text entsprechend angepasst
+
+**Verifizierte Bereiche (per Testing-Agent):**
+- ✅ Auth (Admin/User Login, Logout, Cookies)
+- ✅ RBAC: Settings nur Admin, alle anderen User-OK
+- ✅ Pool-Feature (alle 12 Sub-Features)
+- ✅ Modell-Feld (Create/Update/Import/Export)
+- ✅ Stat-Cards
+- ✅ Vertragserstellung mit ZipCrypto + Passwort
+- ✅ One-Step Claim+Assign
+- ✅ Race-Condition-Schutz (409 bei parallel claims)
+- ✅ Excel-Import mit Pool-Flag + Modell-Spalte
+- ✅ User-Delete behält orphaned Pool-iPads
+
 ## Session 15 (Feb 2026) - iPad-Modell Feld
 - Neues Optional-Feld `modell: Optional[str] = None` im iPad-Modell
 - Bestehende iPads zeigen automatisch `null` (keine DB-Migration nötig)
