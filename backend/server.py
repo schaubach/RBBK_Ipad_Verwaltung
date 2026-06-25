@@ -1661,38 +1661,43 @@ async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
     
     # Get available iPads for this user (not currently assigned, status = 'ok')
     ipad_filter = {**user_filter, "current_assignment_id": None, "status": "ok"}
-    available_ipads = await db.ipads.find(ipad_filter).to_list(length=None)
     
     assigned_count = 0
     details = []
     
-    for i, student in enumerate(unassigned_students):
-        if i >= len(available_ipads):
-            break
-            
-        ipad = available_ipads[i]
+    for student in unassigned_students:
+        now_iso = datetime.now(timezone.utc).isoformat()
         
-        # Create assignment
+        # We need an assignment ID first so we can assign atomically
         assignment = Assignment(
             user_id=current_user["id"],
             student_id=student["id"],
-            ipad_id=ipad["id"],
-            itnr=ipad["itnr"],
+            ipad_id="temp",
+            itnr="temp",
             student_name=f"{student['sus_vorn']} {student['sus_nachn']}"
         )
+        
+        # Atomically find and claim an available iPad
+        ipad = await db.ipads.find_one_and_update(
+            ipad_filter,
+            {"$set": {"current_assignment_id": assignment.id, "updated_at": now_iso}}
+        )
+        
+        if not ipad:
+            # No more available iPads
+            break
+            
+        # Update assignment with actual iPad data
+        assignment.ipad_id = ipad["id"]
+        assignment.itnr = ipad["itnr"]
         
         assignment_dict = prepare_for_mongo(assignment.dict())
         await db.assignments.insert_one(assignment_dict)
         
-        # Update student and iPad
+        # Update student (just updated_at)
         await db.students.update_one(
             {"id": student["id"]},
-            {"$set": {"current_assignment_id": assignment.id, "updated_at": datetime.now(timezone.utc).isoformat()}}
-        )
-        
-        await db.ipads.update_one(
-            {"id": ipad["id"]},
-            {"$set": {"current_assignment_id": assignment.id, "updated_at": datetime.now(timezone.utc).isoformat()}}
+            {"$set": {"updated_at": now_iso}}
         )
         
         assigned_count += 1
@@ -1724,40 +1729,6 @@ async def manual_assign(
         if not student:
             raise HTTPException(status_code=404, detail="Student not found or access denied")
         
-        # Validate iPad - either own or in pool
-        ipad_filter = await get_ipad_filter_with_pool(current_user)
-        ipad = await db.ipads.find_one({"id": request.ipad_id, **ipad_filter})
-        if not ipad:
-            raise HTTPException(status_code=404, detail="iPad not found or access denied")
-        
-        # Check if iPad is already assigned
-        if ipad.get("current_assignment_id"):
-            raise HTTPException(status_code=400, detail="iPad ist bereits zugewiesen")
-        
-        # If iPad is in pool, claim it first (atomic)
-        was_in_pool = ipad.get("is_in_pool", False)
-        if was_in_pool:
-            now_iso = datetime.now(timezone.utc).isoformat()
-            claim_result = await db.ipads.find_one_and_update(
-                {"id": request.ipad_id, "is_in_pool": True, "current_assignment_id": None},
-                {
-                    "$set": {
-                        "is_in_pool": False,
-                        "user_id": current_user["id"],
-                        "updated_at": now_iso
-                    },
-                    "$push": {
-                        "pool_history": {
-                            "action": "claimed",
-                            "by": current_user["id"],
-                            "at": now_iso
-                        }
-                    }
-                }
-            )
-            if not claim_result:
-                raise HTTPException(status_code=409, detail="iPad wurde gerade von einem anderen Benutzer übernommen")
-        
         # Check if student already has maximum number of iPads (1:n relationship)
         student_assignments = await db.assignments.count_documents({
             "student_id": student["id"],
@@ -1768,6 +1739,18 @@ async def manual_assign(
                 status_code=400, 
                 detail=f"Schüler hat bereits {MAX_IPADS_PER_STUDENT} iPad(s) zugewiesen (Maximum erreicht)"
             )
+
+        # Validate iPad - either own or in pool
+        ipad_filter = await get_ipad_filter_with_pool(current_user)
+        ipad = await db.ipads.find_one({"id": request.ipad_id, **ipad_filter})
+        if not ipad:
+            raise HTTPException(status_code=404, detail="iPad not found or access denied")
+        
+        if ipad.get("current_assignment_id"):
+            raise HTTPException(status_code=400, detail="iPad ist bereits zugewiesen")
+        
+        was_in_pool = ipad.get("is_in_pool", False)
+        now_iso = datetime.now(timezone.utc).isoformat()
         
         # Create assignment (without contract)
         assignment = Assignment(
@@ -1779,22 +1762,40 @@ async def manual_assign(
             contract_id=None  # No contract for manual assignments
         )
         
+        # ATOMIC CLAIM AND ASSIGN
+        update_doc = {
+            "$set": {
+                "current_assignment_id": assignment.id,
+                "updated_at": now_iso
+            }
+        }
+        
+        if was_in_pool:
+            update_doc["$set"]["is_in_pool"] = False
+            update_doc["$set"]["user_id"] = current_user["id"]
+            update_doc["$push"] = {
+                "pool_history": {
+                    "action": "claimed",
+                    "by": current_user["id"],
+                    "at": now_iso
+                }
+            }
+            query = {"id": request.ipad_id, "is_in_pool": True, "current_assignment_id": None}
+        else:
+            query = {"id": request.ipad_id, "current_assignment_id": None, "user_id": current_user["id"]}
+
+        claim_result = await db.ipads.find_one_and_update(query, update_doc)
+        
+        if not claim_result:
+            raise HTTPException(status_code=409, detail="iPad wurde gerade von einem anderen Benutzer übernommen oder zugewiesen")
+        
         assignment_dict = prepare_for_mongo(assignment.dict())
         await db.assignments.insert_one(assignment_dict)
         
         # Student update removed - no current_assignment_id field anymore (1:n relationship)
         await db.students.update_one(
             {"id": student["id"]},
-            {"$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
-        )
-        
-        # Update iPad - keep its current status (ok/defekt/gestohlen)
-        await db.ipads.update_one(
-            {"id": ipad["id"]},
-            {"$set": {
-                "current_assignment_id": assignment.id,
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }}
+            {"$set": {"updated_at": now_iso}}
         )
         
         return {
@@ -1908,7 +1909,7 @@ async def upload_contract_for_assignment(
     try:
         contents = await file.read()
         # Security: Validate uploaded file
-        validate_uploaded_file(contents, file.filename, max_size_mb=5, allowed_types=['.pdf'])
+        validate_uploaded_file(contents, file.filename, max_size_mb=15, allowed_types=['.pdf'])
         
         # Extract form fields from PDF
         reader = PyPDF2.PdfReader(io.BytesIO(contents))
@@ -2029,8 +2030,8 @@ async def upload_multiple_contracts(files: List[UploadFile] = File(...), current
             
         try:
             contents = await file.read()
-            # Security: Validate uploaded file (10MB for images)
-            max_size = 10 if file_ext != '.pdf' else 5
+            # Security: Validate uploaded file (10MB for images, 15MB for PDF)
+            max_size = 10 if file_ext != '.pdf' else 15
             validate_uploaded_file(contents, file.filename, max_size_mb=max_size, allowed_types=allowed_extensions)
             
             # Extract form fields from PDF (only for PDFs)
