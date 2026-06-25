@@ -99,7 +99,7 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
           </TabsContent>
 
           <TabsContent value="ipads">
-            <IPadsManagement />
+            <IPadsManagement isAdmin={isAdmin} />
           </TabsContent>
 
           <TabsContent value="assignments">

@@ -13,7 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { toast } from 'sonner';
 import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X } from 'lucide-react';
 
-const IPadsManagement = () => {
+const IPadsManagement = ({ isAdmin = false }) => {
   const [ipads, setIPads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedIPadId, setSelectedIPadId] = useState(null);
@@ -27,6 +27,12 @@ const IPadsManagement = () => {
   // Autocomplete states (now dialog-based)
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [searchDialogIpadId, setSearchDialogIpadId] = useState(null);
+  
+  // Admin: Assign Pool iPad(s) to user
+  const [assignToUserDialogOpen, setAssignToUserDialogOpen] = useState(false);
+  const [assignToUserTargetIds, setAssignToUserTargetIds] = useState([]); // list of ipad ids
+  const [allUsers, setAllUsers] = useState([]);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
   
   // Sort states
@@ -148,6 +154,41 @@ const IPadsManagement = () => {
       toast.error('Fehler beim Bulk-Übernehmen');
     } finally {
       setBulkClaiming(false);
+    }
+  };
+  
+  // Admin: Open user assignment dialog
+  const openAssignToUserDialog = async (ipadIds) => {
+    if (!isAdmin) return;
+    setAssignToUserTargetIds(ipadIds);
+    setUserSearchQuery('');
+    setAssignToUserDialogOpen(true);
+    // Load users on demand
+    if (allUsers.length === 0) {
+      try {
+        const res = await api.get('/admin/users');
+        setAllUsers(res.data.filter(u => u.role !== 'admin'));
+      } catch {
+        toast.error('Benutzerliste konnte nicht geladen werden');
+      }
+    }
+  };
+  
+  const handleAssignToUser = async (targetUserId) => {
+    try {
+      const res = await api.post('/admin/ipads/assign-to-user', {
+        ipad_ids: assignToUserTargetIds,
+        target_user_id: targetUserId
+      });
+      const { success_count, failed_count, target_username } = res.data;
+      if (success_count > 0) toast.success(`${success_count} iPad(s) an ${target_username} zugewiesen`);
+      if (failed_count > 0) toast.warning(`${failed_count} konnten nicht zugewiesen werden`);
+      setAssignToUserDialogOpen(false);
+      setAssignToUserTargetIds([]);
+      setSelectedIPads([]);
+      loadIPads();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler bei Zuweisung');
     }
   };
   
@@ -571,6 +612,15 @@ const IPadsManagement = () => {
                   {bulkClaiming ? 'Übernehme...' : `${selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) übernehmen`}
                 </Button>
               )}
+              {isAdmin && selectedIPads.some(id => ipads.find(i => i.id === id)?.is_in_pool) && (
+                <Button
+                  variant="outline"
+                  onClick={() => openAssignToUserDialog(selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool))}
+                  data-testid="bulk-assign-to-user-btn"
+                >
+                  👤 {selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) an User zuweisen
+                </Button>
+              )}
               <Button
                 onClick={openBatchDeleteDialog}
                 variant="destructive"
@@ -753,15 +803,28 @@ const IPadsManagement = () => {
                             </Button>
                           )}
                           {ipad.is_in_pool ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleClaimIPad(ipad.id, ipad.itnr)}
-                              title="iPad aus Pool übernehmen"
-                              data-testid={`claim-btn-${ipad.id}`}
-                            >
-                              📥 Übernehmen
-                            </Button>
+                            <>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleClaimIPad(ipad.id, ipad.itnr)}
+                                title="iPad aus Pool übernehmen"
+                                data-testid={`claim-btn-${ipad.id}`}
+                              >
+                                📥 Übernehmen
+                              </Button>
+                              {isAdmin && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openAssignToUserDialog([ipad.id])}
+                                  title="An User zuweisen"
+                                  data-testid={`assign-to-user-btn-${ipad.id}`}
+                                >
+                                  👤 An User
+                                </Button>
+                              )}
+                            </>
                           ) : (
                             <Button
                               variant="outline"
@@ -1082,6 +1145,49 @@ const IPadsManagement = () => {
           onUpdate={loadIPads}
         />
       )}
+      
+      {/* Admin: Assign Pool iPad to User Dialog */}
+      <AlertDialog open={assignToUserDialogOpen} onOpenChange={setAssignToUserDialogOpen}>
+        <AlertDialogContent data-testid="assign-to-user-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>iPad(s) an User zuweisen</AlertDialogTitle>
+            <AlertDialogDescription>
+              {assignToUserTargetIds.length} Pool-iPad(s) werden dem ausgewählten Benutzer zugewiesen.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Benutzer suchen..."
+              value={userSearchQuery}
+              onChange={(e) => setUserSearchQuery(e.target.value)}
+              data-testid="user-search-input"
+            />
+            <div className="max-h-64 overflow-y-auto border rounded-lg">
+              {allUsers
+                .filter(u => !userSearchQuery || u.username.toLowerCase().includes(userSearchQuery.toLowerCase()))
+                .map(u => (
+                  <button
+                    key={u.id}
+                    onClick={() => handleAssignToUser(u.id)}
+                    className="w-full text-left p-3 hover:bg-gray-100 border-b last:border-b-0"
+                    data-testid={`assign-user-row-${u.id}`}
+                  >
+                    <div className="font-medium">{u.username}</div>
+                    <div className="text-xs text-gray-500">{u.role}</div>
+                  </button>
+                ))}
+              {allUsers.filter(u => !userSearchQuery || u.username.toLowerCase().includes(userSearchQuery.toLowerCase())).length === 0 && (
+                <div className="p-4 text-center text-sm text-gray-500">
+                  Keine Benutzer gefunden
+                </div>
+              )}
+            </div>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       
       {/* Release to Pool Confirmation Dialog */}
       <AlertDialog open={releaseDialogOpen} onOpenChange={setReleaseDialogOpen}>

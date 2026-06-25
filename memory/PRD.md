@@ -217,3 +217,24 @@ iPad-Verwaltungs-Tool für RBBK (Schule). Verwaltung von iPads, Schülern, Zuord
 **Hinweis:** iPad-Batch-Löschen läuft im Frontend über mehrere einzelne `DELETE /ipads/{id}`-Calls → durch User-Berechtigung auf einzelnem Endpoint bereits abgedeckt.
 
 Getestet via curl mit echtem User-Token: alle RBAC-Checks bestanden ✅
+
+
+---
+
+## Session 11 (25.06.2026) — Admin: Pool-iPad an User zuweisen ✅ VERIFIZIERT
+
+**Feature:** Admin kann ein oder mehrere Pool-iPads explizit einem bestimmten Standard-User zuweisen.
+
+**Backend:**
+- `POST /api/admin/ipads/assign-to-user` (Admin-only): nimmt `ipad_ids[]` und `target_user_id`, holt Pool-iPads atomar (`find_one_and_update`) aus dem Pool, setzt `user_id=target_user_id`, ergänzt Pool-Historie-Eintrag (`action="admin_assigned"`, `from_pool=true`, `assigned_by=admin`, `assigned_to=target_username`). Liefert `success_count`, `failed_count`, `target_username`.
+
+**Frontend (`IPadsManagement.jsx`):**
+- Single-Row Button "👤 An User" (data-testid `assign-to-user-btn-{id}`) auf jeder Pool-iPad-Zeile (nur Admin sichtbar).
+- Bulk-Bar Button "👤 N Pool-iPad(s) an User zuweisen" (data-testid `bulk-assign-to-user-btn`) wenn mehrere Pool-iPads selektiert.
+- Dialog mit Live-Search (`user-search-input`), zeigt alle Nicht-Admin User mit Rolle, Klick weist sofort zu, Toast-Bestätigung mit Username.
+
+**Verifiziert (25.06.2026):**
+- ✅ Backend curl-Test (bereits Session 10)
+- ✅ Frontend Screenshot-Verifikation (Pool-Filter aktiv → 20 Pool-iPads → Single-Dialog & Bulk-Dialog öffnen sich korrekt mit User-Liste)
+- ✅ Race-Condition-sicher durch atomares `find_one_and_update`
+- ✅ Non-Admin-Zugriff geblockt (HTTP 403)

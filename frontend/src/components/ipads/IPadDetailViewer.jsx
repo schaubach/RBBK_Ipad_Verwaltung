@@ -381,7 +381,8 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
                     const actionLabel = {
                       'imported_to_pool': '📥 In Pool importiert',
                       'claimed': '🤝 Aus Pool übernommen',
-                      'released': '📤 In Pool freigegeben'
+                      'released': '📤 In Pool freigegeben',
+                      'assigned_by_admin': '👤 Vom Admin zugewiesen'
                     }[entry.action] || entry.action;
                     const date = entry.at ? new Date(entry.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A';
                     return (
@@ -389,7 +390,12 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
                         <div className="flex justify-between items-start gap-3 flex-wrap">
                           <div>
                             <div className="font-medium">{actionLabel}</div>
-                            <div className="text-gray-700">durch <strong>{entry.by_username}</strong></div>
+                            <div className="text-gray-700">
+                              durch <strong>{entry.by_username}</strong>
+                              {entry.target_username && (
+                                <> an <strong>{entry.target_username}</strong></>
+                              )}
+                            </div>
                           </div>
                           <div className="text-xs text-gray-600 whitespace-nowrap">{date}</div>
                         </div>

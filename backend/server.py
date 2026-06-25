@@ -1024,6 +1024,62 @@ class BulkClaimRequest(BaseModel):
     ipad_ids: List[str]
 
 
+class AdminAssignToUserRequest(BaseModel):
+    ipad_ids: List[str]
+    target_user_id: str
+
+
+@api_router.post("/admin/ipads/assign-to-user")
+@limiter.limit("30/minute")
+async def admin_assign_ipads_to_user(payload: AdminAssignToUserRequest, request: Request, current_user: dict = Depends(get_current_user)):
+    """Admin-only: Assign one or more pool iPads to a specific user."""
+    require_admin(current_user)
+    
+    if not payload.ipad_ids:
+        raise HTTPException(status_code=400, detail="Keine iPads ausgewählt")
+    
+    # Verify target user exists
+    target_user = await db.users.find_one({"id": payload.target_user_id})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Ziel-Benutzer nicht gefunden")
+    
+    now_iso = datetime.now(timezone.utc).isoformat()
+    success = []
+    failed = []
+    
+    for ipad_id in payload.ipad_ids:
+        # Atomic: only succeeds if iPad is still in pool
+        result = await db.ipads.find_one_and_update(
+            {"id": ipad_id, "is_in_pool": True},
+            {
+                "$set": {
+                    "is_in_pool": False,
+                    "user_id": payload.target_user_id,
+                    "updated_at": now_iso
+                },
+                "$push": {
+                    "pool_history": {
+                        "action": "assigned_by_admin",
+                        "by": current_user["id"],
+                        "target": payload.target_user_id,
+                        "at": now_iso
+                    }
+                }
+            }
+        )
+        if result:
+            success.append(result.get("itnr"))
+        else:
+            failed.append(ipad_id)
+    
+    return {
+        "success_count": len(success),
+        "failed_count": len(failed),
+        "assigned_itnrs": success,
+        "target_username": target_user.get("username")
+    }
+
+
 @api_router.post("/ipads/bulk-claim")
 @limiter.limit("30/minute")
 async def bulk_claim_ipads(payload: BulkClaimRequest, request: Request, current_user: dict = Depends(get_current_user)):
@@ -2618,7 +2674,10 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
     
     # Enrich pool_history with username info
     raw_history = ipad.get("pool_history", []) or []
-    user_id_set = {h.get("by") for h in raw_history if h.get("by")}
+    user_id_set = set()
+    for h in raw_history:
+        if h.get("by"): user_id_set.add(h["by"])
+        if h.get("target"): user_id_set.add(h["target"])
     user_map = {}
     if user_id_set:
         async for u in db.users.find({"id": {"$in": list(user_id_set)}}):
@@ -2628,6 +2687,7 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
             "action": h.get("action"),
             "by_user_id": h.get("by"),
             "by_username": user_map.get(h.get("by"), "Gelöschter User"),
+            "target_username": user_map.get(h.get("target")) if h.get("target") else None,
             "at": h.get("at")
         }
         for h in raw_history
