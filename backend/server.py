@@ -414,6 +414,29 @@ def validate_uploaded_file(file_content: bytes, filename: str, max_size_mb: int 
     
     return True
 
+
+def is_contract_validated(contract: Optional[dict]) -> bool:
+    """Determine whether an uploaded contract is fully validated.
+
+    Mirrors the logic used in GET /assignments contract_warning evaluation:
+    - Both Nutzungs-Checkboxen müssen angekreuzt sein
+    - Genau eine Ausgabe-Checkbox (neu XOR gebraucht) muss angekreuzt sein
+    """
+    if not contract or not contract.get("form_fields"):
+        return False
+    fields = contract["form_fields"]
+    nutzung_einhaltung = fields.get('NutzungEinhaltung') == '/Yes'
+    nutzung_kenntnisnahme_field = fields.get('NutzungKenntnisnahme') or fields.get('NutzungKenntnisname', '')
+    nutzung_kenntnisnahme = nutzung_kenntnisnahme_field == '/Yes' or bool(
+        nutzung_kenntnisnahme_field and nutzung_kenntnisnahme_field not in ['', '/Off']
+    )
+    ausgabe_neu = fields.get('ausgabeNeu') == '/Yes'
+    ausgabe_gebraucht = fields.get('ausgabeGebraucht') == '/Yes'
+    nutzung_ok = nutzung_einhaltung and nutzung_kenntnisnahme
+    ausgabe_ok = ausgabe_neu != ausgabe_gebraucht  # XOR
+    return nutzung_ok and ausgabe_ok
+
+
 # Authentication endpoints
 @api_router.post("/auth/setup", response_model=dict)
 async def setup_admin():
@@ -3574,6 +3597,13 @@ async def export_inventory(request: Request, current_user: dict = Depends(get_cu
         # Get all active assignments (filtered by user)
         all_assignments = await db.assignments.find({**user_filter, "is_active": True}).to_list(length=None)
         
+        # Preload contracts for assignments (for "Vertrag vorhanden" / "Vertrag validiert" columns)
+        assignment_ids_with_contract = [a.get("contract_id") for a in all_assignments if a.get("contract_id")]
+        contracts_by_id = {}
+        if assignment_ids_with_contract:
+            all_contracts = await db.contracts.find({"id": {"$in": assignment_ids_with_contract}}).to_list(length=None)
+            contracts_by_id = {c["id"]: c for c in all_contracts}
+        
         # Track which students and iPads are in assignments
         students_with_assignments = set()
         ipads_with_assignments = set()
@@ -3623,6 +3653,13 @@ async def export_inventory(request: Request, current_user: dict = Depends(get_cu
                 except:
                     pass
             
+            # Determine contract status for this assignment
+            contract = None
+            if assignment and assignment.get("contract_id"):
+                contract = contracts_by_id.get(assignment["contract_id"])
+            vertrag_vorhanden = "Ja" if contract else "Nein"
+            vertrag_validiert = "Ja" if is_contract_validated(contract) else "Nein"
+            
             return {
                 # Student data
                 "Sname": student.get("sname", "") if student else "",
@@ -3653,7 +3690,9 @@ async def export_inventory(request: Request, current_user: dict = Depends(get_cu
                 "Status": ipad.get("status", "ok") if ipad else "",
                 "AnschJahr": ipad.get("ansch_jahr", "") if ipad else "",
                 "AusleiheDatum": ausleibe_datum,
-                "Rückgabe": ""
+                "Rückgabe": "",
+                "Vertrag vorhanden": vertrag_vorhanden,
+                "Vertrag validiert": vertrag_validiert
             }
         
         # 1. Process all assignments (creates rows for students WITH iPads - respects 1:n)
@@ -3816,6 +3855,12 @@ async def export_assignments(
         student = await db.students.find_one({"id": assignment["student_id"]})
         # Get iPad data
         ipad = await db.ipads.find_one({"id": assignment["ipad_id"]})
+        # Get contract (if any)
+        contract = None
+        if assignment.get("contract_id"):
+            contract = await db.contracts.find_one({"id": assignment["contract_id"]})
+        vertrag_vorhanden = "Ja" if contract else "Nein"
+        vertrag_validiert = "Ja" if is_contract_validated(contract) else "Nein"
         
         if student and ipad:
             # Format Geburtstag to DD.MM.YYYY (with leading zeros!)
@@ -3901,7 +3946,9 @@ async def export_assignments(
                 "Typ": ipad.get("typ", ""),
                 "AnschJahr": ipad.get("ansch_jahr", ""),
                 "AusleiheDatum": ausleihe_datum_formatted,  # From assigned_at, formatted to TT.MM.JJJJ
-                "Rückgabe": ""  # Empty as in Bestandsliste export
+                "Rückgabe": "",  # Empty as in Bestandsliste export
+                "Vertrag vorhanden": vertrag_vorhanden,
+                "Vertrag validiert": vertrag_validiert
                 # REMOVED: "Zugewiesen_am" and "Vertrag_vorhanden" as requested
             }
             export_data.append(row_data)
@@ -3954,6 +4001,12 @@ async def export_selected_assignments(
     for assignment in assignments:
         student = await db.students.find_one({"id": assignment["student_id"], **user_filter})
         ipad = await db.ipads.find_one({"id": assignment["ipad_id"], **user_filter})
+        # Get contract (if any)
+        contract = None
+        if assignment.get("contract_id"):
+            contract = await db.contracts.find_one({"id": assignment["contract_id"]})
+        vertrag_vorhanden = "Ja" if contract else "Nein"
+        vertrag_validiert = "Ja" if is_contract_validated(contract) else "Nein"
         
         if student and ipad:
             # Format Geburtstag to TT.MM.JJJJ
@@ -4003,7 +4056,9 @@ async def export_selected_assignments(
                 "Typ": ipad.get("typ", ""),
                 "AnschJahr": ipad.get("ansch_jahr", ""),
                 "AusleiheDatum": ausleihe_datum_formatted,
-                "Rückgabe": ""
+                "Rückgabe": "",
+                "Vertrag vorhanden": vertrag_vorhanden,
+                "Vertrag validiert": vertrag_validiert
             }
             export_data.append(row_data)
     
