@@ -1,0 +1,63 @@
+{
+  "summary": "Full backend + frontend regression after Session 17/18/19 changes: modular router refactor + RBAC fix, PUT /ipads/{id}/status JSON-body normalization, DRY Excel-export refactor with _build_assignment_row helper, 29 unified columns across all 3 exports, new GET /exports/columns endpoint, columns query/body parameter, and the new ExportColumnsDialog frontend component. Result: 35/35 backend tests PASSED, frontend dialog verified in 2 entry points (Settings + Assignments) with 29 column checkboxes in 3 groups (18+9+2). Two minor frontend findings: React DOM-validity warning (nested <button>) and localStorage persists only on confirm not on toggle.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/assignments/export",
+        "issue": "When no active assignments exist, returns an Excel with 0 columns instead of an empty sheet with the 29 canonical headers. Not a regression, but the unified-29-columns contract from Session 19 should hold even for empty result sets. Inventory export correctly emits headers when empty; consider aligning the two.",
+        "priority": "LOW",
+        "file": "/app/backend/routes/imports_exports.py:923-944"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ExportColumnsDialog group header",
+        "issue": "Hydration / DOM-validity warning: '<button> cannot be a descendant of <button>'. The group header is rendered as a <button> and contains the Radix Checkbox primitive which itself renders <button role=\"checkbox\">. Works visually but emits a React error in console and is invalid HTML. Wrap the group header click target in a div with role=\"button\" / use a separate clickable element to avoid nesting, or move the Checkbox outside the header button.",
+        "selector": "[data-testid='export-columns-group-student']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "ExportColumnsDialog → LocalStorage persistence",
+        "issue": "localStorage key 'exportColumnsPreferences' is only written when user clicks 'Exportieren' (confirm). Toggling checkboxes / clicking 'Alle'/'Keine' does not persist intermediate state — that is the expected design per the implementation, but worth documenting for QA.",
+        "affected_selectors": ["[data-testid='export-columns-confirm-btn']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_refactor_regression.py",
+    "/app/test_reports/pytest/refactor_regression.xml"
+  ],
+  "action_items": [
+    "Fix nested <button> in ExportColumnsDialog group header — wrap header in a non-button element or move Checkbox outside the button to satisfy HTML validity (React console warning visible on every dialog open).",
+    "Consider emitting the 29 canonical headers in /api/assignments/export even when there are 0 active assignments, to keep the unified-columns contract symmetric with /api/exports/inventory."
+  ],
+  "critical_code_review_comments": [
+    "Session 19 column-picker design is clean: EXPORT_COLUMNS (single source of truth) + EXPORT_COLUMN_GROUPS + _build_assignment_row + _parse_columns_param. Canonical order is preserved by iterating EXPORT_COLUMNS and selecting from selected_columns, which means user-supplied order is intentionally ignored — good. Unknown column names are silently dropped; if all are invalid, falls back to all 29 (verified).",
+    "Session 17 security regression fully resolved: /api/data-protection/cleanup-old-data now invokes require_admin(current_user) on line 22 of routes/data_protection.py. Standard user correctly receives 403 (regression test in TestAdminOps.test_data_protection_user_blocked + TestRBAC.test_data_protection_should_be_admin_only — both PASS).",
+    "Session 18 PUT /ipads/{id}/status normalization verified: IPadStatusUpdate Pydantic body → 200 for valid status, 400 for invalid value, 422 for missing body, 422 for old-style ?status=… query-param-only (clean break confirmed).",
+    "Frontend ExportColumnsDialog nests a button inside another button (group header + Checkbox primitive). This is invalid HTML per spec and triggers a React hydration error. Doesn't break functionality but should be fixed.",
+    "Empty-result edge case in /api/assignments/export: pd.DataFrame([]).to_excel emits a sheet with zero columns. Inventory export side-steps this because it always iterates iPads+students+assignments. The 'unified 29 columns' contract would be more robust if the writer were given a column list explicitly when export_data is empty."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_refactor_regression.py"
+  ],
+  "success_rate": {
+    "backend": "100% (35/35 passed)",
+    "frontend": "Smoke-tested: login + ExportColumnsDialog in Settings + Assignments both render with 29 column checkboxes in 3 groups; 1 DOM-validity console warning."
+  },
+  "test_credentials": {
+    "admin_username": "admin",
+    "admin_password": "admin123"
+  },
+  "seed_data_creation": "All test artifacts prefixed TEST_RF_<6hex> (users, students, iPads, assignments). Created + cleaned up in fixtures via /admin/users/{id}/complete, /students/batch-delete and DELETE /ipads/{id}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 5 session changes verified: (1) modular router + 9 route modules wired correctly (server.py 68 lines), (2) PUT /ipads/{id}/status JSON-body with 200/400/422/422 transitions verified, (3) DRY _build_assignment_row helper produces identical 29 columns across 3 exports, (4) Vertrag vorhanden/Vertrag validiert columns present + values constrained to Ja/Nein, (5) GET /api/exports/columns returns canonical 29-column list + 3 groups (student=18, ipad=9, contract=2) + columns query/body param works in subset/canonical-order/fallback modes. Frontend ExportColumnsDialog wired in 2 entry points (inventory-export-btn in Settings, 'Alle Zuordnungen exportieren' in Assignments). One DOM-validity bug in dialog group header (nested button-in-button) should be fixed but doesn't block functionality. Test suite at /app/backend/tests/test_refactor_regression.py is fully reusable and covers 35 cases.",
+  "rca_of_the_issue": "No critical issues remain. Minor: (1) /api/assignments/export emits a 0-column Excel when no assignments exist because pd.DataFrame([]) infers no columns; fix by passing columns=EXPORT_COLUMNS (or selected_columns) explicitly to the DataFrame constructor. (2) ExportColumnsDialog nests <Checkbox> (which becomes <button role='checkbox'>) inside the group-header <button>; refactor the header into a <div> with onClick + role='button' (or place the Checkbox outside the header element) to satisfy HTML validity and silence the React hydration warning."
+}

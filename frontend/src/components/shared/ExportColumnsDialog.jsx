@@ -143,24 +143,28 @@ export const ExportColumnsDialog = ({ open, onOpenChange, onConfirm, title = 'Sp
                 const cols = groups[gk] || [];
                 const allInGroup = cols.length > 0 && cols.every(c => selected.has(c));
                 const someInGroup = cols.some(c => selected.has(c));
+                const handleHeaderActivate = () => toggleGroup(gk, cols);
                 return (
                   <div key={gk} className="border rounded-lg overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(gk, cols)}
-                      className="w-full flex items-center justify-between gap-3 px-3 py-2 bg-gray-50 hover:bg-gray-100 border-b"
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={handleHeaderActivate}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleHeaderActivate(); } }}
+                      className="w-full flex items-center justify-between gap-3 px-3 py-2 bg-gray-50 hover:bg-gray-100 border-b cursor-pointer select-none"
                       data-testid={`export-columns-group-${gk}`}
                     >
                       <div className="flex items-center gap-2">
                         <Checkbox
                           checked={allInGroup}
                           data-state={allInGroup ? 'checked' : (someInGroup ? 'indeterminate' : 'unchecked')}
-                          onCheckedChange={() => toggleGroup(gk, cols)}
+                          onCheckedChange={handleHeaderActivate}
+                          onClick={(e) => e.stopPropagation()}
                         />
                         <span className="font-medium">{GROUP_LABELS[gk] || gk}</span>
                       </div>
                       <span className="text-xs text-gray-500">{cols.filter(c => selected.has(c)).length} / {cols.length}</span>
-                    </button>
+                    </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3">
                       {cols.map(col => (
                         <Label

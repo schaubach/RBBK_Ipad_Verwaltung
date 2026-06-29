@@ -1,0 +1,38 @@
+{
+  "summary": "Focused re-test of 2 fixes from iteration_6: (A) ExportColumnsDialog nested-button bug, (B) /api/assignments/export emitting 0 columns when result is empty. Both fixes VERIFIED. Backend: 3 new empty-export tests added to TestEmptyExportHeaders, all PASS, plus 6 regression spot-checks (auth/me, settings, contracts, columns endpoint, subset columns) — all PASS. Frontend: dialog opened from both Assignments and Settings, group header is now <div role='button' tabindex=0> (no longer <button>), Checkbox inside header has stopPropagation. ZERO nested-button warnings, ZERO console errors. Click-on-header, Enter, Space all toggle the whole group; click directly on the in-header Checkbox toggles only that group once (no double-fire).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_refactor_regression.py",
+    "/app/test_reports/pytest/iter7_fixb.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "FIX A correctly implemented: ExportColumnsDialog.jsx line 149-156 — group header is now a <div role='button' tabIndex={0}> with onClick + onKeyDown handling Enter & Space. The nested <Checkbox> inside the header has onClick={(e)=>e.stopPropagation()} so direct checkbox clicks do not bubble up to the header's onClick. Verified visually: clicking the Vertrag-group checkbox toggled exactly 2 items (29→27), no double-toggle. HTML validity restored — no more <button> in <button>.",
+    "FIX B correctly applied to all 3 export endpoints in routes/imports_exports.py (lines 843, 944, 1015): pd.DataFrame(export_data, columns=columns_for_df) where columns_for_df = selected_columns or EXPORT_COLUMNS. Empty result sets now emit canonical headers in canonical order. Verified: ?sus_kl=NonExisting → 29 columns + 0 rows; ?columns=ITNr,Modell,Sname → exactly ['Sname','ITNr','Modell'] (canonical order) + 0 rows. /export-selected with non-existing IDs returns 404 (pre-fix validation behaviour, by design — not a regression).",
+    "No regressions detected in spot-checks (auth login + /me, settings GET/PUT, contracts list/unassigned, /exports/columns canonical list, inventory export with subset columns)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_refactor_regression.py"
+  ],
+  "success_rate": {
+    "backend": "100% (3/3 new empty-export tests + 6/6 regression spot-checks PASS)",
+    "frontend": "100% (dialog verified in Assignments + Settings entry points, 0 nested-button warnings, 0 console errors, all keyboard + mouse interactions correct)"
+  },
+  "test_credentials": {
+    "admin_username": "admin",
+    "admin_password": "admin123"
+  },
+  "seed_data_creation": "None for this iteration — empty-export tests use NonExisting class filter and non-existent assignment IDs (no data created/persisted).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Both fixes from iteration_6 are confirmed in production-preview. New test class TestEmptyExportHeaders in /app/backend/tests/test_refactor_regression.py covers empty-export edge cases. Full 38-test suite remains reusable. ExportColumnsDialog group header changed from <button> → <div role='button' tabIndex=0>; if future refactor reverts this, re-add the nested-button check by listening for console messages containing 'cannot be a descendant of <button>' or 'validateDOMNesting'.",
+  "rca_of_the_issue": "Both fixes RCA-correct: (A) Radix CheckboxPrimitive.Root renders <button role='checkbox'>; wrapping it in another <button> produced React's validateDOMNesting warning. Refactor to <div role='button' tabIndex=0> + onKeyDown for Enter/Space preserves a11y semantics without nested interactive elements. (B) pd.DataFrame([]) infers zero columns; passing explicit columns=... parameter forces the canonical schema even with empty input."
+}

@@ -176,9 +176,21 @@ class TestIpads:
         r = admin_client.put(f"{API}/ipads/{ipad_id}", json={"modell": "iPad 11"})
         assert r.status_code == 200
 
-        # status update (status is a query param in this endpoint)
-        r = admin_client.put(f"{API}/ipads/{ipad_id}/status", params={"status": "defekt"})
+        # status update (NEW: JSON body, not query param)
+        r = admin_client.put(f"{API}/ipads/{ipad_id}/status", json={"status": "defekt"})
         assert r.status_code == 200, r.text
+
+        # Invalid status → 400
+        r = admin_client.put(f"{API}/ipads/{ipad_id}/status", json={"status": "INVALID_STATE"})
+        assert r.status_code == 400, f"Invalid status should 400, got {r.status_code}: {r.text}"
+
+        # Missing body → 422
+        r = admin_client.put(f"{API}/ipads/{ipad_id}/status")
+        assert r.status_code == 422, f"Missing body should 422, got {r.status_code}: {r.text}"
+
+        # Old-style query param (?status=ok) without body → 422 (clean break)
+        r = admin_client.put(f"{API}/ipads/{ipad_id}/status", params={"status": "ok"})
+        assert r.status_code == 422, f"Query-param style should fail with 422, got {r.status_code}: {r.text}"
 
         # history
         r = admin_client.get(f"{API}/ipads/{ipad_id}/history")
@@ -438,6 +450,13 @@ class TestAdminOps:
         r = admin_client.post(f"{API}/data-protection/cleanup-old-data")
         assert r.status_code == 200, r.text
 
+    def test_data_protection_user_blocked(self, user_client):
+        """Standard user MUST be blocked from data-protection cleanup (Session 17 fix)."""
+        r = user_client.post(f"{API}/data-protection/cleanup-old-data")
+        assert r.status_code == 403, (
+            f"SECURITY: /data-protection/cleanup-old-data must be admin-only, " f"got {r.status_code}: {r.text}"
+        )
+
     def test_migrate_status(self, admin_client):
         r = admin_client.post(f"{API}/ipads/migrate-status")
         assert r.status_code in (200, 204), r.text
@@ -462,9 +481,243 @@ class TestRBAC:
             assert r.status_code == 403, f"User should be blocked from {ep} but got {r.status_code}"
 
     def test_data_protection_should_be_admin_only(self, user_client):
-        """KNOWN BUG: /data-protection/cleanup-old-data missing require_admin call."""
+        """Session 17 security fix: cleanup-old-data MUST be admin-only."""
         r = user_client.post(f"{API}/data-protection/cleanup-old-data", json={})
         assert r.status_code == 403, (
             f"SECURITY: /data-protection/cleanup-old-data should be admin-only "
-            f"but standard user got {r.status_code}. require_admin is imported but never called."
+            f"but standard user got {r.status_code}. require_admin must be called."
         )
+
+
+# -------------------- 11. NEW: EXPORT COLUMNS (Session 19) --------------------
+class TestExportColumns:
+    """Session 19: GET /exports/columns + ?columns param + POST body columns."""
+
+    @pytest.fixture(scope="class")
+    def seeded_assignment(self, admin_client):
+        """Seed one assignment so export endpoints have data to emit."""
+        st = admin_client.post(
+            f"{API}/students",
+            json={"sus_vorn": f"{TEST_PREFIX}_EX", "sus_nachn": f"{TEST_PREFIX}_EX", "sus_kl": "9z"},
+        ).json()
+        sid = st.get("id") or st.get("student", {}).get("id")
+        ip = admin_client.post(
+            f"{API}/ipads",
+            json={
+                "itnr": f"{TEST_PREFIX}_EX_{uuid.uuid4().hex[:4]}",
+                "snr": f"SN_{uuid.uuid4().hex[:8]}",
+                "typ": "iPad",
+                "status": "in_betrieb",
+            },
+        ).json()
+        iid = ip.get("id") or ip.get("ipad", {}).get("id")
+        r = admin_client.post(f"{API}/assignments/manual", json={"student_id": sid, "ipad_id": iid})
+        body = r.json()
+        aid = body.get("assignment_id") or body.get("id") or body.get("assignment", {}).get("id")
+        yield {"student_id": sid, "ipad_id": iid, "assignment_id": aid}
+        try:
+            admin_client.delete(f"{API}/assignments/{aid}")
+        except Exception:
+            pass
+        admin_client.post(f"{API}/students/batch-delete", json={"student_ids": [sid]})
+        admin_client.delete(f"{API}/ipads/{iid}")
+
+    def test_columns_endpoint_returns_canonical_list(self, admin_client):
+        r = admin_client.get(f"{API}/exports/columns")
+        assert r.status_code == 200, r.text
+        data = r.json()
+        assert "columns" in data and "groups" in data
+        cols = data["columns"]
+        assert isinstance(cols, list)
+        assert len(cols) == 29, f"Expected 29 unified columns, got {len(cols)}: {cols}"
+        # Spot-check key columns
+        for must_have in ("ITNr", "Modell", "Status", "Vertrag vorhanden", "Vertrag validiert"):
+            assert must_have in cols, f"Missing column: {must_have}"
+        # Groups structure
+        groups = data["groups"]
+        for key in ("student", "ipad", "contract"):
+            assert key in groups and isinstance(groups[key], list) and groups[key]
+
+    def test_columns_endpoint_requires_auth(self):
+        r = requests.get(f"{API}/exports/columns")
+        assert r.status_code in (401, 403), f"Should require auth, got {r.status_code}"
+
+    def test_inventory_export_with_subset_columns(self, admin_client):
+        r = admin_client.get(
+            f"{API}/exports/inventory",
+            params={"columns": "ITNr,Modell,Status,AnschJahr"},
+        )
+        assert r.status_code == 200, r.text
+        df = pd.read_excel(io.BytesIO(r.content))
+        # Canonical order from EXPORT_COLUMNS preserved
+        expected = ["ITNr", "Modell", "Status", "AnschJahr"]
+        assert list(df.columns) == expected, f"Expected {expected}, got {list(df.columns)}"
+
+    def test_inventory_export_with_unknown_columns_falls_back(self, admin_client):
+        # All unknown → falls back to ALL columns
+        r = admin_client.get(
+            f"{API}/exports/inventory",
+            params={"columns": "DOES_NOT_EXIST,ALSO_BAD"},
+        )
+        assert r.status_code == 200, r.text
+        df = pd.read_excel(io.BytesIO(r.content))
+        assert len(df.columns) == 29, f"Fallback should yield all 29 cols, got {len(df.columns)}"
+
+    def test_inventory_export_ignores_unknown_columns_silently(self, admin_client):
+        r = admin_client.get(
+            f"{API}/exports/inventory",
+            params={"columns": "ITNr,UNKNOWN_COL,Status"},
+        )
+        assert r.status_code == 200, r.text
+        df = pd.read_excel(io.BytesIO(r.content))
+        assert list(df.columns) == ["ITNr", "Status"], f"Unknown should be dropped: {list(df.columns)}"
+
+    def test_assignments_export_with_columns(self, admin_client, seeded_assignment):
+        r = admin_client.get(
+            f"{API}/assignments/export",
+            params={"columns": "SuSVorn,SuSNachn,ITNr"},
+        )
+        assert r.status_code == 200, r.text
+        df = pd.read_excel(io.BytesIO(r.content))
+        assert set(df.columns).issubset({"SuSVorn", "SuSNachn", "ITNr"})
+        # canonical order: SuSNachn before SuSVorn? Let's check EXPORT_COLUMNS order:
+        # student group lists SuSNachn before SuSVorn so canonical order applies.
+        assert list(df.columns) == ["SuSNachn", "SuSVorn", "ITNr"]
+
+    def test_export_selected_with_columns_body(self, admin_client):
+        # Need an assignment for this — use a tiny one
+        st = admin_client.post(
+            f"{API}/students",
+            json={"sus_vorn": f"{TEST_PREFIX}_EC", "sus_nachn": f"{TEST_PREFIX}_EC", "sus_kl": "9z"},
+        ).json()
+        sid = st.get("id") or st.get("student", {}).get("id")
+        ip = admin_client.post(
+            f"{API}/ipads",
+            json={
+                "itnr": f"{TEST_PREFIX}_EC_{uuid.uuid4().hex[:4]}",
+                "snr": f"SN_{uuid.uuid4().hex[:8]}",
+                "typ": "iPad",
+                "status": "in_betrieb",
+            },
+        ).json()
+        iid = ip.get("id") or ip.get("ipad", {}).get("id")
+        r = admin_client.post(f"{API}/assignments/manual", json={"student_id": sid, "ipad_id": iid})
+        aid = r.json().get("assignment_id") or r.json().get("id") or r.json().get("assignment", {}).get("id")
+
+        try:
+            r = admin_client.post(
+                f"{API}/assignments/export-selected",
+                json={"assignment_ids": [aid], "columns": ["ITNr", "Status", "Vertrag vorhanden"]},
+            )
+            assert r.status_code == 200, r.text
+            df = pd.read_excel(io.BytesIO(r.content))
+            assert list(df.columns) == ["ITNr", "Status", "Vertrag vorhanden"], f"Got: {list(df.columns)}"
+        finally:
+            admin_client.delete(f"{API}/assignments/{aid}")
+            admin_client.post(f"{API}/students/batch-delete", json={"student_ids": [sid]})
+            admin_client.delete(f"{API}/ipads/{iid}")
+
+    def test_all_three_exports_have_29_columns_by_default(self, admin_client):
+        """Unified column count check across all 3 exports. Inline seeding to avoid fixture-order issues."""
+        # Seed a fresh assignment inline (class fixture state is unreliable here)
+        st = admin_client.post(
+            f"{API}/students",
+            json={"sus_vorn": f"{TEST_PREFIX}_3X", "sus_nachn": f"{TEST_PREFIX}_3X", "sus_kl": "9z"},
+        ).json()
+        sid = st.get("id") or st.get("student", {}).get("id")
+        ip = admin_client.post(
+            f"{API}/ipads",
+            json={
+                "itnr": f"{TEST_PREFIX}_3X_{uuid.uuid4().hex[:4]}",
+                "snr": f"SN_{uuid.uuid4().hex[:8]}",
+                "typ": "iPad",
+                "status": "in_betrieb",
+            },
+        ).json()
+        iid = ip.get("id") or ip.get("ipad", {}).get("id")
+        ar = admin_client.post(f"{API}/assignments/manual", json={"student_id": sid, "ipad_id": iid})
+        aid = ar.json().get("assignment_id") or ar.json().get("id")
+
+        try:
+            # Sanity: assignment was created and is visible
+            assert ar.status_code in (200, 201), f"manual assignment failed: {ar.status_code} {ar.text}"
+            assert aid, f"No assignment_id returned: {ar.json()}"
+            assigns_now = admin_client.get(f"{API}/assignments").json()
+            assert any(
+                a.get("id") == aid for a in assigns_now
+            ), f"Seeded aid {aid} not in /assignments list (n={len(assigns_now)})"
+            # 1. inventory
+            r = admin_client.get(f"{API}/exports/inventory")
+            df1 = pd.read_excel(io.BytesIO(r.content))
+            assert len(df1.columns) == 29, f"inventory: {len(df1.columns)} cols"
+            # 2. assignments/export
+            r = admin_client.get(f"{API}/assignments/export")
+            df2 = pd.read_excel(io.BytesIO(r.content))
+            assert len(df2.columns) == 29, f"assignments/export: {len(df2.columns)} cols"
+            # 3. assignments/export-selected
+            r = admin_client.post(
+                f"{API}/assignments/export-selected",
+                json={"assignment_ids": [aid]},
+            )
+            df3 = pd.read_excel(io.BytesIO(r.content))
+            assert len(df3.columns) == 29, f"export-selected: {len(df3.columns)} cols"
+            # All three share identical columns
+            assert list(df1.columns) == list(df2.columns) == list(df3.columns)
+        finally:
+            if aid:
+                admin_client.delete(f"{API}/assignments/{aid}")
+            admin_client.post(f"{API}/students/batch-delete", json={"student_ids": [sid]})
+            admin_client.delete(f"{API}/ipads/{iid}")
+
+
+# -------------------- 11b. FIX B: EMPTY-RESULT EXPORTS EMIT CANONICAL HEADERS --------------------
+class TestEmptyExportHeaders:
+    """Session 20 FIX B: empty result sets must still emit canonical headers
+    (default = all 29, or the subset passed via ?columns=)."""
+
+    def test_assignments_export_empty_emits_29_headers(self, admin_client):
+        r = admin_client.get(f"{API}/assignments/export", params={"sus_kl": "NonExistingClass_XYZ_123"})
+        assert r.status_code == 200, r.text
+        df = pd.read_excel(io.BytesIO(r.content))
+        assert len(df.columns) == 29, f"Empty export should have 29 headers, got {len(df.columns)}: {list(df.columns)}"
+        assert len(df) == 0, f"Should be 0 rows, got {len(df)}"
+        for must in ("ITNr", "Modell", "Vertrag vorhanden", "Vertrag validiert"):
+            assert must in df.columns
+
+    def test_assignments_export_empty_with_columns_filter(self, admin_client):
+        r = admin_client.get(
+            f"{API}/assignments/export",
+            params={"sus_kl": "NonExistingClass_XYZ_123", "columns": "ITNr,Modell,Sname"},
+        )
+        assert r.status_code == 200, r.text
+        df = pd.read_excel(io.BytesIO(r.content))
+        # canonical order — Sname comes before ITNr/Modell in EXPORT_COLUMNS
+        assert list(df.columns) == ["Sname", "ITNr", "Modell"], f"Got: {list(df.columns)}"
+        assert len(df) == 0
+
+    def test_export_selected_empty_emits_29_headers(self, admin_client):
+        # /export-selected validates IDs first → returns 404 if NONE are found, which is
+        # a valid product decision. If accepted (200), it MUST emit 29 canonical headers.
+        r = admin_client.post(
+            f"{API}/assignments/export-selected",
+            json={"assignment_ids": ["non-existent-id-xyz-123"]},
+        )
+        assert r.status_code in (200, 404), r.text
+        if r.status_code == 200:
+            df = pd.read_excel(io.BytesIO(r.content))
+            assert len(df.columns) == 29, f"Expected 29 cols, got {len(df.columns)}"
+            assert len(df) == 0
+
+
+# -------------------- 12. CONTRACTS ASSIGN/UNASSIGN/BATCH-DELETE --------------------
+class TestContractRoutes:
+    """Session 18: assign-to-assignment + batch-delete were manually re-added."""
+
+    def test_batch_delete_returns_counts(self, admin_client):
+        # Empty list should still return a structured response
+        r = admin_client.post(f"{API}/contracts/batch-delete", json={"contract_ids": []})
+        assert r.status_code in (200, 400), f"{r.status_code}: {r.text}"
+        if r.status_code == 200:
+            data = r.json()
+            assert "deleted_count" in data, f"Missing deleted_count: {data}"
+            assert "errors" in data, f"Missing errors: {data}"

@@ -839,8 +839,9 @@ async def export_inventory(
                     )
                 )
 
-        # Create DataFrame and export to Excel
-        df = pd.DataFrame(export_data)
+        # Create DataFrame and export to Excel (canonical headers even on empty result)
+        columns_for_df = selected_columns if selected_columns else EXPORT_COLUMNS
+        df = pd.DataFrame(export_data, columns=columns_for_df)
 
         # Create Excel file in memory
         output = io.BytesIO()
@@ -937,10 +938,11 @@ async def export_assignments(
                 )
             )
 
-    # Create Excel file
+    # Create Excel file — ensure canonical headers even when no rows match
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df = pd.DataFrame(export_data)
+        columns_for_df = selected_columns if selected_columns else EXPORT_COLUMNS
+        df = pd.DataFrame(export_data, columns=columns_for_df)
         df.to_excel(writer, sheet_name="Zuordnungen", index=False)
 
     output.seek(0)
@@ -1011,7 +1013,8 @@ async def export_selected_assignments(
     # Create Excel file
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df = pd.DataFrame(export_data)
+        columns_for_df = selected_columns if selected_columns else EXPORT_COLUMNS
+        df = pd.DataFrame(export_data, columns=columns_for_df)
         df.to_excel(writer, sheet_name="Zuordnungen", index=False)
 
     output.seek(0)
