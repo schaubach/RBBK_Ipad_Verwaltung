@@ -4,6 +4,7 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { toast } from 'sonner';
 import { Upload, Download, Shield, Settings as SettingsIcon, User } from 'lucide-react';
 
@@ -18,6 +19,7 @@ const Settings = () => {
   });
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   
   // Account management states
   const [changingPassword, setChangingPassword] = useState(false);
@@ -57,17 +59,24 @@ const Settings = () => {
     }
   };
 
-  const handleInventoryExport = async () => {
+  const handleInventoryExport = async (columns = null) => {
     setExporting(true);
     try {
-      const response = await api.get('/exports/inventory', {
+      const params = new URLSearchParams();
+      if (columns && columns.length > 0) {
+        params.append('columns', columns.join(','));
+      }
+      const queryString = params.toString();
+      const url = queryString ? `/exports/inventory?${queryString}` : '/exports/inventory';
+      
+      const response = await api.get(url, {
         responseType: 'blob'
       });
       
       // Create download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const downloadUrl = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
-      link.href = url;
+      link.href = downloadUrl;
       
       // Extract filename from response headers or create default
       const contentDisposition = response.headers['content-disposition'];
@@ -82,7 +91,7 @@ const Settings = () => {
       link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(link);
       
       toast.success('Datensicherung erfolgreich exportiert');
@@ -92,6 +101,11 @@ const Settings = () => {
     } finally {
       setExporting(false);
     }
+  };
+
+  const handleExportColumnsConfirmed = (columns) => {
+    setExportDialogOpen(false);
+    handleInventoryExport(columns);
   };
 
   const handleInventoryImport = async (file, importToPool = false) => {
@@ -277,9 +291,10 @@ const Settings = () => {
                 iPads wird pro Zuordnung eine Zeile erstellt.
               </p>
               <Button 
-                onClick={handleInventoryExport}
+                onClick={() => setExportDialogOpen(true)}
                 disabled={exporting}
                 className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue transition-all duration-200"
+                data-testid="inventory-export-btn"
               >
                 <Download className="h-4 w-4 mr-2" />
                 {exporting ? 'Exportiert...' : 'Als Excel exportieren'}
@@ -482,6 +497,15 @@ const Settings = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Export-Spalten-Auswahl Dialog (für Datensicherung) */}
+      <ExportColumnsDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        onConfirm={handleExportColumnsConfirmed}
+        title="Spalten für Datensicherung wählen"
+        description="Wähle die Spalten, die in der vollständigen Datensicherung enthalten sein sollen. Die Datensicherung enthält alle Schüler (auch ohne iPad), alle iPads (auch ohne Zuordnung) und alle aktiven Zuordnungen. Deine Auswahl wird für das nächste Mal gespeichert."
+      />
     </div>
   );
 };

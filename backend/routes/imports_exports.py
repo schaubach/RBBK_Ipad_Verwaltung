@@ -103,41 +103,59 @@ def _format_iso_date(iso_value) -> str:
         return ""
 
 
+# Canonical column order used by ALL three Excel-export endpoints.
+# Frontend uses the same list to render the column-selection dialog.
+EXPORT_COLUMNS: List[str] = [
+    # Schüler
+    "Sname", "SuSNachn", "SuSVorn", "SuSKl",
+    "SuSStrHNr", "SuSPLZ", "SuSOrt", "SuSGeb",
+    "Erz1Nachn", "Erz1Vorn", "Erz1StrHNr", "Erz1PLZ", "Erz1Ort",
+    "Erz2Nachn", "Erz2Vorn", "Erz2StrHNr", "Erz2PLZ", "Erz2Ort",
+    # iPad
+    "Pencil", "ITNr", "SNr", "Typ", "Modell", "Status",
+    "AnschJahr", "AusleiheDatum", "Rückgabe",
+    # Vertrag
+    "Vertrag vorhanden", "Vertrag validiert",
+]
+
+
 def _build_assignment_row(
     student: Optional[dict],
     ipad: Optional[dict],
     assignment: Optional[dict],
     contracts_by_id: Dict[str, dict],
     *,
-    mode: str = "assignments",
-    ipad_typ_override: Optional[str] = None,
-    pencil_override: Optional[str] = None,
+    ipad_typ_default: str = "",
+    pencil_default: str = "",
+    selected_columns: Optional[List[str]] = None,
 ) -> dict:
     """Build a single Excel row covering student + iPad + assignment columns.
 
+    All three export endpoints share the SAME canonical column set
+    (`EXPORT_COLUMNS`). The optional ``selected_columns`` argument filters
+    the row down to the user-chosen subset, preserving canonical order.
+
     Args:
         student / ipad / assignment: source documents (any may be ``None``).
-        contracts_by_id: preloaded ``{contract_id: contract_doc}`` lookup table
-            used to compute the "Vertrag vorhanden" / "Vertrag validiert" columns.
-        mode: ``"assignments"`` (default) builds the Zuordnungen layout used by
-            ``/assignments/export`` and ``/assignments/export-selected``;
-            ``"inventory"`` adds ``Status`` + ``Modell`` columns and uses the
-            two override values for ``Pencil`` / ``Typ`` (matches Datensicherung).
-        ipad_typ_override / pencil_override: only consulted in ``inventory`` mode.
+        contracts_by_id: preloaded ``{contract_id: contract_doc}`` lookup
+            for the Vertrag-Spalten.
+        ipad_typ_default / pencil_default: fallback values (from global
+            settings) used when the iPad document itself has no `typ`
+            or `pencil` populated.
+        selected_columns: when given, only those keys are returned.
     """
     contract = None
     if assignment and assignment.get("contract_id"):
         contract = contracts_by_id.get(assignment["contract_id"])
 
-    if mode == "inventory":
-        pencil = pencil_override if ipad else ""
-        typ = ipad_typ_override if ipad else ""
-    else:
-        pencil = ipad.get("pencil", "") if ipad else ""
-        typ = ipad.get("typ", "") if ipad else ""
+    pencil = ""
+    typ = ""
+    if ipad:
+        pencil = ipad.get("pencil") or pencil_default
+        typ = ipad.get("typ") or ipad_typ_default
 
-    row = {
-        # Student data
+    full_row = {
+        # Schüler
         "Sname": student.get("sname", "") if student else "",
         "SuSNachn": student.get("sus_nachn", "") if student else "",
         "SuSVorn": student.get("sus_vorn", "") if student else "",
@@ -156,23 +174,68 @@ def _build_assignment_row(
         "Erz2StrHNr": student.get("erz2_str_hnr", "") if student else "",
         "Erz2PLZ": student.get("erz2_plz", "") if student else "",
         "Erz2Ort": student.get("erz2_ort", "") if student else "",
-        # iPad data
+        # iPad
         "Pencil": pencil,
         "ITNr": ipad.get("itnr", "") if ipad else "",
         "SNr": ipad.get("snr", "") if ipad else "",
         "Typ": typ,
+        "Modell": (ipad.get("modell") or "") if ipad else "",
+        "Status": ipad.get("status", "ok") if ipad else "",
+        "AnschJahr": ipad.get("ansch_jahr", "") if ipad else "",
+        "AusleiheDatum": _format_iso_date(assignment.get("assigned_at")) if assignment else "",
+        "Rückgabe": "",
+        # Vertrag
+        "Vertrag vorhanden": "Ja" if contract else "Nein",
+        "Vertrag validiert": "Ja" if is_contract_validated(contract) else "Nein",
     }
 
-    if mode == "inventory":
-        row["Modell"] = ipad.get("modell") if ipad else ""
-        row["Status"] = ipad.get("status", "ok") if ipad else ""
+    if selected_columns is None:
+        return full_row
+    # Preserve canonical column order while filtering
+    return {col: full_row[col] for col in EXPORT_COLUMNS if col in selected_columns and col in full_row}
 
-    row["AnschJahr"] = ipad.get("ansch_jahr", "") if ipad else ""
-    row["AusleiheDatum"] = _format_iso_date(assignment.get("assigned_at")) if assignment else ""
-    row["Rückgabe"] = ""
-    row["Vertrag vorhanden"] = "Ja" if contract else "Nein"
-    row["Vertrag validiert"] = "Ja" if is_contract_validated(contract) else "Nein"
-    return row
+
+def _parse_columns_param(columns_csv: Optional[str]) -> Optional[List[str]]:
+    """Parse a comma-separated ``columns`` query parameter into a sanitized list.
+
+    Returns ``None`` (= all columns) when the parameter is missing or empty.
+    Unknown column names are silently ignored.
+    """
+    if not columns_csv:
+        return None
+    requested = {c.strip() for c in columns_csv.split(",") if c.strip()}
+    if not requested:
+        return None
+    valid = [c for c in EXPORT_COLUMNS if c in requested]
+    return valid or None
+
+
+# Frontend uses this to render the column-selection dialog without hardcoding
+# the list.  Columns are grouped (student / ipad / contract) for nicer UI.
+EXPORT_COLUMN_GROUPS = {
+    "student": [
+        "Sname", "SuSNachn", "SuSVorn", "SuSKl",
+        "SuSStrHNr", "SuSPLZ", "SuSOrt", "SuSGeb",
+        "Erz1Nachn", "Erz1Vorn", "Erz1StrHNr", "Erz1PLZ", "Erz1Ort",
+        "Erz2Nachn", "Erz2Vorn", "Erz2StrHNr", "Erz2PLZ", "Erz2Ort",
+    ],
+    "ipad": [
+        "Pencil", "ITNr", "SNr", "Typ", "Modell", "Status",
+        "AnschJahr", "AusleiheDatum", "Rückgabe",
+    ],
+    "contract": [
+        "Vertrag vorhanden", "Vertrag validiert",
+    ],
+}
+
+
+@api_router.get("/exports/columns")
+async def get_export_columns(current_user: dict = Depends(get_current_user)):
+    """Return the canonical column list + group structure for the export-columns picker."""
+    return {
+        "columns": EXPORT_COLUMNS,
+        "groups": EXPORT_COLUMN_GROUPS,
+    }
 
 
 @api_router.post("/imports/inventory")
@@ -667,8 +730,17 @@ async def download_import_template(current_user: dict = Depends(get_current_user
 
 @api_router.get("/exports/inventory")
 @limiter.limit("10/minute")  # Stricter limit for exports
-async def export_inventory(request: Request, current_user: dict = Depends(get_current_user)):
-    """Export complete data backup: all students, all iPads, and all assignments (1:n support)"""
+async def export_inventory(
+    request: Request,
+    columns: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Export complete data backup: all students, all iPads, and all assignments (1:n support).
+
+    Optional ``columns`` query parameter is a comma-separated list of column
+    names from EXPORT_COLUMNS. Defaults to all columns when omitted.
+    """
+    selected_columns = _parse_columns_param(columns)
     try:
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
@@ -717,7 +789,8 @@ async def export_inventory(request: Request, current_user: dict = Depends(get_cu
             
             export_data.append(_build_assignment_row(
                 student, ipad, assignment, contracts_by_id,
-                mode="inventory", ipad_typ_override=ipad_typ, pencil_override=pencil,
+                ipad_typ_default=ipad_typ, pencil_default=pencil,
+                selected_columns=selected_columns,
             ))
         
         # 2. Add students WITHOUT any iPad assignment
@@ -725,7 +798,8 @@ async def export_inventory(request: Request, current_user: dict = Depends(get_cu
             if student_id not in students_with_assignments:
                 export_data.append(_build_assignment_row(
                     student, None, None, contracts_by_id,
-                    mode="inventory", ipad_typ_override=ipad_typ, pencil_override=pencil,
+                    ipad_typ_default=ipad_typ, pencil_default=pencil,
+                    selected_columns=selected_columns,
                 ))
         
         # 3. Add iPads WITHOUT any assignment
@@ -733,7 +807,8 @@ async def export_inventory(request: Request, current_user: dict = Depends(get_cu
             if ipad_id not in ipads_with_assignments:
                 export_data.append(_build_assignment_row(
                     None, ipad, None, contracts_by_id,
-                    mode="inventory", ipad_typ_override=ipad_typ, pencil_override=pencil,
+                    ipad_typ_default=ipad_typ, pencil_default=pencil,
+                    selected_columns=selected_columns,
                 ))
         
         # Create DataFrame and export to Excel
@@ -767,11 +842,22 @@ async def export_assignments(
     sus_nachn: Optional[str] = None, 
     sus_kl: Optional[str] = None,
     itnr: Optional[str] = None,
+    columns: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Export assignments to Excel (all or filtered)"""
+    """Export assignments to Excel (all or filtered).
+
+    Optional ``columns`` query param: comma-separated list of column names
+    from EXPORT_COLUMNS. Defaults to all columns when omitted.
+    """
+    selected_columns = _parse_columns_param(columns)
     # Apply user filter - CRITICAL for RBAC!
     user_filter = await get_user_filter(current_user)
+    
+    # Global settings for Pencil/Typ fallback (when iPad has no value of its own)
+    settings = await db.global_settings.find_one({"type": "app_settings"})
+    ipad_typ_default = settings.get("ipad_typ", "Apple iPad") if settings else "Apple iPad"
+    pencil_default = settings.get("pencil", "ohne Apple Pencil") if settings else "ohne Apple Pencil"
     
     # Build filter query for students (with user filter!)
     student_filter = user_filter.copy()
@@ -811,7 +897,11 @@ async def export_assignments(
         student = await db.students.find_one({"id": assignment["student_id"]})
         ipad = await db.ipads.find_one({"id": assignment["ipad_id"]})
         if student and ipad:
-            export_data.append(_build_assignment_row(student, ipad, assignment, contracts_by_id))
+            export_data.append(_build_assignment_row(
+                student, ipad, assignment, contracts_by_id,
+                ipad_typ_default=ipad_typ_default, pencil_default=pencil_default,
+                selected_columns=selected_columns,
+            ))
     
     # Create Excel file
     output = io.BytesIO()
@@ -830,6 +920,7 @@ async def export_assignments(
 
 class ExportSelectedRequest(BaseModel):
     assignment_ids: List[str]
+    columns: Optional[List[str]] = None
 
 
 @api_router.post("/assignments/export-selected")
@@ -839,12 +930,18 @@ async def export_selected_assignments(
     body: ExportSelectedRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Export selected assignments to Excel (by checkbox selection)"""
+    """Export selected assignments to Excel (by checkbox selection)."""
     if not body.assignment_ids:
         raise HTTPException(status_code=400, detail="Keine Zuordnungen ausgewählt")
     
+    selected_columns = _parse_columns_param(",".join(body.columns)) if body.columns else None
     # Apply user filter - CRITICAL for RBAC!
     user_filter = await get_user_filter(current_user)
+    
+    # Global settings for Pencil/Typ fallback
+    settings = await db.global_settings.find_one({"type": "app_settings"})
+    ipad_typ_default = settings.get("ipad_typ", "Apple iPad") if settings else "Apple iPad"
+    pencil_default = settings.get("pencil", "ohne Apple Pencil") if settings else "ohne Apple Pencil"
     
     # Get selected assignments (respecting user filter)
     assignments = await db.assignments.find({
@@ -869,7 +966,11 @@ async def export_selected_assignments(
         student = await db.students.find_one({"id": assignment["student_id"], **user_filter})
         ipad = await db.ipads.find_one({"id": assignment["ipad_id"], **user_filter})
         if student and ipad:
-            export_data.append(_build_assignment_row(student, ipad, assignment, contracts_by_id))
+            export_data.append(_build_assignment_row(
+                student, ipad, assignment, contracts_by_id,
+                ipad_typ_default=ipad_typ_default, pencil_default=pencil_default,
+                selected_columns=selected_columns,
+            ))
     
     # Create Excel file
     output = io.BytesIO()

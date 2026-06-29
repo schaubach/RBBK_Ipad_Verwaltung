@@ -262,3 +262,38 @@ Getestet via curl mit echtem User-Token: alle RBAC-Checks bestanden ✅
 - ✅ Frontend Screenshot-Verifikation (Pool-Filter aktiv → 20 Pool-iPads → Single-Dialog & Bulk-Dialog öffnen sich korrekt mit User-Liste)
 - ✅ Race-Condition-sicher durch atomares `find_one_and_update`
 - ✅ Non-Admin-Zugriff geblockt (HTTP 403)
+
+---
+
+## Session 18 (29.06.2026) — Einheitliche Export-Spalten + Spaltenauswahl-Dialog ✅
+
+**Feature:** Alle 3 Excel-Exports liefern jetzt das gleiche Spalten-Set (29 Spalten). Vor jedem Download öffnet sich ein Dialog mit Checkboxen, in dem der User auswählen kann, welche Spalten er exportieren möchte.
+
+**Backend (`routes/imports_exports.py`):**
+- Neue Konstante `EXPORT_COLUMNS` mit 29 Spalten in kanonischer Reihenfolge
+- `EXPORT_COLUMN_GROUPS` mit 3 Gruppen: `student` (18), `ipad` (9), `contract` (2)
+- `_build_assignment_row(...)` vereinheitlicht — kein `mode`-Param mehr. Fallback `ipad.get('pencil') or pencil_default` zieht globale Settings nur dann heran, wenn das iPad selbst nichts gesetzt hat. Filtert auf `selected_columns` wenn angegeben (canonical order bleibt erhalten).
+- `_parse_columns_param()` validiert Komma-Liste, ignoriert unbekannte Spalten still
+- NEU `GET /api/exports/columns` liefert `{columns: [...], groups: {...}}` als Single Source of Truth fürs Frontend
+- Alle 3 Export-Endpoints akzeptieren jetzt `columns` (Query-Param bei GET, Body-Field bei POST `ExportSelectedRequest.columns`)
+
+**Frontend:**
+- Neue Komponente `components/shared/ExportColumnsDialog.jsx` (reusable AlertDialog mit Checkboxen, Gruppen-Header, Alle/Keine-Buttons, Live-Count, indeterminate-State für Teil-Auswahl)
+- LocalStorage-Persistenz unter Key `exportColumnsPreferences` — beim nächsten Mal vorausgewählt
+- Default beim Erstaufruf = alle 29 Spalten aktiv
+- Integriert in:
+  - `Settings.jsx` (Datensicherung-Button)
+  - `AssignmentsManagement.jsx` (3 Trigger: "Alle exportieren", "Gefilterte exportieren", "Ausgewählte exportieren")
+- Titel-Text passt sich kontextabhängig an (vollständig / gefiltert / ausgewählt / Datensicherung)
+
+**Funktionaler Unterschied der 3 Exports (bewusst beibehalten):**
+- `/exports/inventory` exportiert ALLE iPads inkl. orphans + Schüler ohne iPad
+- `/assignments/export` und `/export-selected` exportieren NUR aktive Zuordnungen
+
+**Verifiziert via Screenshots + curl:**
+- ✅ Dialog rendert mit 29 Spalten in 3 Gruppen, Live-Count "29 von 29"/"18 von 29" etc. funktioniert
+- ✅ Alle/Keine + Gruppen-Toggle korrekt
+- ✅ `GET /exports/inventory?columns=ITNr,Modell,Status,AnschJahr` → Excel mit nur diesen 4 Spalten, 42 Zeilen
+- ✅ `GET /exports/columns` liefert Spec für Frontend
+- ✅ LocalStorage-Persistenz tab-übergreifend (Settings → Zuordnungen behält Auswahl)
+

@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
+import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { toast } from 'sonner';
 import { FileText, Download, Trash2, Upload, ExternalLink, Eye, X, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react';
 
@@ -28,6 +29,8 @@ const AssignmentsManagement = () => {
   const [selectedContractId, setSelectedContractId] = useState(null);
   const [uploadingContractForAssignment, setUploadingContractForAssignment] = useState(null);
   const [importing, setImporting] = useState(false);
+  // Export-columns dialog state: { open, mode: 'all'|'filtered'|'selected' }
+  const [exportDialog, setExportDialog] = useState({ open: false, mode: 'all' });
   
   // Filter states
   const [vornameFilter, setVornameFilter] = useState('');
@@ -400,7 +403,7 @@ const AssignmentsManagement = () => {
     }
   };
 
-  const handleExport = async (filtered = false) => {
+  const handleExport = async (filtered = false, columns = null) => {
     setExporting(true);
     try {
       // Build query parameters for filtered export
@@ -410,6 +413,9 @@ const AssignmentsManagement = () => {
         if (nachnameFilter) params.append('sus_nachn', nachnameFilter);
         if (klasseFilter) params.append('sus_kl', klasseFilter);
         if (itnrFilter) params.append('itnr', itnrFilter);
+      }
+      if (columns && columns.length > 0) {
+        params.append('columns', columns.join(','));
       }
       
       const queryString = params.toString();
@@ -446,7 +452,7 @@ const AssignmentsManagement = () => {
   };
 
   // Export selected assignments (by checkbox)
-  const handleExportSelected = async () => {
+  const handleExportSelected = async (columns = null) => {
     if (selectedAssignments.length === 0) {
       toast.error('Keine Zuordnungen ausgewählt');
       return;
@@ -454,9 +460,9 @@ const AssignmentsManagement = () => {
     
     setExporting(true);
     try {
-      const response = await api.post('/assignments/export-selected', {
-        assignment_ids: selectedAssignments
-      }, {
+      const payload = { assignment_ids: selectedAssignments };
+      if (columns && columns.length > 0) payload.columns = columns;
+      const response = await api.post('/assignments/export-selected', payload, {
         responseType: 'blob'
       });
       
@@ -480,6 +486,25 @@ const AssignmentsManagement = () => {
       console.error('Export error:', error);
     } finally {
       setExporting(false);
+    }
+  };
+
+  // Open the column-picker dialog. The dialog then calls handleColumnsConfirmed.
+  const openExportDialog = (mode) => {
+    if (mode === 'selected' && selectedAssignments.length === 0) {
+      toast.error('Keine Zuordnungen ausgewählt');
+      return;
+    }
+    setExportDialog({ open: true, mode });
+  };
+
+  const handleColumnsConfirmed = (columns) => {
+    const { mode } = exportDialog;
+    setExportDialog({ open: false, mode });
+    if (mode === 'selected') {
+      handleExportSelected(columns);
+    } else {
+      handleExport(mode === 'filtered', columns);
     }
   };
 
@@ -608,7 +633,7 @@ const AssignmentsManagement = () => {
             {/* Alle Zuordnungen Buttons */}
             <div className="flex flex-wrap gap-2">
               <Button 
-                onClick={() => handleExport(false)}
+                onClick={() => openExportDialog('all')}
                 disabled={exporting}
                 className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
               >
@@ -630,7 +655,7 @@ const AssignmentsManagement = () => {
             {(vornameFilter || nachnameFilter || klasseFilter || itnrFilter) && filteredAssignments.length > 0 && (
               <div className="flex flex-wrap gap-2 pl-4 border-l-4 border-blue-300">
                 <Button 
-                  onClick={() => handleExport(true)}
+                  onClick={() => openExportDialog('filtered')}
                   disabled={exporting}
                   className="bg-gradient-to-r from-ipad-blue to-ipad-dark-blue hover:from-ipad-dark-blue hover:to-ipad-dark-gray"
                 >
@@ -653,7 +678,7 @@ const AssignmentsManagement = () => {
             {selectedAssignments.length > 0 && (
               <div className="flex flex-wrap gap-2 pl-4 border-l-4 border-green-300">
                 <Button 
-                  onClick={() => handleExportSelected()}
+                  onClick={() => openExportDialog('selected')}
                   disabled={exporting}
                   className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
                 >
@@ -1007,6 +1032,20 @@ const AssignmentsManagement = () => {
           onUpdate={loadAllData}
         />
       )}
+
+      {/* Export-Spalten-Auswahl Dialog */}
+      <ExportColumnsDialog
+        open={exportDialog.open}
+        onOpenChange={(open) => setExportDialog(prev => ({ ...prev, open }))}
+        onConfirm={handleColumnsConfirmed}
+        title={
+          exportDialog.mode === 'selected'
+            ? `Spalten für ${selectedAssignments.length} ausgewählte Zuordnung(en) wählen`
+            : exportDialog.mode === 'filtered'
+              ? 'Spalten für gefilterten Export wählen'
+              : 'Spalten für vollständigen Export wählen'
+        }
+      />
 
     </div>
   );
