@@ -1,0 +1,73 @@
+{
+  "summary": "Full backend regression of the modular-router refactor (server.py 4331→68 lines, 10 route modules under /app/backend/routes/). Built /app/backend/tests/test_refactor_regression.py covering all 59 endpoints across auth, iPads/Pool, students, assignments, contracts, imports/exports (incl. NEW 'Vertrag vorhanden'/'Vertrag validiert' columns), settings, admin users, data-protection, and RBAC. Result: 24/25 PASSED, 1 FAILED — one real security regression: /api/data-protection/cleanup-old-data is no longer admin-only.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/data-protection/cleanup-old-data",
+        "issue": "Missing require_admin(current_user) call. Module imports require_admin but never invokes it, so ANY authenticated standard user can purge data older than 5 years. This is a RBAC regression from the refactor — before refactor the legacy server.py enforced admin role.",
+        "priority": "CRITICAL",
+        "file": "/app/backend/routes/data_protection.py:62",
+        "fix": "Add `require_admin(current_user)` as first line of cleanup_old_data() (same pattern used in admin_users.py:113, 138, 188, 233, 302)."
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "PUT /api/ipads/{ipad_id}/status",
+        "issue": "Accepts `status` as a query parameter instead of JSON body. Inconsistent with all other PUT endpoints in the codebase which use Pydantic body models. Frontend / API consumers may pass it in body and silently fail with 422.",
+        "priority": "MEDIUM",
+        "file": "/app/backend/routes/ipads.py:378"
+      },
+      {
+        "endpoint": "POST /api/auth/login",
+        "issue": "Rate-limit is 5/min per IP. When tests run sequentially, repeated logins exhaust the budget within a single test run. Consider adding `Retry-After` header (already standard with slowapi) and documenting the limit in test_credentials.md (added).",
+        "priority": "LOW"
+      },
+      {
+        "endpoint": "Refactor leftover",
+        "issue": "require_admin is imported but unused in routes/data_protection.py — Ruff/flake8 would flag this. A lint pass on the routes/ package would catch the security gap above automatically.",
+        "priority": "MEDIUM"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_refactor_regression.py",
+    "/app/test_reports/pytest/refactor_regression.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Add `require_admin(current_user)` to /api/data-protection/cleanup-old-data in routes/data_protection.py line 62 (function body)",
+    "Normalize PUT /api/ipads/{ipad_id}/status to accept JSON body (Pydantic model) instead of query parameter",
+    "Run `ruff check backend/routes/` to catch unused imports (would have detected the security regression)",
+    "Ensure libmagic1 stays installed in pod recovery (already in Dockerfile per iteration_4 notes)"
+  ],
+  "critical_code_review_comments": [
+    "Refactor is structurally clean: server.py is now a 68-line entry-point, 10 route modules + 7 core + 5 model files, single shared api_router with /api prefix. All 59 endpoints respond. Good split.",
+    "SECURITY REGRESSION: routes/data_protection.py imports require_admin but never calls it on the only endpoint in the module — silently downgraded from admin-only to authenticated-only. This kind of bug is exactly what static lint (unused import) would catch; recommend adding ruff/flake8 to pre-commit.",
+    "PUT /ipads/{id}/status uses a bare query parameter `status: str` while every sibling endpoint uses Pydantic body models. Standardize.",
+    "/auth/me cookie auth gap from iteration_4 was NOT in scope this round but appears unchanged — get_current_user still reads only Authorization header (verified by grepping). Page reload with HttpOnly cookie still fails until frontend re-sends Bearer.",
+    "Refactor split is shy of guidance for individual modules: routes/imports_exports.py is large (~970 lines, 3 export endpoints with duplicated header/contract-lookup logic). Extract shared 'build_assignment_row(contract_lookup, ...)' helper to DRY-up the 3 export builders.",
+    "core/router.py global singleton pattern works but makes import-order matter: server.py must import the route modules AFTER importing api_router or routes vanish. A `routes/__init__.py` could explicitly assemble the modules so server.py imports are explicit."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_refactor_regression.py",
+    "/app/memory/test_credentials.md"
+  ],
+  "success_rate": {
+    "backend": "96% (24/25 passed, 1 failed = real security bug)",
+    "frontend": "not tested (backend-only requested)"
+  },
+  "test_credentials": {
+    "admin_username": "admin",
+    "admin_password": "admin123",
+    "test_user_pattern": "TEST_RF_<6hex>_user with password Pass1234! — created+deleted per session"
+  },
+  "seed_data_creation": "All test artifacts prefixed TEST_RF_<6hex> (iPads, students, users) and cleaned up via session-scope teardown using /admin/users/{id}/complete + /students/batch-delete + DELETE /ipads/{id}.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 59 endpoints are wired and respond after the refactor — verified via direct CRUD assertions, not just route-existence. NEW Excel columns 'Vertrag vorhanden' and 'Vertrag validiert' confirmed present in all 3 export endpoints: GET /assignments/export (full + filtered), POST /assignments/export-selected, GET /exports/inventory. Pool lifecycle (create+claim+release+bulk-claim+admin-assign-to-user+403-for-non-admin) all green. Rate-limit 5/min is functional. The single critical finding is the missing require_admin call in routes/data_protection.py line 62. Test suite at /app/backend/tests/test_refactor_regression.py is fully reusable; junit XML at /app/test_reports/pytest/refactor_regression.xml. Note: login rate-limit (5/min) is hit when running back-to-back, _login() helper retries with 8s × 20 to cover that.",
+  "rca_of_the_issue": "Cleanup-old-data RBAC bug: During refactor of monolithic server.py the cleanup_old_data() handler in routes/data_protection.py was moved with its `Depends(get_current_user)` dependency intact, but the inline `if current_user.role != 'admin': raise 403` (or require_admin call) was dropped. The import statement at top of file still pulls in `require_admin`, which is a tell-tale sign the call was meant to be there. Reproduction: login as standard user → POST /api/data-protection/cleanup-old-data → expect 403, got 200. Fix: add `require_admin(current_user)` at top of the function body, identical pattern to admin_users.py."
+}
