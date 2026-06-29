@@ -357,7 +357,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
   const handleStatusChange = async (ipadId, newStatus) => {
     try {
-      const response = await api.put(`/ipads/${ipadId}/status?status=${newStatus}`);
+      const response = await api.put(`/ipads/${ipadId}/status`, { status: newStatus });
       toast.success(response.data.message);
       await loadIPads();
     } catch (error) {

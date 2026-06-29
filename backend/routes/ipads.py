@@ -374,15 +374,20 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
 # Student management endpoints
 
 
+class IPadStatusUpdate(BaseModel):
+    status: str
+
+
 @api_router.put("/ipads/{ipad_id}/status")
-async def update_ipad_status(ipad_id: str, status: str, current_user: dict = Depends(get_current_user)):
+async def update_ipad_status(ipad_id: str, payload: IPadStatusUpdate, current_user: dict = Depends(get_current_user)):
     """
     Update iPad physical status (ok, defekt, gestohlen).
     Status indicates the physical condition, not assignment state.
     Assignment state is managed separately via current_assignment_id.
     """
+    status_value = payload.status
     valid_statuses = ["ok", "defekt", "gestohlen"]
-    if status not in valid_statuses:
+    if status_value not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
     
     # Get the iPad first
@@ -391,15 +396,15 @@ async def update_ipad_status(ipad_id: str, status: str, current_user: dict = Dep
         raise HTTPException(status_code=404, detail="iPad not found")
     
     # Update iPad status (does not affect assignment)
-    result = await db.ipads.update_one(
+    await db.ipads.update_one(
         {"id": ipad_id},
         {"$set": {
-            "status": status,
+            "status": status_value,
             "updated_at": datetime.now(timezone.utc).isoformat()
         }}
     )
     
-    return {"message": f"iPad status updated to {status}"}
+    return {"message": f"iPad status updated to {status_value}"}
 
 
 class IPadUpdateRequest(BaseModel):
