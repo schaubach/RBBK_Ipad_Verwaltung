@@ -58,6 +58,123 @@ from models.user import (
     UserUpdate,
 )
 
+
+# ---------------------------------------------------------------------------
+# Shared export helpers (used by all 3 Excel-export endpoints)
+# ---------------------------------------------------------------------------
+
+def _format_birthday(geb_value) -> str:
+    """Normalize a student birthday value to ``DD.MM.YYYY`` (or '' if unparsable)."""
+    if not geb_value:
+        return ""
+    try:
+        geb_str = str(geb_value).strip()
+        if not geb_str or geb_str.lower() == "nan":
+            return ""
+        if "." in geb_str:
+            parts = geb_str.split(".")
+            if len(parts) == 3:
+                day, month, year = parts
+                return datetime(int(year), int(month), int(day)).strftime("%d.%m.%Y")
+            return geb_str
+        if "-" in geb_str:
+            if " " in geb_str:
+                geb_str = geb_str.split(" ")[0]
+            return datetime.strptime(geb_str, "%Y-%m-%d").strftime("%d.%m.%Y")
+        if len(geb_str) == 8 and geb_str.isdigit():
+            return datetime.strptime(geb_str, "%Y%m%d").strftime("%d.%m.%Y")
+        if "/" in geb_str:
+            parts = geb_str.split("/")
+            if len(parts) == 3:
+                day, month, year = parts
+                return datetime(int(year), int(month), int(day)).strftime("%d.%m.%Y")
+        return geb_str
+    except Exception:
+        return str(geb_value)
+
+
+def _format_iso_date(iso_value) -> str:
+    """Return ``DD.MM.YYYY`` for an ISO-8601 timestamp (or '' on failure)."""
+    if not iso_value:
+        return ""
+    try:
+        return datetime.fromisoformat(str(iso_value).replace("Z", "+00:00")).strftime("%d.%m.%Y")
+    except Exception:
+        return ""
+
+
+def _build_assignment_row(
+    student: Optional[dict],
+    ipad: Optional[dict],
+    assignment: Optional[dict],
+    contracts_by_id: Dict[str, dict],
+    *,
+    mode: str = "assignments",
+    ipad_typ_override: Optional[str] = None,
+    pencil_override: Optional[str] = None,
+) -> dict:
+    """Build a single Excel row covering student + iPad + assignment columns.
+
+    Args:
+        student / ipad / assignment: source documents (any may be ``None``).
+        contracts_by_id: preloaded ``{contract_id: contract_doc}`` lookup table
+            used to compute the "Vertrag vorhanden" / "Vertrag validiert" columns.
+        mode: ``"assignments"`` (default) builds the Zuordnungen layout used by
+            ``/assignments/export`` and ``/assignments/export-selected``;
+            ``"inventory"`` adds ``Status`` + ``Modell`` columns and uses the
+            two override values for ``Pencil`` / ``Typ`` (matches Datensicherung).
+        ipad_typ_override / pencil_override: only consulted in ``inventory`` mode.
+    """
+    contract = None
+    if assignment and assignment.get("contract_id"):
+        contract = contracts_by_id.get(assignment["contract_id"])
+
+    if mode == "inventory":
+        pencil = pencil_override if ipad else ""
+        typ = ipad_typ_override if ipad else ""
+    else:
+        pencil = ipad.get("pencil", "") if ipad else ""
+        typ = ipad.get("typ", "") if ipad else ""
+
+    row = {
+        # Student data
+        "Sname": student.get("sname", "") if student else "",
+        "SuSNachn": student.get("sus_nachn", "") if student else "",
+        "SuSVorn": student.get("sus_vorn", "") if student else "",
+        "SuSKl": student.get("sus_kl", "") if student else "",
+        "SuSStrHNr": student.get("sus_str_hnr", "") if student else "",
+        "SuSPLZ": student.get("sus_plz", "") if student else "",
+        "SuSOrt": student.get("sus_ort", "") if student else "",
+        "SuSGeb": _format_birthday(student.get("sus_geb")) if student else "",
+        "Erz1Nachn": student.get("erz1_nachn", "") if student else "",
+        "Erz1Vorn": student.get("erz1_vorn", "") if student else "",
+        "Erz1StrHNr": student.get("erz1_str_hnr", "") if student else "",
+        "Erz1PLZ": student.get("erz1_plz", "") if student else "",
+        "Erz1Ort": student.get("erz1_ort", "") if student else "",
+        "Erz2Nachn": student.get("erz2_nachn", "") if student else "",
+        "Erz2Vorn": student.get("erz2_vorn", "") if student else "",
+        "Erz2StrHNr": student.get("erz2_str_hnr", "") if student else "",
+        "Erz2PLZ": student.get("erz2_plz", "") if student else "",
+        "Erz2Ort": student.get("erz2_ort", "") if student else "",
+        # iPad data
+        "Pencil": pencil,
+        "ITNr": ipad.get("itnr", "") if ipad else "",
+        "SNr": ipad.get("snr", "") if ipad else "",
+        "Typ": typ,
+    }
+
+    if mode == "inventory":
+        row["Modell"] = ipad.get("modell") if ipad else ""
+        row["Status"] = ipad.get("status", "ok") if ipad else ""
+
+    row["AnschJahr"] = ipad.get("ansch_jahr", "") if ipad else ""
+    row["AusleiheDatum"] = _format_iso_date(assignment.get("assigned_at")) if assignment else ""
+    row["Rückgabe"] = ""
+    row["Vertrag vorhanden"] = "Ja" if contract else "Nein"
+    row["Vertrag validiert"] = "Ja" if is_contract_validated(contract) else "Nein"
+    return row
+
+
 @api_router.post("/imports/inventory")
 async def import_inventory(
     file: UploadFile = File(...),
@@ -585,91 +702,6 @@ async def export_inventory(request: Request, current_user: dict = Depends(get_cu
         
         export_data = []
         
-        # Helper function to format birthday
-        def format_birthday(student):
-            if not student or not student.get("sus_geb"):
-                return ""
-            try:
-                geb_str = str(student["sus_geb"]).strip()
-                if not geb_str or geb_str.lower() == 'nan':
-                    return ""
-                if "." in geb_str:
-                    parts = geb_str.split(".")
-                    if len(parts) == 3:
-                        day, month, year = parts
-                        date_obj = datetime(int(year), int(month), int(day))
-                        return date_obj.strftime("%d.%m.%Y")
-                    return geb_str
-                elif "-" in geb_str:
-                    if " " in geb_str:
-                        geb_str = geb_str.split(" ")[0]
-                    date_obj = datetime.strptime(geb_str, "%Y-%m-%d")
-                    return date_obj.strftime("%d.%m.%Y")
-                elif len(geb_str) == 8 and geb_str.isdigit():
-                    date_obj = datetime.strptime(geb_str, "%Y%m%d")
-                    return date_obj.strftime("%d.%m.%Y")
-                elif "/" in geb_str:
-                    parts = geb_str.split("/")
-                    if len(parts) == 3:
-                        day, month, year = parts
-                        date_obj = datetime(int(year), int(month), int(day))
-                        return date_obj.strftime("%d.%m.%Y")
-                return geb_str
-            except:
-                return student.get("sus_geb", "") if student else ""
-        
-        # Helper function to create a row
-        def create_row(student, ipad, assignment):
-            ausleibe_datum = ""
-            if assignment and assignment.get("assigned_at"):
-                try:
-                    assigned_date = datetime.fromisoformat(assignment["assigned_at"].replace('Z', '+00:00'))
-                    ausleibe_datum = assigned_date.strftime("%d.%m.%Y")
-                except:
-                    pass
-            
-            # Determine contract status for this assignment
-            contract = None
-            if assignment and assignment.get("contract_id"):
-                contract = contracts_by_id.get(assignment["contract_id"])
-            vertrag_vorhanden = "Ja" if contract else "Nein"
-            vertrag_validiert = "Ja" if is_contract_validated(contract) else "Nein"
-            
-            return {
-                # Student data
-                "Sname": student.get("sname", "") if student else "",
-                "SuSNachn": student.get("sus_nachn", "") if student else "",
-                "SuSVorn": student.get("sus_vorn", "") if student else "",
-                "SuSKl": student.get("sus_kl", "") if student else "",
-                "SuSStrHNr": student.get("sus_str_hnr", "") if student else "",
-                "SuSPLZ": student.get("sus_plz", "") if student else "",
-                "SuSOrt": student.get("sus_ort", "") if student else "",
-                "SuSGeb": format_birthday(student),
-                "Erz1Nachn": student.get("erz1_nachn", "") if student else "",
-                "Erz1Vorn": student.get("erz1_vorn", "") if student else "",
-                "Erz1StrHNr": student.get("erz1_str_hnr", "") if student else "",
-                "Erz1PLZ": student.get("erz1_plz", "") if student else "",
-                "Erz1Ort": student.get("erz1_ort", "") if student else "",
-                "Erz2Nachn": student.get("erz2_nachn", "") if student else "",
-                "Erz2Vorn": student.get("erz2_vorn", "") if student else "",
-                "Erz2StrHNr": student.get("erz2_str_hnr", "") if student else "",
-                "Erz2PLZ": student.get("erz2_plz", "") if student else "",
-                "Erz2Ort": student.get("erz2_ort", "") if student else "",
-                
-                # iPad data
-                "Pencil": pencil if ipad else "",
-                "ITNr": ipad.get("itnr", "") if ipad else "",
-                "SNr": ipad.get("snr", "") if ipad else "",
-                "Typ": ipad_typ if ipad else "",
-                "Modell": ipad.get("modell") if ipad else "",
-                "Status": ipad.get("status", "ok") if ipad else "",
-                "AnschJahr": ipad.get("ansch_jahr", "") if ipad else "",
-                "AusleiheDatum": ausleibe_datum,
-                "Rückgabe": "",
-                "Vertrag vorhanden": vertrag_vorhanden,
-                "Vertrag validiert": vertrag_validiert
-            }
-        
         # 1. Process all assignments (creates rows for students WITH iPads - respects 1:n)
         for assignment in all_assignments:
             student_id = assignment.get("student_id")
@@ -683,18 +715,26 @@ async def export_inventory(request: Request, current_user: dict = Depends(get_cu
             if ipad:
                 ipads_with_assignments.add(ipad_id)
             
-            # Add row for this assignment (even if student or iPad was deleted)
-            export_data.append(create_row(student, ipad, assignment))
+            export_data.append(_build_assignment_row(
+                student, ipad, assignment, contracts_by_id,
+                mode="inventory", ipad_typ_override=ipad_typ, pencil_override=pencil,
+            ))
         
         # 2. Add students WITHOUT any iPad assignment
         for student_id, student in students_by_id.items():
             if student_id not in students_with_assignments:
-                export_data.append(create_row(student, None, None))
+                export_data.append(_build_assignment_row(
+                    student, None, None, contracts_by_id,
+                    mode="inventory", ipad_typ_override=ipad_typ, pencil_override=pencil,
+                ))
         
         # 3. Add iPads WITHOUT any assignment
         for ipad_id, ipad in ipads_by_id.items():
             if ipad_id not in ipads_with_assignments:
-                export_data.append(create_row(None, ipad, None))
+                export_data.append(_build_assignment_row(
+                    None, ipad, None, contracts_by_id,
+                    mode="inventory", ipad_typ_override=ipad_typ, pencil_override=pencil,
+                ))
         
         # Create DataFrame and export to Excel
         df = pd.DataFrame(export_data)
@@ -759,109 +799,19 @@ async def export_assignments(
     # Get assignments matching all filters (filtered by user_id!)
     assignments = await db.assignments.find(assignment_filter).to_list(length=None)
     
+    # Preload contracts for the assignment set (for Vertrag-Spalten)
+    contract_ids = [a.get("contract_id") for a in assignments if a.get("contract_id")]
+    contracts_by_id = {}
+    if contract_ids:
+        contracts = await db.contracts.find({"id": {"$in": contract_ids}}).to_list(length=None)
+        contracts_by_id = {c["id"]: c for c in contracts}
+    
     export_data = []
     for assignment in assignments:
-        # Get student data
         student = await db.students.find_one({"id": assignment["student_id"]})
-        # Get iPad data
         ipad = await db.ipads.find_one({"id": assignment["ipad_id"]})
-        # Get contract (if any)
-        contract = None
-        if assignment.get("contract_id"):
-            contract = await db.contracts.find_one({"id": assignment["contract_id"]})
-        vertrag_vorhanden = "Ja" if contract else "Nein"
-        vertrag_validiert = "Ja" if is_contract_validated(contract) else "Nein"
-        
         if student and ipad:
-            # Format Geburtstag to DD.MM.YYYY (with leading zeros!)
-            geburtstag_formatted = ""
-            if student.get("sus_geb"):
-                try:
-                    geb_str = str(student["sus_geb"]).strip()
-                    
-                    # Skip if empty or 'nan'
-                    if not geb_str or geb_str.lower() == 'nan':
-                        geburtstag_formatted = ""
-                    # Already in DD.MM.YYYY format - ensure leading zeros
-                    elif "." in geb_str:
-                        parts = geb_str.split(".")
-                        if len(parts) == 3:
-                            try:
-                                day, month, year = parts
-                                # Parse and reformat with leading zeros
-                                date_obj = datetime(int(year), int(month), int(day))
-                                geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
-                            except:
-                                geburtstag_formatted = geb_str
-                    # ISO format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
-                    elif "-" in geb_str:
-                        # Remove time part if present
-                        if " " in geb_str:
-                            geb_str = geb_str.split(" ")[0]
-                        date_obj = datetime.strptime(geb_str, "%Y-%m-%d")
-                        geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
-                    # Compact format: YYYYMMDD
-                    elif len(geb_str) == 8 and geb_str.isdigit():
-                        date_obj = datetime.strptime(geb_str, "%Y%m%d")
-                        geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
-                    # Try parsing as DD/MM/YYYY
-                    elif "/" in geb_str:
-                        parts = geb_str.split("/")
-                        if len(parts) == 3:
-                            day, month, year = parts
-                            date_obj = datetime(int(year), int(month), int(day))
-                            geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
-                    else:
-                        # Unknown format, keep as is
-                        geburtstag_formatted = geb_str
-                except Exception as e:
-                    # If all parsing fails, keep original or empty
-                    geburtstag_formatted = student.get("sus_geb", "")
-            
-            # Format AusleiheDatum from assignment assigned_at
-            ausleihe_datum_formatted = ""
-            if assignment.get("assigned_at"):
-                try:
-                    # Parse ISO format datetime and convert to DD.MM.YYYY
-                    assigned_date = datetime.fromisoformat(assignment["assigned_at"].replace('Z', '+00:00'))
-                    ausleihe_datum_formatted = assigned_date.strftime("%d.%m.%Y")
-                except:
-                    ausleihe_datum_formatted = ""
-            
-            # Combine data in EXACT same order as Bestandsliste export
-            row_data = {
-                # Student data first (matching Bestandsliste order exactly)
-                "Sname": student.get("sname", ""),
-                "SuSNachn": student.get("sus_nachn", ""),
-                "SuSVorn": student.get("sus_vorn", ""),
-                "SuSKl": student.get("sus_kl", ""),
-                "SuSStrHNr": student.get("sus_str_hnr", ""),
-                "SuSPLZ": student.get("sus_plz", ""),
-                "SuSOrt": student.get("sus_ort", ""),
-                "SuSGeb": geburtstag_formatted,  # Formatted to TT.MM.JJJJ
-                "Erz1Nachn": student.get("erz1_nachn", ""),
-                "Erz1Vorn": student.get("erz1_vorn", ""),
-                "Erz1StrHNr": student.get("erz1_str_hnr", ""),
-                "Erz1PLZ": student.get("erz1_plz", ""),
-                "Erz1Ort": student.get("erz1_ort", ""),
-                "Erz2Nachn": student.get("erz2_nachn", ""),
-                "Erz2Vorn": student.get("erz2_vorn", ""),
-                "Erz2StrHNr": student.get("erz2_str_hnr", ""),
-                "Erz2PLZ": student.get("erz2_plz", ""),
-                "Erz2Ort": student.get("erz2_ort", ""),
-                # iPad data in EXACT same order as Bestandsliste export
-                "Pencil": ipad.get("pencil", ""),
-                "ITNr": ipad.get("itnr", ""),
-                "SNr": ipad.get("snr", ""),
-                "Typ": ipad.get("typ", ""),
-                "AnschJahr": ipad.get("ansch_jahr", ""),
-                "AusleiheDatum": ausleihe_datum_formatted,  # From assigned_at, formatted to TT.MM.JJJJ
-                "Rückgabe": "",  # Empty as in Bestandsliste export
-                "Vertrag vorhanden": vertrag_vorhanden,
-                "Vertrag validiert": vertrag_validiert
-                # REMOVED: "Zugewiesen_am" and "Vertrag_vorhanden" as requested
-            }
-            export_data.append(row_data)
+            export_data.append(_build_assignment_row(student, ipad, assignment, contracts_by_id))
     
     # Create Excel file
     output = io.BytesIO()
@@ -906,71 +856,20 @@ async def export_selected_assignments(
     if not assignments:
         raise HTTPException(status_code=404, detail="Keine gültigen Zuordnungen gefunden")
     
+    # Preload contracts for the selected assignments
+    contract_ids = [a.get("contract_id") for a in assignments if a.get("contract_id")]
+    contracts_by_id = {}
+    if contract_ids:
+        contracts = await db.contracts.find({"id": {"$in": contract_ids}}).to_list(length=None)
+        contracts_by_id = {c["id"]: c for c in contracts}
+    
     # Build export data
     export_data = []
     for assignment in assignments:
         student = await db.students.find_one({"id": assignment["student_id"], **user_filter})
         ipad = await db.ipads.find_one({"id": assignment["ipad_id"], **user_filter})
-        # Get contract (if any)
-        contract = None
-        if assignment.get("contract_id"):
-            contract = await db.contracts.find_one({"id": assignment["contract_id"]})
-        vertrag_vorhanden = "Ja" if contract else "Nein"
-        vertrag_validiert = "Ja" if is_contract_validated(contract) else "Nein"
-        
         if student and ipad:
-            # Format Geburtstag to TT.MM.JJJJ
-            geburtstag_formatted = ""
-            if student.get("sus_geb"):
-                try:
-                    geb_str = student.get("sus_geb", "")
-                    if "-" in geb_str:
-                        date_obj = datetime.fromisoformat(geb_str.replace('Z', '+00:00')) if 'T' in geb_str else datetime.strptime(geb_str, "%Y-%m-%d")
-                        geburtstag_formatted = date_obj.strftime("%d.%m.%Y")
-                    elif "." in geb_str:
-                        geburtstag_formatted = geb_str
-                except:
-                    geburtstag_formatted = student.get("sus_geb", "")
-            
-            # Format AusleiheDatum
-            ausleihe_datum_formatted = ""
-            if assignment.get("assigned_at"):
-                try:
-                    assigned_date = datetime.fromisoformat(assignment["assigned_at"].replace('Z', '+00:00'))
-                    ausleihe_datum_formatted = assigned_date.strftime("%d.%m.%Y")
-                except:
-                    ausleihe_datum_formatted = ""
-            
-            row_data = {
-                "Sname": student.get("sname", ""),
-                "SuSNachn": student.get("sus_nachn", ""),
-                "SuSVorn": student.get("sus_vorn", ""),
-                "SuSKl": student.get("sus_kl", ""),
-                "SuSStrHNr": student.get("sus_str_hnr", ""),
-                "SuSPLZ": student.get("sus_plz", ""),
-                "SuSOrt": student.get("sus_ort", ""),
-                "SuSGeb": geburtstag_formatted,
-                "Erz1Nachn": student.get("erz1_nachn", ""),
-                "Erz1Vorn": student.get("erz1_vorn", ""),
-                "Erz1StrHNr": student.get("erz1_str_hnr", ""),
-                "Erz1PLZ": student.get("erz1_plz", ""),
-                "Erz1Ort": student.get("erz1_ort", ""),
-                "Erz2Nachn": student.get("erz2_nachn", ""),
-                "Erz2Vorn": student.get("erz2_vorn", ""),
-                "Erz2StrHNr": student.get("erz2_str_hnr", ""),
-                "Erz2PLZ": student.get("erz2_plz", ""),
-                "Erz2Ort": student.get("erz2_ort", ""),
-                "Pencil": ipad.get("pencil", ""),
-                "ITNr": ipad.get("itnr", ""),
-                "SNr": ipad.get("snr", ""),
-                "Typ": ipad.get("typ", ""),
-                "AnschJahr": ipad.get("ansch_jahr", ""),
-                "AusleiheDatum": ausleihe_datum_formatted,
-                "Rückgabe": "",
-                "Vertrag vorhanden": vertrag_vorhanden,
-                "Vertrag validiert": vertrag_validiert
-            }
-            export_data.append(row_data)
+            export_data.append(_build_assignment_row(student, ipad, assignment, contracts_by_id))
     
     # Create Excel file
     output = io.BytesIO()
