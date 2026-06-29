@@ -146,7 +146,7 @@ if [ "$BUILD_BACKEND" = true ]; then
         echo "      (mit Cache)"
         $DOCKER_COMPOSE_CMD build backend
     fi
-    
+
     if [ $? -ne 0 ]; then
         echo "❌ Backend-Build fehlgeschlagen!"
         exit 1
@@ -163,7 +163,7 @@ if [ "$BUILD_FRONTEND" = true ]; then
         echo "      (mit Cache - yarn install wird gecached)"
         $DOCKER_COMPOSE_CMD build frontend
     fi
-    
+
     if [ $? -ne 0 ]; then
         echo "❌ Frontend-Build fehlgeschlagen!"
         exit 1

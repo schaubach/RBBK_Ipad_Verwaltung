@@ -137,10 +137,10 @@ function App() {
   const checkSessionTimeout = useCallback(() => {
     const lastActivity = localStorage.getItem('lastActivity');
     if (!lastActivity) return;
-    
+
     const timeSinceActivity = Date.now() - parseInt(lastActivity, 10);
     const timeUntilTimeout = SESSION_TIMEOUT - timeSinceActivity;
-    
+
     // Show warning 5 minutes before timeout
     if (timeUntilTimeout <= SESSION_WARNING && timeUntilTimeout > 0 && !sessionWarningShown) {
       setSessionWarningShown(true);
@@ -149,7 +149,7 @@ function App() {
         duration: 10000,
       });
     }
-    
+
     // Session expired
     if (timeUntilTimeout <= 0) {
       toast.error('Ihre Session ist abgelaufen. Sie werden zur Anmeldeseite weitergeleitet.');
@@ -173,21 +173,21 @@ function App() {
       setIsAuthenticated(true);
       setUserRole(savedRole || 'user');
       setCurrentUsername(savedUsername || '');
-      
+
       // Initialize last activity if not set
       if (!localStorage.getItem('lastActivity')) {
         localStorage.setItem('lastActivity', Date.now().toString());
       }
     }
     setLoading(false);
-    
+
     // Listener für automatischen Logout bei Session-Ablauf
     const handleSessionExpired = () => {
       handleLogout();
     };
-    
+
     window.addEventListener('session-expired', handleSessionExpired);
-    
+
     return () => {
       window.removeEventListener('session-expired', handleSessionExpired);
     };
@@ -196,7 +196,7 @@ function App() {
   // Session timeout checker interval
   useEffect(() => {
     if (!isAuthenticated) return;
-    
+
     const interval = setInterval(checkSessionTimeout, 10000); // Check every 10 seconds
     return () => clearInterval(interval);
   }, [isAuthenticated, checkSessionTimeout]);
@@ -204,13 +204,13 @@ function App() {
   // Activity tracker
   useEffect(() => {
     if (!isAuthenticated) return;
-    
+
     const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
-    
+
     events.forEach(event => {
       window.addEventListener(event, updateActivity);
     });
-    
+
     return () => {
       events.forEach(event => {
         window.removeEventListener(event, updateActivity);
@@ -234,7 +234,7 @@ function App() {
       // Ignore errors - logout locally anyway
       console.log('Logout request failed, clearing local state anyway');
     }
-    
+
     // Clear local storage
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
@@ -262,19 +262,19 @@ function App() {
       <div className="App">
         <Toaster richColors position="bottom-right" />
         <Routes>
-          <Route 
-            path="/" 
+          <Route
+            path="/"
             element={
               isAuthenticated ? (
-                <Dashboard 
-                  onLogout={handleLogout} 
-                  userRole={userRole} 
+                <Dashboard
+                  onLogout={handleLogout}
+                  userRole={userRole}
                   currentUsername={currentUsername}
                 />
               ) : (
                 <Login onLogin={handleLogin} />
               )
-            } 
+            }
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -31,20 +31,20 @@ const AssignmentsManagement = () => {
   const [importing, setImporting] = useState(false);
   // Export-columns dialog state: { open, mode: 'all'|'filtered'|'selected' }
   const [exportDialog, setExportDialog] = useState({ open: false, mode: 'all' });
-  
+
   // Filter states
   const [vornameFilter, setVornameFilter] = useState('');
   const [nachnameFilter, setNachnameFilter] = useState('');
   const [klasseFilter, setKlasseFilter] = useState('');
   const [itnrFilter, setItnrFilter] = useState('');
-  
+
   // Sort states
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
-  
+
   // Batch delete states
   const [selectedAssignments, setSelectedAssignments] = useState([]);
-  
+
   // Delete dialog states
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [assignmentToDelete, setAssignmentToDelete] = useState(null);
@@ -60,13 +60,13 @@ const AssignmentsManagement = () => {
         api.get('/ipads'),
         api.get('/students')
       ]);
-      
+
       console.log('Assignments loaded:', assignmentsRes.data); // Debug log
       console.log('iPads loaded:', ipadsRes.data); // Debug log
       console.log('Students loaded:', studentsRes.data); // Debug log
-      
+
       setAssignments(assignmentsRes.data);
-      setFilteredAssignments(assignmentsRes.data);  
+      setFilteredAssignments(assignmentsRes.data);
       setIPads(ipadsRes.data);
       setStudents(studentsRes.data);
     } catch (error) {
@@ -97,7 +97,7 @@ const AssignmentsManagement = () => {
     console.log('Nachname filter:', nachnameFilter);
     console.log('Klasse filter:', klasseFilter);
     console.log('ITNr filter:', itnrFilter);
-    
+
     if (!vornameFilter && !nachnameFilter && !klasseFilter && !itnrFilter) {
       console.log('No filters active, showing all assignments');
       setFilteredAssignments(assignments);
@@ -129,9 +129,9 @@ const AssignmentsManagement = () => {
       const response = await api.get(url);
       console.log('Filter API response:', response.data);
       console.log('Number of filtered assignments:', response.data.length);
-      
+
       setFilteredAssignments(response.data);
-      
+
       console.log('Filtered assignments set successfully');
     } catch (error) {
       console.error('=== FILTER ERROR ===');
@@ -140,16 +140,16 @@ const AssignmentsManagement = () => {
       console.error('Error status:', error.response?.status);
       toast.error('Fehler beim Filtern der Zuordnungen');
     }
-    
+
     console.log('=== FILTER APPLICATION END ===');
   };
-  
+
   const applySorting = () => {
     if (!sortField) return;
-    
+
     const sorted = [...filteredAssignments].sort((a, b) => {
       let aVal, bVal;
-      
+
       // Spezielle Behandlung für Vertrag-Sortierung
       if (sortField === 'contract_status') {
         // Sortierung: Vorhanden mit Warnung > Fehlend > Vorhanden ohne Warnung
@@ -163,24 +163,24 @@ const AssignmentsManagement = () => {
       } else {
         aVal = a[sortField] || '';
         bVal = b[sortField] || '';
-        
+
         // String comparison
         if (typeof aVal === 'string') {
           aVal = aVal.toLowerCase();
           bVal = bVal.toLowerCase();
         }
       }
-      
+
       if (sortDirection === 'asc') {
         return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
       } else {
         return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
       }
     });
-    
+
     setFilteredAssignments(sorted);
   };
-  
+
   // Sort handler
   const handleSort = (field) => {
     if (sortField === field) {
@@ -190,7 +190,7 @@ const AssignmentsManagement = () => {
       setSortDirection('asc');
     }
   };
-  
+
   // Batch delete handlers
   const toggleAssignmentSelection = (assignmentId) => {
     setSelectedAssignments(prev =>
@@ -199,7 +199,7 @@ const AssignmentsManagement = () => {
         : [...prev, assignmentId]
     );
   };
-  
+
   const toggleAllAssignments = () => {
     if (selectedAssignments.length === filteredAssignments.length) {
       setSelectedAssignments([]);
@@ -207,17 +207,17 @@ const AssignmentsManagement = () => {
       setSelectedAssignments(filteredAssignments.map(assignment => assignment.id));
     }
   };
-  
+
   const openBatchDissolveDialog = () => {
     if (selectedAssignments.length === 0) return;
     setBatchDeleteDialogOpen(true);
   };
-  
+
   const handleBatchDissolve = async (dissolveAll = false, useFiltered = false) => {
     setDissolving(true);
     let successCount = 0;
     let errorCount = 0;
-    
+
     // Bestimme welche Zuordnungen aufgelöst werden sollen
     let assignmentsToDissolve;
     if (dissolveAll) {
@@ -227,7 +227,7 @@ const AssignmentsManagement = () => {
       // Nur ausgewählte Zuordnungen
       assignmentsToDissolve = assignments.filter(a => selectedAssignments.includes(a.id));
     }
-    
+
     for (const assignment of assignmentsToDissolve) {
       try {
         await api.delete(`/assignments/${assignment.id}`);
@@ -237,10 +237,10 @@ const AssignmentsManagement = () => {
         console.error(`Failed to dissolve assignment ${assignment.id}:`, error);
       }
     }
-    
+
     setDissolving(false);
     setSelectedAssignments([]);
-    
+
     if (successCount > 0) {
       toast.success(`${successCount} Zuordnung(en) erfolgreich aufgelöst`);
       loadAllData();
@@ -249,7 +249,7 @@ const AssignmentsManagement = () => {
       toast.error(`${errorCount} Zuordnung(en) konnten nicht aufgelöst werden`);
     }
   };
-  
+
   const confirmBatchDissolve = async () => {
     setBatchDeleteDialogOpen(false);
     await handleBatchDissolve();
@@ -273,18 +273,18 @@ const AssignmentsManagement = () => {
     setAssignmentToDelete(assignment);
     setDeleteDialogOpen(true);
   };
-  
+
   const confirmDissolveAssignment = async () => {
     if (!assignmentToDelete) return;
-    
+
     try {
       toast.info('Löse Zuordnung auf...');
-      
+
       await api.delete(`/assignments/${assignmentToDelete.id}`);
-      
+
       toast.success('Zuordnung erfolgreich aufgelöst!');
       await loadAllData();
-      
+
     } catch (error) {
       console.error('❌ Exception:', error);
       toast.error(`Fehler: ${error.response?.data?.detail || error.message}`);
@@ -324,49 +324,49 @@ const AssignmentsManagement = () => {
 
   const handleInventoryImport = async (file) => {
     if (!file) return;
-    
+
     setImporting(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      
+
       toast.info('Importiere Bestandsliste...');
-      
+
       const response = await api.post('/imports/inventory', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      
+
       toast.success(response.data.message);
-      
+
       // Show detailed results if available
       if (response.data.ipads_created > 0 || response.data.students_created > 0 || response.data.assignments_created > 0) {
         const details = [];
         if (response.data.ipads_created > 0) details.push(`${response.data.ipads_created} neue iPads`);
         if (response.data.students_created > 0) details.push(`${response.data.students_created} neue Schüler`);
         if (response.data.assignments_created > 0) details.push(`${response.data.assignments_created} neue Zuordnungen`);
-        
+
         toast.info(`Erstellt: ${details.join(', ')}`);
       }
-      
+
       // Show skipped items
       if (response.data.ipads_skipped > 0 || response.data.students_skipped > 0) {
         const skipped = [];
         if (response.data.ipads_skipped > 0) skipped.push(`${response.data.ipads_skipped} iPads übersprungen`);
         if (response.data.students_skipped > 0) skipped.push(`${response.data.students_skipped} Schüler übersprungen`);
-        
+
         toast.info(`Übersprungen: ${skipped.join(', ')}`);
       }
-      
+
       // Show errors if any
       if (response.data.errors && response.data.errors.length > 0) {
         response.data.errors.forEach(error => {
           toast.error(error);
         });
       }
-      
+
       // Reload data
       await loadAllData();
-      
+
     } catch (error) {
       console.error('Failed to import inventory:', error);
       toast.error(error.response?.data?.detail || 'Fehler beim Importieren der Bestandsliste');
@@ -377,24 +377,24 @@ const AssignmentsManagement = () => {
 
   const handleUploadContractForAssignment = async (assignment, file) => {
     if (!file) return;
-    
+
     setUploadingContractForAssignment(assignment.id);
-    
+
     try {
       const formData = new FormData();
       formData.append('file', file);
-      
+
       toast.info(`Lade neuen Vertrag für ${assignment.student_name} hoch...`);
-      
+
       const response = await api.post(`/assignments/${assignment.id}/upload-contract`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      
+
       toast.success(response.data.message);
-      
+
       // Reload assignments to show updated validation status
       await loadAllData();
-      
+
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler beim Upload des Vertrags');
       console.error('Contract upload error:', error);
@@ -417,22 +417,22 @@ const AssignmentsManagement = () => {
       if (columns && columns.length > 0) {
         params.append('columns', columns.join(','));
       }
-      
+
       const queryString = params.toString();
       const url = queryString ? `/assignments/export?${queryString}` : '/assignments/export';
-      
+
       const response = await api.get(url, {
         responseType: 'blob'
       });
-      
+
       const blob = new Blob([response.data], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
-      
+
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      
+
       // Different filename for filtered vs all exports
       const filename = filtered ? 'zuordnungen_gefiltert_export.xlsx' : 'zuordnungen_export.xlsx';
       link.download = filename;
@@ -440,7 +440,7 @@ const AssignmentsManagement = () => {
       link.click();
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(link);
-      
+
       const message = filtered ? 'Gefilterte Zuordnungen erfolgreich exportiert' : 'Alle Zuordnungen erfolgreich exportiert';
       toast.success(message);
     } catch (error) {
@@ -457,7 +457,7 @@ const AssignmentsManagement = () => {
       toast.error('Keine Zuordnungen ausgewählt');
       return;
     }
-    
+
     setExporting(true);
     try {
       const payload = { assignment_ids: selectedAssignments };
@@ -465,11 +465,11 @@ const AssignmentsManagement = () => {
       const response = await api.post('/assignments/export-selected', payload, {
         responseType: 'blob'
       });
-      
+
       const blob = new Blob([response.data], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
-      
+
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
@@ -478,7 +478,7 @@ const AssignmentsManagement = () => {
       link.click();
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(link);
-      
+
       toast.success(`${selectedAssignments.length} Zuordnungen erfolgreich exportiert`);
       setSelectedAssignments([]);
     } catch (error) {
@@ -517,7 +517,7 @@ const AssignmentsManagement = () => {
   };
 
   // Only students without any iPads for auto-assignment (1:n relationship)
-  const unassignedStudents = students.filter(student => 
+  const unassignedStudents = students.filter(student =>
     !student.assignment_count || student.assignment_count === 0
   );
   // Frei & OK = eigene iPads, nicht zugewiesen UND Status = "ok"
@@ -554,7 +554,7 @@ const AssignmentsManagement = () => {
                 <div className="text-2xl font-bold text-purple-600">{assignments.length}</div>
               </div>
             </div>
-            <Button 
+            <Button
               onClick={handleAutoAssign}
               disabled={assigning || freeAndOkIPads.length === 0 || unassignedStudents.length === 0}
               className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue disabled:opacity-50"
@@ -632,7 +632,7 @@ const AssignmentsManagement = () => {
           <div className="flex flex-col gap-3 mb-4">
             {/* Alle Zuordnungen Buttons */}
             <div className="flex flex-wrap gap-2">
-              <Button 
+              <Button
                 onClick={() => openExportDialog('all')}
                 disabled={exporting}
                 className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
@@ -640,8 +640,8 @@ const AssignmentsManagement = () => {
                 <Download className="h-4 w-4 mr-2" />
                 {exporting ? 'Exportiere...' : `Alle Zuordnungen exportieren (${assignments.length})`}
               </Button>
-              
-              <Button 
+
+              <Button
                 onClick={() => setDissolveAllDialogOpen(true)}
                 disabled={dissolving || assignments.length === 0}
                 className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
@@ -650,11 +650,11 @@ const AssignmentsManagement = () => {
                 {dissolving ? 'Löse auf...' : `Alle Zuordnungen lösen (${assignments.length})`}
               </Button>
             </div>
-            
+
             {/* Gefilterte Zuordnungen Buttons - nur anzeigen wenn Filter aktiv */}
             {(vornameFilter || nachnameFilter || klasseFilter || itnrFilter) && filteredAssignments.length > 0 && (
               <div className="flex flex-wrap gap-2 pl-4 border-l-4 border-blue-300">
-                <Button 
+                <Button
                   onClick={() => openExportDialog('filtered')}
                   disabled={exporting}
                   className="bg-gradient-to-r from-ipad-blue to-ipad-dark-blue hover:from-ipad-dark-blue hover:to-ipad-dark-gray"
@@ -662,8 +662,8 @@ const AssignmentsManagement = () => {
                   <Download className="h-4 w-4 mr-2" />
                   {exporting ? 'Exportiere...' : `Gefilterte exportieren (${filteredAssignments.length})`}
                 </Button>
-                
-                <Button 
+
+                <Button
                   onClick={() => setDissolveFilteredDialogOpen(true)}
                   disabled={dissolving}
                   className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
@@ -673,11 +673,11 @@ const AssignmentsManagement = () => {
                 </Button>
               </div>
             )}
-            
+
             {/* Ausgewählte Zuordnungen Buttons - bei Checkbox-Auswahl */}
             {selectedAssignments.length > 0 && (
               <div className="flex flex-wrap gap-2 pl-4 border-l-4 border-green-300">
-                <Button 
+                <Button
                   onClick={() => openExportDialog('selected')}
                   disabled={exporting}
                   className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
@@ -685,8 +685,8 @@ const AssignmentsManagement = () => {
                   <Download className="h-4 w-4 mr-2" />
                   {exporting ? 'Exportiere...' : `Ausgewählte exportieren (${selectedAssignments.length})`}
                 </Button>
-                
-                <Button 
+
+                <Button
                   onClick={() => setBatchDeleteDialogOpen(true)}
                   disabled={dissolving}
                   className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white"
@@ -702,7 +702,7 @@ const AssignmentsManagement = () => {
             <div className="text-center py-8">Lade Zuordnungen...</div>
           ) : filteredAssignments.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              {assignments.length === 0 
+              {assignments.length === 0
                 ? 'Keine Zuordnungen vorhanden. Verwenden Sie die automatische Zuordnung oben.'
                 : 'Keine Zuordnungen entsprechen den Filterkriterien.'
               }
@@ -718,7 +718,7 @@ const AssignmentsManagement = () => {
                         onCheckedChange={toggleAllAssignments}
                       />
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('itnr')}
                     >
@@ -729,7 +729,7 @@ const AssignmentsManagement = () => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('student_name')}
                     >
@@ -740,7 +740,7 @@ const AssignmentsManagement = () => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('assigned_at')}
                     >
@@ -751,7 +751,7 @@ const AssignmentsManagement = () => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('contract_status')}
                     >
@@ -767,8 +767,8 @@ const AssignmentsManagement = () => {
                 </TableHeader>
                 <TableBody>
                   {filteredAssignments.map((assignment) => (
-                    <TableRow 
-                      key={assignment.id} 
+                    <TableRow
+                      key={assignment.id}
                       className={`hover:bg-gray-50 ${assignment.contract_warning && !assignment.warning_dismissed ? 'bg-orange-50 border-l-4 border-orange-400' : ''}`}
                     >
                       <TableCell>
@@ -780,8 +780,8 @@ const AssignmentsManagement = () => {
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           {assignment.contract_warning && !assignment.warning_dismissed && (
-                            <AlertTriangle 
-                              className="h-4 w-4 text-orange-500 cursor-pointer hover:text-orange-700" 
+                            <AlertTriangle
+                              className="h-4 w-4 text-orange-500 cursor-pointer hover:text-orange-700"
                               title="Vertragsvalidierung fehlgeschlagen - Doppelklick zum Entfernen"
                               onClick={() => handleDismissWarning(assignment)}
                             />
@@ -825,8 +825,8 @@ const AssignmentsManagement = () => {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={(e) => {
                               console.log('🔵 Eye button clicked for assignment:', assignment);
@@ -839,7 +839,7 @@ const AssignmentsManagement = () => {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          
+
                           {/* Contract Upload Button - Show for assignments without contract OR with validation warnings */}
                           {(!assignment.contract_id || (assignment.contract_warning && !assignment.warning_dismissed)) && (
                             <div className="relative">
@@ -855,8 +855,8 @@ const AssignmentsManagement = () => {
                                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                                 disabled={uploadingContractForAssignment === assignment.id}
                               />
-                              <Button 
-                                variant="outline" 
+                              <Button
+                                variant="outline"
                                 size="sm"
                                 title={assignment.contract_id ? "Neuen korrekten Vertrag hochladen" : "Vertrag hochladen"}
                                 className={assignment.contract_id ? "hover:bg-yellow-50 hover:text-yellow-600" : "hover:bg-green-50 hover:text-green-600"}
@@ -870,9 +870,9 @@ const AssignmentsManagement = () => {
                               </Button>
                             </div>
                           )}
-                          
-                          <Button 
-                            variant="outline" 
+
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => {
                               console.log('🗑️ BUTTON CLICKED!', assignment);
@@ -893,7 +893,7 @@ const AssignmentsManagement = () => {
           )}
         </CardContent>
       </Card>
-      
+
       {/* Batch Dissolve Assignments Confirmation Dialog */}
       <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
         <AlertDialogContent>
@@ -920,7 +920,7 @@ const AssignmentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Delete Assignment Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
@@ -940,7 +940,7 @@ const AssignmentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Dissolve All Assignments Confirmation Dialog */}
       <AlertDialog open={dissolveAllDialogOpen} onOpenChange={setDissolveAllDialogOpen}>
         <AlertDialogContent>
@@ -961,11 +961,11 @@ const AssignmentsManagement = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => {
                 setDissolveAllDialogOpen(false);
                 handleBatchDissolve(true, false);
-              }} 
+              }}
               className="bg-red-600 hover:bg-red-700"
             >
               Alle {assignments.length} Zuordnungen auflösen
@@ -973,7 +973,7 @@ const AssignmentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Dissolve Filtered Assignments Confirmation Dialog */}
       <AlertDialog open={dissolveFilteredDialogOpen} onOpenChange={setDissolveFilteredDialogOpen}>
         <AlertDialogContent>
@@ -994,11 +994,11 @@ const AssignmentsManagement = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogAction
               onClick={() => {
                 setDissolveFilteredDialogOpen(false);
                 handleBatchDissolve(true, true);
-              }} 
+              }}
               className="bg-red-600 hover:bg-red-700"
             >
               {filteredAssignments.length} Zuordnungen auflösen
@@ -1006,19 +1006,19 @@ const AssignmentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Contract Viewer Modal */}
       {selectedContractId && (
-        <ContractViewer 
-          contractId={selectedContractId} 
-          onClose={() => setSelectedContractId(null)} 
+        <ContractViewer
+          contractId={selectedContractId}
+          onClose={() => setSelectedContractId(null)}
         />
       )}
 
       {/* Student Detail Viewer Modal */}
       {selectedStudentId && (
-        <StudentDetailViewer 
-          studentId={selectedStudentId} 
+        <StudentDetailViewer
+          studentId={selectedStudentId}
           onClose={() => setSelectedStudentId(null)}
           onUpdate={loadAllData}
         />
@@ -1026,8 +1026,8 @@ const AssignmentsManagement = () => {
 
       {/* iPad Detail Viewer Modal */}
       {selectedIPadId && (
-        <IPadDetailViewer 
-          ipadId={selectedIPadId} 
+        <IPadDetailViewer
+          ipadId={selectedIPadId}
           onClose={() => setSelectedIPadId(null)}
           onUpdate={loadAllData}
         />

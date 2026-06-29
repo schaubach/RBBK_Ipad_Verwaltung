@@ -1,5 +1,6 @@
 """Authentication, JWT, RBAC and resource-ownership helpers."""
-from datetime import datetime, timedelta, timezone
+
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 
 import jwt
@@ -22,9 +23,9 @@ def create_access_token(data: dict, user_id: str, expires_delta: Optional[timede
     to_encode = data.copy()
     to_encode.update({"user_id": user_id})
     if expires_delta:
-        expire = datetime.now(timezone.utc) + expires_delta
+        expire = datetime.now(UTC) + expires_delta
     else:
-        expire = datetime.now(timezone.utc) + timedelta(hours=24)
+        expire = datetime.now(UTC) + timedelta(hours=24)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm="HS256")
 
@@ -54,7 +55,7 @@ async def get_current_user(
             raise HTTPException(status_code=401, detail="Invalid token")
         if exp is None:
             raise HTTPException(status_code=401, detail="Token missing expiration")
-        if datetime.now(timezone.utc).timestamp() > exp:
+        if datetime.now(UTC).timestamp() > exp:
             raise HTTPException(status_code=401, detail="Token has expired")
 
         user = await db.users.find_one({"id": user_id})

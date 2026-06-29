@@ -1,7 +1,8 @@
 """Contract models."""
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+
 import uuid
+from datetime import UTC, datetime
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -19,7 +20,7 @@ class Contract(BaseModel):
     filename: str
     file_data: bytes
     form_fields: Dict[str, Any]
-    uploaded_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    uploaded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     is_active: bool = True
 
 

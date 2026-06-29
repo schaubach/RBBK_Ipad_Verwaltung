@@ -20,11 +20,11 @@ const Login = ({ onLogin }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    
+
     try {
       const response = await api.post('/auth/login', { username, password });
       const { access_token, role, username: loggedInUsername, force_password_change } = response.data;
-      
+
       if (force_password_change) {
         setTempToken(access_token);
         setShowForcePasswordChange(true);
@@ -32,7 +32,7 @@ const Login = ({ onLogin }) => {
         setLoading(false);
         return;
       }
-      
+
       // Store token in localStorage for backwards compatibility
       // Note: HttpOnly cookie is also set automatically by the server
       // The cookie is more secure as JavaScript cannot access it
@@ -50,26 +50,26 @@ const Login = ({ onLogin }) => {
 
   const handleForcePasswordChange = async (e) => {
     e.preventDefault();
-    
+
     if (newPassword.length < 6) {
       toast.error('Das Passwort muss mindestens 6 Zeichen lang sein');
       return;
     }
-    
+
     if (newPassword !== confirmPassword) {
       toast.error('Die Passwörter stimmen nicht überein');
       return;
     }
-    
+
     setLoading(true);
-    
+
     try {
       await axios.put(
         `${API_BASE_URL}/auth/change-password-forced`,
         { new_password: newPassword },
         { headers: { Authorization: `Bearer ${tempToken}` } }
       );
-      
+
       toast.success('Passwort erfolgreich geändert! Bitte melden Sie sich mit Ihrem neuen Passwort an.');
       setShowForcePasswordChange(false);
       setTempToken(null);
@@ -140,8 +140,8 @@ const Login = ({ onLogin }) => {
                   className="transition-all duration-200 focus:ring-2 focus:ring-yellow-500"
                 />
               </div>
-              <Button 
-                type="submit" 
+              <Button
+                type="submit"
                 className="w-full bg-yellow-500 hover:bg-yellow-600 text-white transition-all duration-200"
                 disabled={loading}
               >
@@ -197,8 +197,8 @@ const Login = ({ onLogin }) => {
                 className="transition-all duration-200 focus:ring-2 focus:ring-purple-500"
               />
             </div>
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="w-full bg-gradient-to-r from-ipad-teal to-ipad-dark-blue hover:from-ipad-blue hover:to-ipad-dark-gray transition-all duration-200"
               disabled={loading}
             >

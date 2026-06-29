@@ -17,6 +17,7 @@ Coverage:
 - Data protection cleanup
 - RBAC: standard user blocked from admin endpoints (403)
 """
+
 import io
 import os
 import time
@@ -37,6 +38,7 @@ TEST_PREFIX = f"TEST_RF_{uuid.uuid4().hex[:6]}"
 
 
 # -------------------- helpers --------------------
+
 
 def _login(username, password):
     for _ in range(20):
@@ -232,8 +234,11 @@ class TestIpads:
         admin_client.delete(f"{API}/ipads/{ipad_id}")
 
     def test_available_endpoints(self, admin_client):
-        for ep in ("/ipads/available-for-assignment", "/students/available-for-assignment",
-                   "/assignments/available-for-contracts"):
+        for ep in (
+            "/ipads/available-for-assignment",
+            "/students/available-for-assignment",
+            "/assignments/available-for-contracts",
+        ):
             r = admin_client.get(f"{API}{ep}")
             assert r.status_code == 200, f"{ep} → {r.status_code} {r.text}"
 
@@ -286,7 +291,12 @@ class TestAssignmentsAndExports:
         sid = st.get("id") or st.get("student", {}).get("id")
         ip = admin_client.post(
             f"{API}/ipads",
-            json={"itnr": f"{TEST_PREFIX}_AS_{uuid.uuid4().hex[:4]}", "snr": f"SN_{uuid.uuid4().hex[:8]}", "typ": "iPad", "status": "in_betrieb"},
+            json={
+                "itnr": f"{TEST_PREFIX}_AS_{uuid.uuid4().hex[:4]}",
+                "snr": f"SN_{uuid.uuid4().hex[:8]}",
+                "typ": "iPad",
+                "status": "in_betrieb",
+            },
         ).json()
         iid = ip.get("id") or ip.get("ipad", {}).get("id")
 

@@ -1,19 +1,21 @@
 """Central configuration: env, MongoDB, JWT secret, rate limiter, password context."""
+
 import os
 import secrets
 from pathlib import Path
+
 from dotenv import load_dotenv
+from fastapi.security import HTTPBearer
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
-from fastapi.security import HTTPBearer
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 ROOT_DIR = Path(__file__).parent.parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
 # MongoDB
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client["iPadDatabase"]
 

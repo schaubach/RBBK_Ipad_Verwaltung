@@ -21,13 +21,13 @@ const UserManagement = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [tempPasswordData, setTempPasswordData] = useState(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
-  
+
   // Create user form state
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
   const [creating, setCreating] = useState(false);
-  
+
   // Edit user form state
   const [editPassword, setEditPassword] = useState('');
   const [editPasswordConfirm, setEditPasswordConfirm] = useState('');
@@ -43,15 +43,15 @@ const UserManagement = () => {
       'Dies ist sicher und macht gelöschte ITNr wieder verfügbar.\n\n' +
       'Fortfahren?'
     );
-    
+
     if (!confirmed) return;
-    
+
     try {
       toast.info('Cleanup wird ausgeführt...');
       const response = await api.post('/admin/cleanup-orphaned-data');
-      
+
       const { deleted_resources, details } = response.data;
-      
+
       toast.success(
         `Cleanup abgeschlossen!\n` +
         `iPads: ${deleted_resources.ipads}\n` +
@@ -59,11 +59,11 @@ const UserManagement = () => {
         `Zuordnungen: ${deleted_resources.assignments}\n` +
         `Verträge: ${deleted_resources.contracts}`
       );
-      
+
       if (details.total_orphaned_ipads > 0) {
         console.log('Gelöschte iPad ITNr:', details.orphaned_ipad_itnrs);
       }
-      
+
     } catch (error) {
       console.error('Cleanup error:', error);
       toast.error(error.response?.data?.detail || 'Fehler beim Cleanup');
@@ -89,7 +89,7 @@ const UserManagement = () => {
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setCreating(true);
-    
+
     try {
       await api.post('/admin/users', {
         username: newUsername,
@@ -113,29 +113,29 @@ const UserManagement = () => {
   const handleUpdateUser = async (e) => {
     e.preventDefault();
     if (!selectedUser) return;
-    
+
     if (editPassword && editPassword !== editPasswordConfirm) {
       toast.error('Die Passwörter stimmen nicht überein');
       return;
     }
-    
+
     if (editPassword && editPassword.length < 6) {
       toast.error('Das Passwort muss mindestens 6 Zeichen lang sein');
       return;
     }
-    
+
     setUpdating(true);
-    
+
     try {
       const updateData = {
         role: editRole,
         is_active: editIsActive
       };
-      
+
       if (editPassword) {
         updateData.password = editPassword;
       }
-      
+
       await api.put(`/admin/users/${selectedUser.id}`, updateData);
       toast.success(`Benutzer ${selectedUser.username} erfolgreich aktualisiert!`);
       setShowEditDialog(false);
@@ -178,17 +178,17 @@ const UserManagement = () => {
         api.get('/students'),
         api.get('/assignments')
       ]);
-      
+
       const userIpads = ipadsRes.data.filter(i => i.user_id === selectedUser.id);
       const userStudents = studentsRes.data.filter(s => s.user_id === selectedUser.id);
       const userAssignments = assignmentsRes.data.filter(a => a.user_id === selectedUser.id);
-      
+
       selectedUser.resourceCounts = {
         ipads: userIpads.length,
         students: userStudents.length,
         assignments: userAssignments.length
       };
-      
+
       setDeleteStep(2);
     } catch (error) {
       toast.error('Fehler beim Laden der Ressourcen-Anzahl');
@@ -200,7 +200,7 @@ const UserManagement = () => {
       toast.error(`Bitte geben Sie "${selectedUser.username}" ein, um zu bestätigen`);
       return;
     }
-    
+
     try {
       const response = await api.delete(`/admin/users/${selectedUser.id}/complete`);
       const resources = response.data.deleted_resources || {};
@@ -223,7 +223,7 @@ const UserManagement = () => {
     if (window.confirm(`Möchten Sie das Passwort für Benutzer "${user.username}" wirklich zurücksetzen?\n\nEin temporäres 8-stelliges Passwort wird generiert.`)) {
       try {
         const response = await api.post(`/admin/users/${user.id}/reset-password`);
-        
+
         setTempPasswordData({
           username: response.data.username,
           password: response.data.temporary_password
@@ -265,7 +265,7 @@ const UserManagement = () => {
               </CardDescription>
             </div>
             <div className="flex gap-2">
-              <Button 
+              <Button
                 onClick={handleCleanupOrphanedData}
                 variant="outline"
                 className="border-orange-500 text-orange-600 hover:bg-orange-50"
@@ -274,7 +274,7 @@ const UserManagement = () => {
                 <Trash2 className="h-4 w-4 mr-2" />
                 Cleanup verwaiste Daten
               </Button>
-              <Button 
+              <Button
                 onClick={() => setShowCreateDialog(true)}
                 className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
               >
@@ -329,8 +329,8 @@ const UserManagement = () => {
                       <TableCell>{new Date(user.created_at).toLocaleDateString('de-DE')}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => openEditDialog(user)}
                             title="Benutzer bearbeiten"
@@ -338,8 +338,8 @@ const UserManagement = () => {
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => handleResetPassword(user)}
                             title="Passwort zurücksetzen"
@@ -348,8 +348,8 @@ const UserManagement = () => {
                           >
                             <Shield className="h-4 w-4" />
                           </Button>
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => handleDeleteUser(user)}
                             title="Benutzer deaktivieren"
@@ -358,8 +358,8 @@ const UserManagement = () => {
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => handleCompleteDeleteUser(user)}
                             title="VOLLSTÄNDIG LÖSCHEN (inkl. aller Daten!)"
@@ -428,9 +428,9 @@ const UserManagement = () => {
                   </select>
                 </div>
                 <div className="flex gap-2 justify-end">
-                  <Button 
-                    type="button" 
-                    variant="outline" 
+                  <Button
+                    type="button"
+                    variant="outline"
                     onClick={() => {
                       setShowCreateDialog(false);
                       setNewUsername('');
@@ -440,7 +440,7 @@ const UserManagement = () => {
                   >
                     Abbrechen
                   </Button>
-                  <Button 
+                  <Button
                     type="submit"
                     disabled={creating}
                     className="bg-gradient-to-r from-ipad-teal to-ipad-blue"
@@ -517,9 +517,9 @@ const UserManagement = () => {
                   <Label htmlFor="edit-active">Konto aktiviert</Label>
                 </div>
                 <div className="flex gap-2 justify-end">
-                  <Button 
-                    type="button" 
-                    variant="outline" 
+                  <Button
+                    type="button"
+                    variant="outline"
                     onClick={() => {
                       setShowEditDialog(false);
                       setSelectedUser(null);
@@ -529,7 +529,7 @@ const UserManagement = () => {
                   >
                     Abbrechen
                   </Button>
-                  <Button 
+                  <Button
                     type="submit"
                     disabled={updating}
                     className="bg-gradient-to-r from-ipad-teal to-ipad-blue"
@@ -561,14 +561,14 @@ const UserManagement = () => {
                   Der Benutzer muss das Passwort beim nächsten Login ändern.
                 </AlertDescription>
               </Alert>
-              
+
               <div className="space-y-2">
                 <Label>Benutzername</Label>
                 <div className="p-3 bg-gray-100 rounded-md font-mono">
                   {tempPasswordData.username}
                 </div>
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Temporäres Passwort (8-stellig)</Label>
                 <div className="flex gap-2">
@@ -591,9 +591,9 @@ const UserManagement = () => {
                   </Button>
                 </div>
               </div>
-              
+
               <div className="flex gap-2 justify-end pt-4">
-                <Button 
+                <Button
                   onClick={() => {
                     setShowResetPasswordDialog(false);
                     setTempPasswordData(null);
@@ -618,13 +618,13 @@ const UserManagement = () => {
                 {deleteStep === 1 ? 'WARNUNG: Benutzer vollständig löschen?' : 'LETZTE WARNUNG'}
               </CardTitle>
               <CardDescription className="text-red-600 font-medium">
-                {deleteStep === 1 
+                {deleteStep === 1
                   ? 'Diese Aktion ist UNWIDERRUFLICH und löscht ALLE Daten!'
                   : 'Sind Sie ABSOLUT SICHER? Es gibt KEIN Zurück!'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-6">
-              
+
               {deleteStep === 1 ? (
                 <>
                   <Alert className="bg-red-50 border-red-300">
@@ -648,13 +648,13 @@ const UserManagement = () => {
                       Alternative: Benutzer nur deaktivieren
                     </p>
                     <p className="text-xs text-yellow-700">
-                      Wenn Sie den Benutzer nur vorübergehend sperren möchten, verwenden Sie stattdessen 
+                      Wenn Sie den Benutzer nur vorübergehend sperren möchten, verwenden Sie stattdessen
                       den "Deaktivieren"-Button. Dies bewahrt alle Daten.
                     </p>
                   </div>
 
                   <div className="flex gap-2 justify-end pt-4">
-                    <Button 
+                    <Button
                       variant="outline"
                       onClick={() => {
                         setShowDeleteConfirmDialog(false);
@@ -664,7 +664,7 @@ const UserManagement = () => {
                     >
                       Abbrechen
                     </Button>
-                    <Button 
+                    <Button
                       onClick={handleDeleteStep1Confirm}
                       className="bg-red-600 hover:bg-red-700 text-white"
                     >
@@ -721,13 +721,13 @@ const UserManagement = () => {
                   </div>
 
                   <div className="flex gap-2 justify-end pt-4">
-                    <Button 
+                    <Button
                       variant="outline"
                       onClick={() => setDeleteStep(1)}
                     >
                       Zurück
                     </Button>
-                    <Button 
+                    <Button
                       onClick={handleDeleteStep2Confirm}
                       disabled={deleteConfirmText !== selectedUser.username}
                       className="bg-red-700 hover:bg-red-800 text-white disabled:bg-gray-400"

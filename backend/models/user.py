@@ -1,7 +1,8 @@
 """User-related Pydantic models."""
-from datetime import datetime, timezone
-from typing import Optional
+
 import uuid
+from datetime import UTC, datetime
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -14,8 +15,8 @@ class User(BaseModel):
     is_active: bool = True
     force_password_change: bool = False
     created_by: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class UserLogin(BaseModel):

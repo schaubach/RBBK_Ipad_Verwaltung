@@ -18,36 +18,36 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const [loading, setLoading] = useState(true);
   const [selectedIPadId, setSelectedIPadId] = useState(null);
   const [availableStudents, setAvailableStudents] = useState([]);
-  
+
   // Filter states
   const [itnrFilter, setItnrFilter] = useState('');
   const [snrFilter, setSnrFilter] = useState('');
   const [poolFilter, setPoolFilter] = useState('all'); // 'all' | 'own' | 'pool'
-  
+
   // Autocomplete states (now dialog-based)
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [searchDialogIpadId, setSearchDialogIpadId] = useState(null);
-  
+
   // Admin: Assign Pool iPad(s) to user
   const [assignToUserDialogOpen, setAssignToUserDialogOpen] = useState(false);
   const [assignToUserTargetIds, setAssignToUserTargetIds] = useState([]); // list of ipad ids
   const [allUsers, setAllUsers] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
-  
+
   // Sort states
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
-  
+
   // Batch delete states
   const [selectedIPads, setSelectedIPads] = useState([]);
   const [deleting, setDeleting] = useState(false);
-  
+
   // Delete dialog states
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [ipadToDelete, setIPadToDelete] = useState(null);
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
-  
+
   // Create dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newIPadData, setNewIPadData] = useState({
@@ -60,13 +60,13 @@ const IPadsManagement = ({ isAdmin = false }) => {
     is_in_pool: false
   });
   const [creating, setCreating] = useState(false);
-  
+
   // Global settings for defaults
   const [globalSettings, setGlobalSettings] = useState({
     ipad_typ: 'Apple iPad',
     pencil: 'ohne Apple Pencil'
   });
-  
+
   // Load global settings
   const loadGlobalSettings = async () => {
     try {
@@ -76,13 +76,13 @@ const IPadsManagement = ({ isAdmin = false }) => {
       console.error('Error loading global settings:', error);
     }
   };
-  
+
   // Assignment info dialog (click on "Ja" badge to see assigned student)
   const [assignmentInfoDialogOpen, setAssignmentInfoDialogOpen] = useState(false);
   const [assignmentInfoIpad, setAssignmentInfoIpad] = useState(null);
   const [assignmentInfoStudent, setAssignmentInfoStudent] = useState(null);
   const [assignmentInfoLoading, setAssignmentInfoLoading] = useState(false);
-  
+
   // Load assignment info for iPad
   const loadAssignmentInfo = async (ipad) => {
     setAssignmentInfoLoading(true);
@@ -109,7 +109,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       setAssignmentInfoLoading(false);
     }
   };
-  
+
   // Dissolve assignment from iPad view
   const dissolveAssignmentFromIPad = async (assignmentId) => {
     try {
@@ -122,7 +122,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       toast.error('Fehler beim Auflösen der Zuordnung');
     }
   };
-  
+
   // Pool: claim single iPad
   const handleClaimIPad = async (ipadId, itnr) => {
     try {
@@ -133,7 +133,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       toast.error(error.response?.data?.detail || 'Fehler beim Übernehmen');
     }
   };
-  
+
   // Pool: claim multiple iPads (bulk)
   const [bulkClaiming, setBulkClaiming] = useState(false);
   const handleBulkClaim = async () => {
@@ -156,7 +156,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       setBulkClaiming(false);
     }
   };
-  
+
   // Admin: Open user assignment dialog
   const openAssignToUserDialog = async (ipadIds) => {
     if (!isAdmin) return;
@@ -173,7 +173,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       }
     }
   };
-  
+
   const handleAssignToUser = async (targetUserId) => {
     try {
       const res = await api.post('/admin/ipads/assign-to-user', {
@@ -191,16 +191,16 @@ const IPadsManagement = ({ isAdmin = false }) => {
       toast.error(error.response?.data?.detail || 'Fehler bei Zuweisung');
     }
   };
-  
+
   // Release confirmation dialog
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
   const [ipadToRelease, setIpadToRelease] = useState(null);
-  
+
   const openReleaseDialog = (ipad) => {
     setIpadToRelease(ipad);
     setReleaseDialogOpen(true);
   };
-  
+
   const confirmReleaseToPool = async () => {
     if (!ipadToRelease) return;
     try {
@@ -218,7 +218,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       toast.error(error.response?.data?.detail || 'Fehler beim Freigeben');
     }
   };
-  
+
   // Filtered and sorted iPads
   const filteredIPads = ipads.filter(ipad => {
     const itnrMatch = !itnrFilter || ipad.itnr?.toLowerCase().includes(itnrFilter.toLowerCase());
@@ -229,29 +229,29 @@ const IPadsManagement = ({ isAdmin = false }) => {
     return itnrMatch && snrMatch && poolMatch;
   }).sort((a, b) => {
     if (!sortField) return 0;
-    
+
     let aVal = a[sortField] || '';
     let bVal = b[sortField] || '';
-    
+
     // Handle assigned status (boolean -> number for 1:n)
     if (sortField === 'assigned') {
       aVal = a.assignment_count || 0;
       bVal = b.assignment_count || 0;
     }
-    
+
     // String comparison
     if (typeof aVal === 'string') {
       aVal = aVal.toLowerCase();
       bVal = bVal.toLowerCase();
     }
-    
+
     if (sortDirection === 'asc') {
       return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
     } else {
       return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
     }
   });
-  
+
   // Sort handler
   const handleSort = (field) => {
     if (sortField === field) {
@@ -261,7 +261,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       setSortDirection('asc');
     }
   };
-  
+
   // Batch delete handlers
   const toggleIPadSelection = (ipadId) => {
     setSelectedIPads(prev =>
@@ -270,7 +270,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
         : [...prev, ipadId]
     );
   };
-  
+
   const toggleAllIPads = () => {
     if (selectedIPads.length === filteredIPads.length) {
       setSelectedIPads([]);
@@ -278,17 +278,17 @@ const IPadsManagement = ({ isAdmin = false }) => {
       setSelectedIPads(filteredIPads.map(ipad => ipad.id));
     }
   };
-  
+
   const openBatchDeleteDialog = () => {
     if (selectedIPads.length === 0) return;
     setBatchDeleteDialogOpen(true);
   };
-  
+
   const handleBatchDelete = async () => {
     setDeleting(true);
     let successCount = 0;
     let errorCount = 0;
-    
+
     for (const ipadId of selectedIPads) {
       try {
         await api.delete(`/ipads/${ipadId}`);
@@ -298,10 +298,10 @@ const IPadsManagement = ({ isAdmin = false }) => {
         console.error(`Failed to delete iPad ${ipadId}:`, error);
       }
     }
-    
+
     setDeleting(false);
     setSelectedIPads([]);
-    
+
     if (successCount > 0) {
       toast.success(`${successCount} iPad(s) erfolgreich gelöscht`);
       loadIPads();
@@ -325,7 +325,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       setLoading(false);
     }
   };
-  
+
   const loadAvailableStudents = async () => {
     try {
       const response = await api.get('/students/available-for-assignment');
@@ -364,10 +364,10 @@ const IPadsManagement = ({ isAdmin = false }) => {
       toast.error(error.response?.data?.detail || 'Status update failed');
     }
   };
-  
+
   const handleManualAssignment = async (ipadId, studentId) => {
     if (!studentId || studentId === 'none') return;
-    
+
     try {
       const response = await api.post('/assignments/manual', {
         ipad_id: ipadId,
@@ -391,23 +391,23 @@ const IPadsManagement = ({ isAdmin = false }) => {
     setIPadToDelete(ipad);
     setDeleteDialogOpen(true);
   };
-  
+
   const confirmDeleteIPad = async () => {
     if (!ipadToDelete) return;
-    
+
     try {
       const response = await api.delete(`/ipads/${ipadToDelete.id}`);
-      
+
       if (response && response.data) {
         const msg = response.data.message || 'iPad gelöscht';
         toast.success(msg);
       } else {
         toast.success('iPad erfolgreich gelöscht');
       }
-      
+
       await loadIPads();
       await loadAvailableStudents();
-      
+
     } catch (error) {
       console.error('Delete iPad error:', error);
       toast.error(error.response?.data?.detail || 'Fehler beim Löschen des iPads');
@@ -416,29 +416,29 @@ const IPadsManagement = ({ isAdmin = false }) => {
       setIPadToDelete(null);
     }
   };
-  
+
   const confirmBatchDeleteIPads = async () => {
     setBatchDeleteDialogOpen(false);
     await handleBatchDelete();
   };
-  
+
   const handleCreateIPad = async () => {
     if (!newIPadData.itnr || !newIPadData.snr) {
       toast.error('ITNr und SNr sind Pflichtfelder');
       return;
     }
-    
+
     setCreating(true);
     try {
       const response = await api.post('/ipads', newIPadData);
       toast.success('iPad erfolgreich angelegt!');
       setCreateDialogOpen(false);
-      setNewIPadData({ 
-        itnr: '', 
-        snr: '', 
-        typ: globalSettings.ipad_typ || '', 
+      setNewIPadData({
+        itnr: '',
+        snr: '',
+        typ: globalSettings.ipad_typ || '',
         pencil: globalSettings.pencil || '',
-        status: 'ok' 
+        status: 'ok'
       });
       loadIPads();
     } catch (error) {
@@ -462,7 +462,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
         return 'bg-gray-100 text-gray-800';
     }
   };
-  
+
   const getRowClassName = (status) => {
     if (status === 'defekt' || status === 'gestohlen') {
       return 'bg-red-50 hover:bg-red-100';
@@ -478,7 +478,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
   // Frei & OK = Status "ok" und keine aktive Zuordnung (eigene iPads, Pool-iPads getrennt)
   const ownIPads = ipads.filter(i => !i.is_in_pool);
   const poolIPads = ipads.filter(i => i.is_in_pool);
-  const freeAndOkCount = ownIPads.filter(ipad => 
+  const freeAndOkCount = ownIPads.filter(ipad =>
     ipad.status === 'ok' && !ipad.current_assignment_id
   ).length;
   const poolAvailableCount = poolIPads.filter(i => i.status === 'ok' && !i.current_assignment_id).length;
@@ -554,7 +554,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 />
               </div>
             </div>
-            
+
             {/* Pool Filter Toggle */}
             <div className="flex flex-wrap items-center gap-2">
               <Label className="text-sm font-medium mr-2">Anzeigen:</Label>
@@ -584,9 +584,9 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 🌐 Pool ({poolIPads.length})
               </Button>
             </div>
-            
+
             {(itnrFilter || snrFilter || poolFilter !== 'all') && (
-              <Button 
+              <Button
                 onClick={() => {
                   setItnrFilter('');
                   setSnrFilter('');
@@ -598,7 +598,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
               </Button>
             )}
           </div>
-          
+
           {/* Batch Actions */}
           {selectedIPads.length > 0 && (
             <div className="mb-4 flex flex-wrap gap-2">
@@ -630,7 +630,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
               </Button>
             </div>
           )}
-          
+
           {loading ? (
             <div className="text-center py-8">Lade iPads...</div>
           ) : ipads.length === 0 ? (
@@ -648,7 +648,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                         onCheckedChange={toggleAllIPads}
                       />
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('itnr')}
                     >
@@ -659,7 +659,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('snr')}
                     >
@@ -670,7 +670,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('typ')}
                     >
@@ -681,7 +681,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('status')}
                     >
@@ -692,7 +692,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('assigned')}
                     >
@@ -708,8 +708,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 </TableHeader>
                 <TableBody>
                   {filteredIPads.map((ipad) => (
-                    <TableRow 
-                      key={ipad.id} 
+                    <TableRow
+                      key={ipad.id}
                       className={getRowClassName(ipad.status)}
                     >
                       <TableCell>
@@ -767,7 +767,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                       </TableCell>
                       <TableCell>
                         {ipad.current_assignment_id ? (
-                          <Badge 
+                          <Badge
                             className="bg-blue-100 text-blue-800 cursor-pointer hover:bg-blue-200 transition-colors"
                             onClick={() => loadAssignmentInfo(ipad)}
                             title="Klicken um zugewiesenen Schüler anzuzeigen"
@@ -780,8 +780,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => setSelectedIPadId(ipad.id)}
                             title="iPad Details anzeigen"
@@ -837,8 +837,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
                             </Button>
                           )}
                           {!ipad.current_assignment_id && (
-                            <Button 
-                              variant="outline" 
+                            <Button
+                              variant="outline"
                               size="sm"
                               onClick={() => handleDeleteIPad(ipad)}
                               title="iPad löschen"
@@ -929,8 +929,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="status">Status</Label>
-              <Select 
-                value={newIPadData.status} 
+              <Select
+                value={newIPadData.status}
                 onValueChange={(value) => setNewIPadData({...newIPadData, status: value})}
               >
                 <SelectTrigger>
@@ -957,8 +957,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleCreateIPad} 
+            <AlertDialogAction
+              onClick={handleCreateIPad}
               disabled={creating || !newIPadData.itnr || !newIPadData.snr}
             >
               {creating ? 'Erstelle...' : 'iPad anlegen'}
@@ -966,7 +966,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Delete iPad Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
@@ -993,7 +993,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Batch Delete iPads Confirmation Dialog */}
       <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
         <AlertDialogContent>
@@ -1020,7 +1020,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Student Search Dialog */}
       <AlertDialog open={searchDialogOpen} onOpenChange={setSearchDialogOpen}>
         <AlertDialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
@@ -1040,8 +1040,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
             />
             <div className="flex-1 overflow-y-auto border rounded-md">
               {availableStudents
-                .filter(s => 
-                  !studentSearchQuery || 
+                .filter(s =>
+                  !studentSearchQuery ||
                   s.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
                   s.klasse.toLowerCase().includes(studentSearchQuery.toLowerCase())
                 )
@@ -1059,8 +1059,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
                     <div className="text-sm text-gray-500">Klasse: {student.klasse}</div>
                   </div>
                 ))}
-              {availableStudents.filter(s => 
-                !studentSearchQuery || 
+              {availableStudents.filter(s =>
+                !studentSearchQuery ||
                 s.name.toLowerCase().includes(studentSearchQuery.toLowerCase()) ||
                 s.klasse.toLowerCase().includes(studentSearchQuery.toLowerCase())
               ).length === 0 && (
@@ -1075,7 +1075,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Assignment Info Dialog - Shows assigned student when clicking "Ja" badge */}
       <AlertDialog open={assignmentInfoDialogOpen} onOpenChange={setAssignmentInfoDialogOpen}>
         <AlertDialogContent className="max-w-md">
@@ -1100,7 +1100,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                     <div className="flex justify-between">
                       <span className="text-gray-600">Zugewiesen am:</span>
                       <span className="font-medium">
-                        {assignmentInfoStudent.assignment?.assigned_at 
+                        {assignmentInfoStudent.assignment?.assigned_at
                           ? new Date(assignmentInfoStudent.assignment.assigned_at).toLocaleDateString('de-DE')
                           : 'N/A'}
                       </span>
@@ -1136,16 +1136,16 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* iPad Detail Viewer Modal */}
       {selectedIPadId && (
-        <IPadDetailViewer 
-          ipadId={selectedIPadId} 
+        <IPadDetailViewer
+          ipadId={selectedIPadId}
           onClose={() => setSelectedIPadId(null)}
           onUpdate={loadIPads}
         />
       )}
-      
+
       {/* Admin: Assign Pool iPad to User Dialog */}
       <AlertDialog open={assignToUserDialogOpen} onOpenChange={setAssignToUserDialogOpen}>
         <AlertDialogContent data-testid="assign-to-user-dialog">
@@ -1188,7 +1188,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Release to Pool Confirmation Dialog */}
       <AlertDialog open={releaseDialogOpen} onOpenChange={setReleaseDialogOpen}>
         <AlertDialogContent>

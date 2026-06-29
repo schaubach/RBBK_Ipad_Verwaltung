@@ -1,0 +1,25 @@
+# Pre-commit hooks for /app — runs before every git commit.
+# Setup:   pre-commit install
+# Trigger: pre-commit run --all-files
+#
+# Hooks intentionally limited to Ruff (lint + format) and YAML syntax check.
+# Ruff-format already handles whitespace / EOF newlines for Python files,
+# and the file-modifying hygiene hooks from pre-commit-hooks v5 don't play
+# well with this container's Python launcher (passes `-X` into hook argv).
+repos:
+  # Ruff: lightning-fast Python linter + autoformatter.
+  # Catches unused imports/variables, bare except, security smells.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/.*\.py$
+      - id: ruff-format
+        files: ^backend/.*\.py$
+
+  # YAML syntax check (works fine via PyYAML, not affected by the -X issue)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml

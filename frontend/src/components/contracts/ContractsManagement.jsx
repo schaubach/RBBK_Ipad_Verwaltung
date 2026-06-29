@@ -19,30 +19,30 @@ const ContractsManagement = () => {
   const [allAssignments, setAllAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  
+
   // Selection
   const [selectedContracts, setSelectedContracts] = useState([]);
-  
+
   // Sorting
   const [sortField, setSortField] = useState('uploaded_at');
   const [sortDirection, setSortDirection] = useState('desc');
-  
+
   // Filtering
   const [filenameFilter, setFilenameFilter] = useState('');
   const [studentFilter, setStudentFilter] = useState('');
   const [itnrFilter, setItnrFilter] = useState('');
-  
+
   // Dialog für Vertragszuordnung
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [selectedContract, setSelectedContract] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [isReassign, setIsReassign] = useState(false);
-  
+
   // Detail viewers
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [selectedIPadId, setSelectedIPadId] = useState(null);
-  
+
   // Delete dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [contractToDelete, setContractToDelete] = useState(null);
@@ -81,7 +81,7 @@ const ContractsManagement = () => {
 
   const handleMultipleUpload = async (files) => {
     if (files.length === 0) return;
-    
+
     if (files.length > 50) {
       toast.error('Maximal 50 Dateien können gleichzeitig hochgeladen werden');
       return;
@@ -91,28 +91,28 @@ const ContractsManagement = () => {
     for (let i = 0; i < files.length; i++) {
       formData.append('files', files[i]);
     }
-    
+
     setUploading(true);
     try {
       const response = await api.post('/contracts/upload-multiple', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      
+
       const { processed_count, unassigned_count, results } = response.data;
-      
+
       if (processed_count > 0) {
         toast.success(`${processed_count} Verträge automatisch zugeordnet`);
       }
       if (unassigned_count > 0) {
         toast.info(`${unassigned_count} Verträge zur manuellen Zuordnung bereit`);
       }
-      
+
       results.forEach(result => {
         if (result.status === 'error') {
           toast.error(`${result.filename}: ${result.message}`);
         }
       });
-      
+
       loadData();
     } catch (error) {
       toast.error('Fehler beim Hochladen der Verträge');
@@ -130,14 +130,14 @@ const ContractsManagement = () => {
 
   const handleAssignContract = async (assignmentId) => {
     if (!selectedContract) return;
-    
+
     setAssigning(true);
     try {
       // If reassigning, first unassign from current assignment
       if (isReassign && selectedContract.assignment_id) {
         await api.post(`/contracts/${selectedContract.id}/unassign`);
       }
-      
+
       await api.post(`/contracts/${selectedContract.id}/assign/${assignmentId}`);
       toast.success(isReassign ? 'Vertrag erfolgreich neu zugeordnet' : 'Vertrag erfolgreich zugeordnet');
       setAssignDialogOpen(false);
@@ -173,9 +173,9 @@ const ContractsManagement = () => {
       const response = await api.post('/contracts/batch-delete', {
         contract_ids: selectedContracts
       });
-      
+
       const { deleted_count, errors } = response.data;
-      
+
       if (deleted_count > 0) {
         toast.success(`${deleted_count} Vertrag/Verträge gelöscht`);
       }
@@ -197,7 +197,7 @@ const ContractsManagement = () => {
       const response = await api.get(`/contracts/${contractId}/download`, {
         responseType: 'blob'
       });
-      
+
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
@@ -253,7 +253,7 @@ const ContractsManagement = () => {
     try {
       let url = '/assignments/generate-contracts';
       let body = {};
-      
+
       if (filtered) {
         // Use selected assignment IDs from the filtered table
         if (selectedForGeneration.length === 0) {
@@ -263,16 +263,16 @@ const ContractsManagement = () => {
         }
         body = { assignment_ids: selectedForGeneration };
       }
-      
+
       const response = await api.post(url, body, {
         responseType: 'blob'
       });
-      
+
       const blob = new Blob([response.data], { type: 'application/zip' });
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = downloadUrl;
-      
+
       const contentDisposition = response.headers['content-disposition'];
       let filename = 'Vertraege.zip';
       if (contentDisposition) {
@@ -281,13 +281,13 @@ const ContractsManagement = () => {
           filename = filenameMatch[1];
         }
       }
-      
+
       link.download = filename;
       document.body.appendChild(link);
       link.click();
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(link);
-      
+
       const successCount = response.headers['x-success-count'];
       toast.success(`${successCount || 'Verträge'} erfolgreich erstellt`);
     } catch (error) {
@@ -354,8 +354,8 @@ const ContractsManagement = () => {
 
   // Selection
   const toggleContractSelection = (contractId) => {
-    setSelectedContracts(prev => 
-      prev.includes(contractId) 
+    setSelectedContracts(prev =>
+      prev.includes(contractId)
         ? prev.filter(id => id !== contractId)
         : [...prev, contractId]
     );
@@ -379,7 +379,7 @@ const ContractsManagement = () => {
     })
     .sort((a, b) => {
       let aVal, bVal;
-      
+
       if (sortField === 'assigned') {
         aVal = a.assignment_id ? 1 : 0;
         bVal = b.assignment_id ? 1 : 0;
@@ -390,7 +390,7 @@ const ContractsManagement = () => {
         aVal = (a[sortField] || '').toString().toLowerCase();
         bVal = (b[sortField] || '').toString().toLowerCase();
       }
-      
+
       if (sortDirection === 'asc') {
         return aVal > bVal ? 1 : -1;
       } else {
@@ -404,14 +404,14 @@ const ContractsManagement = () => {
       // Include the current assignment (for comparison) plus all available
       const currentAssignment = allAssignments.find(a => a.id === selectedContract.assignment_id);
       const available = availableAssignments.filter(a => a.assignment_id !== selectedContract.assignment_id);
-      return currentAssignment 
-        ? [...available, { 
-            assignment_id: currentAssignment.id, 
-            itnr: currentAssignment.itnr, 
+      return currentAssignment
+        ? [...available, {
+            assignment_id: currentAssignment.id,
+            itnr: currentAssignment.itnr,
             student_name: currentAssignment.student_name,
             contracts_count: 0,
             max_contracts: 3,
-            isCurrent: true 
+            isCurrent: true
           }]
         : available;
     }
@@ -539,10 +539,10 @@ const ContractsManagement = () => {
               />
             </div>
           </div>
-          
+
           {/* Buttons */}
           <div className="flex flex-wrap gap-2">
-            <Button 
+            <Button
               onClick={() => requestGenerateContracts(false)}
               disabled={generatingContracts}
               className="bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
@@ -551,9 +551,9 @@ const ContractsManagement = () => {
               <FileText className="h-4 w-4 mr-2" />
               {generatingContracts ? 'Erstelle...' : `Alle Verträge erstellen (${availableAssignments.length})`}
             </Button>
-            
+
             {hasCreateFilters && (
-              <Button 
+              <Button
                 onClick={() => requestGenerateContracts(true)}
                 disabled={generatingContracts || selectedForGeneration.length === 0}
                 className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800"
@@ -563,9 +563,9 @@ const ContractsManagement = () => {
                 {generatingContracts ? 'Erstelle...' : `Verträge erstellen (${selectedForGeneration.length} von ${filteredAvailableAssignments.length})`}
               </Button>
             )}
-            
+
             {hasCreateFilters && (
-              <Button 
+              <Button
                 variant="outline"
                 onClick={() => {
                   setCreateVornameFilter('');
@@ -641,7 +641,7 @@ const ContractsManagement = () => {
               )}
             </div>
           )}
-          
+
           <p className="text-xs text-gray-500">
             Hinweis: ZIP-Dateien sind mit dem Geburtsdatum des Schülers verschlüsselt (Format: TT.MM.JJJJ).
           </p>
@@ -657,8 +657,8 @@ const ContractsManagement = () => {
               Verträge verwalten ({contracts.length})
             </span>
             {selectedContracts.length > 0 && (
-              <Button 
-                variant="destructive" 
+              <Button
+                variant="destructive"
                 size="sm"
                 onClick={() => setBatchDeleteDialogOpen(true)}
               >
@@ -714,7 +714,7 @@ const ContractsManagement = () => {
                         onCheckedChange={toggleAllSelection}
                       />
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('filename')}
                     >
@@ -722,7 +722,7 @@ const ContractsManagement = () => {
                         Dateiname {getSortIcon('filename')}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('student_name')}
                     >
@@ -730,7 +730,7 @@ const ContractsManagement = () => {
                         Schüler {getSortIcon('student_name')}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('itnr')}
                     >
@@ -738,7 +738,7 @@ const ContractsManagement = () => {
                         ITNr {getSortIcon('itnr')}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('assigned')}
                     >
@@ -746,7 +746,7 @@ const ContractsManagement = () => {
                         Zuordnung {getSortIcon('assigned')}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-100"
                       onClick={() => handleSort('uploaded_at')}
                     >
@@ -797,7 +797,7 @@ const ContractsManagement = () => {
                       </TableCell>
                       <TableCell>
                         {contract.assignment_id ? (
-                          <Badge 
+                          <Badge
                             className="bg-green-100 text-green-800 cursor-pointer hover:bg-green-200"
                             title="Klicken für Details"
                             onClick={() => {
@@ -808,7 +808,7 @@ const ContractsManagement = () => {
                             Zugeordnet
                           </Badge>
                         ) : (
-                          <Badge 
+                          <Badge
                             className="bg-orange-100 text-orange-800 cursor-pointer hover:bg-orange-200"
                             onClick={() => openAssignDialog(contract)}
                           >
@@ -880,13 +880,13 @@ const ContractsManagement = () => {
             <AlertDialogDescription>
               {selectedContract && (
                 <span>
-                  Vertrag <strong>{selectedContract.filename}</strong> 
+                  Vertrag <strong>{selectedContract.filename}</strong>
                   {isReassign ? ' einer neuen Zuordnung zuweisen.' : ' einer Zuordnung zuweisen.'}
                 </span>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          
+
           <div className="py-4 flex-1 overflow-hidden flex flex-col">
             <div className="mb-4">
               <Label htmlFor="search">Suche (ITNr oder Schülername)</Label>
@@ -901,7 +901,7 @@ const ContractsManagement = () => {
                 />
               </div>
             </div>
-            
+
             <div className="flex-1 overflow-y-auto border rounded-lg">
               {filteredAssignments.length === 0 ? (
                 <div className="p-4 text-center text-gray-500">
@@ -919,8 +919,8 @@ const ContractsManagement = () => {
                   </TableHeader>
                   <TableBody>
                     {filteredAssignments.map((assignment) => (
-                      <TableRow 
-                        key={assignment.assignment_id} 
+                      <TableRow
+                        key={assignment.assignment_id}
                         className={`hover:bg-gray-50 ${assignment.isCurrent ? 'bg-blue-50' : ''}`}
                       >
                         <TableCell className="font-medium">{assignment.itnr}</TableCell>
@@ -951,7 +951,7 @@ const ContractsManagement = () => {
               )}
             </div>
           </div>
-          
+
           <AlertDialogFooter className="mt-4">
             <AlertDialogCancel onClick={() => setIsReassign(false)}>Abbrechen</AlertDialogCancel>
           </AlertDialogFooter>
@@ -1006,8 +1006,8 @@ const ContractsManagement = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleDeleteContract} 
+            <AlertDialogAction
+              onClick={handleDeleteContract}
               className="bg-red-600 hover:bg-red-700"
               disabled={deleting}
             >
@@ -1030,8 +1030,8 @@ const ContractsManagement = () => {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleBatchDelete} 
+            <AlertDialogAction
+              onClick={handleBatchDelete}
               className="bg-red-600 hover:bg-red-700"
               disabled={deleting}
             >
@@ -1043,8 +1043,8 @@ const ContractsManagement = () => {
 
       {/* Student Detail Viewer */}
       {selectedStudentId && (
-        <StudentDetailViewer 
-          studentId={selectedStudentId} 
+        <StudentDetailViewer
+          studentId={selectedStudentId}
           onClose={() => setSelectedStudentId(null)}
           onUpdate={loadData}
         />
@@ -1052,8 +1052,8 @@ const ContractsManagement = () => {
 
       {/* iPad Detail Viewer */}
       {selectedIPadId && (
-        <IPadDetailViewer 
-          ipadId={selectedIPadId} 
+        <IPadDetailViewer
+          ipadId={selectedIPadId}
           onClose={() => setSelectedIPadId(null)}
           onUpdate={loadData}
         />

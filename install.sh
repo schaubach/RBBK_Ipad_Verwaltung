@@ -54,7 +54,7 @@ print_success() {
 # Prüfe System-Voraussetzungen
 check_dependencies() {
     print_step "Überprüfe System-Voraussetzungen..."
-    
+
     # Check Docker
     if ! command -v docker &> /dev/null; then
         print_error "Docker ist nicht installiert!"
@@ -62,7 +62,7 @@ check_dependencies() {
         exit 1
     fi
     print_success "Docker gefunden: $(docker --version)"
-    
+
     # Check Docker Compose (ältere Version zuerst prüfen)
     if command -v docker-compose &> /dev/null; then
         DOCKER_COMPOSE_CMD="docker-compose"
@@ -75,29 +75,29 @@ check_dependencies() {
         echo "Bitte installieren Sie Docker Compose"
         exit 1
     fi
-    
+
     echo ""
 }
 
 # Prüfe Projektstruktur
 check_project_structure() {
     print_step "Überprüfe Projektstruktur..."
-    
+
     local missing_dirs=()
-    
+
     [ ! -d "frontend" ] && missing_dirs+=("frontend")
     [ ! -d "backend" ] && missing_dirs+=("backend")
     [ ! -d "config" ] && missing_dirs+=("config")
-    
+
     if [ ${#missing_dirs[@]} -gt 0 ]; then
         print_error "Fehlende Verzeichnisse: ${missing_dirs[*]}"
         exit 1
     fi
-    
+
     [ ! -f "backend/server.py" ] && print_error "backend/server.py fehlt!" && exit 1
     [ ! -f "frontend/package.json" ] && print_error "frontend/package.json fehlt!" && exit 1
     [ ! -f "config/docker-compose.yml" ] && print_error "config/docker-compose.yml fehlt!" && exit 1
-    
+
     print_success "Projektstruktur ist vollständig"
     echo ""
 }
@@ -105,7 +105,7 @@ check_project_structure() {
 # Setup Umgebungsvariablen
 setup_environment() {
     print_step "Setup Umgebungsvariablen..."
-    
+
     # Haupt-.env für Docker Compose (JWT_SECRET)
     if [ ! -f "config/.env" ]; then
         print_warning "config/.env fehlt - wird erstellt..."
@@ -117,7 +117,7 @@ EOF
     else
         print_success "config/.env bereits vorhanden"
     fi
-    
+
     # Backend .env (für lokale Entwicklung)
     if [ ! -f "backend/.env" ]; then
         print_warning "backend/.env fehlt - wird erstellt..."
@@ -129,7 +129,7 @@ EOF
     else
         print_success "backend/.env bereits vorhanden"
     fi
-    
+
     # Frontend .env (für lokale Entwicklung)
     if [ ! -f "frontend/.env" ]; then
         print_warning "frontend/.env fehlt - wird erstellt..."
@@ -140,7 +140,7 @@ EOF
     else
         print_success "frontend/.env bereits vorhanden"
     fi
-    
+
     echo ""
 }
 
@@ -149,16 +149,16 @@ build_containers() {
     print_step "Baue Docker Container..."
     echo "Das kann einige Minuten dauern..."
     echo ""
-    
+
     cd config
-    
+
     if $DOCKER_COMPOSE_CMD build; then
         print_success "Container erfolgreich gebaut"
     else
         print_error "Fehler beim Bauen der Container"
         exit 1
     fi
-    
+
     cd ..
     echo ""
 }
@@ -166,16 +166,16 @@ build_containers() {
 # Starte Services
 start_services() {
     print_step "Starte Services..."
-    
+
     cd config
-    
+
     if $DOCKER_COMPOSE_CMD up -d; then
         print_success "Services gestartet"
     else
         print_error "Fehler beim Starten der Services"
         exit 1
     fi
-    
+
     cd ..
     echo ""
 }
@@ -183,7 +183,7 @@ start_services() {
 # Warte auf Services
 wait_for_services() {
     print_step "Warte auf Services..."
-    
+
     echo -n "Warte auf MongoDB"
     for i in {1..30}; do
         if docker exec ipad_mongodb mongosh --eval "db.adminCommand('ping')" &> /dev/null; then
@@ -194,7 +194,7 @@ wait_for_services() {
         echo -n "."
         sleep 2
     done
-    
+
     echo -n "Warte auf Backend"
     for i in {1..30}; do
         if curl -s http://localhost:8001/health &> /dev/null; then
@@ -205,7 +205,7 @@ wait_for_services() {
         echo -n "."
         sleep 2
     done
-    
+
     echo -n "Warte auf Frontend"
     for i in {1..30}; do
         if curl -s http://localhost:3000 &> /dev/null; then
@@ -216,22 +216,22 @@ wait_for_services() {
         echo -n "."
         sleep 2
     done
-    
+
     echo ""
 }
 
 # Initialisiere Datenbank mit Admin-User
 init_database() {
     print_step "Initialisiere Datenbank..."
-    
+
     # Prüfe ob Admin-User bereits existiert
     ADMIN_EXISTS=$(docker exec ipad_mongodb mongosh ipad_management --quiet --eval "db.users.countDocuments({username: 'admin'})")
-    
+
     if [ "$ADMIN_EXISTS" -gt 0 ]; then
         print_success "Admin-User bereits vorhanden"
     else
         print_warning "Erstelle Admin-User..."
-        
+
         # Erstelle Admin-User über Backend-API
         RESPONSE=$(curl -s -X POST http://localhost:8001/api/auth/register \
             -H "Content-Type: application/json" \
@@ -241,13 +241,13 @@ init_database() {
                 "password": "admin123",
                 "role": "admin"
             }')
-        
+
         if echo "$RESPONSE" | grep -q "id"; then
             print_success "Admin-User erstellt"
         else
             print_warning "Admin-User konnte nicht über API erstellt werden"
             print_warning "Erstelle direkt in Datenbank..."
-            
+
             # Fallback: Direkt in Datenbank erstellen
             docker exec ipad_mongodb mongosh ipad_management --eval "
                 db.users.insertOne({
@@ -260,11 +260,11 @@ init_database() {
                     created_at: new Date()
                 })
             " &> /dev/null
-            
+
             print_success "Admin-User direkt in Datenbank erstellt"
         fi
     fi
-    
+
     echo ""
 }
 
@@ -315,24 +315,24 @@ print_final_info() {
 # Hauptprogramm
 main() {
     print_header
-    
+
     # Prüfungen
     check_dependencies
     check_project_structure
-    
+
     # Setup
     setup_environment
-    
+
     # Docker
     build_containers
     start_services
-    
+
     # Warte auf Services
     wait_for_services
-    
+
     # Datenbank
     init_database
-    
+
     # Abschluss
     print_final_info
 }

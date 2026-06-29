@@ -16,7 +16,7 @@ module.exports = {
                         // Custom iPad Management Theme Colors
                         'ipad': {
                                 'dark-gray': '#5D5C61',
-                                'teal': '#379683', 
+                                'teal': '#379683',
                                 'blue': '#7395AE',
                                 'dark-blue': '#557A95',
                                 'beige': '#B1A296'

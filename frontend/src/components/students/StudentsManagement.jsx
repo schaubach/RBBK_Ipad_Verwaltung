@@ -19,29 +19,29 @@ const StudentsManagement = () => {
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [availableIPads, setAvailableIPads] = useState([]);
-  
+
   // Autocomplete states (now dialog-based)
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [searchDialogStudentId, setSearchDialogStudentId] = useState(null);
   const [ipadSearchQuery, setIpadSearchQuery] = useState('');
-  
+
   // Filter states
   const [studentVornameFilter, setStudentVornameFilter] = useState('');
   const [studentNachnameFilter, setStudentNachnameFilter] = useState('');
   const [studentKlasseFilter, setStudentKlasseFilter] = useState('');
-  
+
   // Sort states
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState('asc');
-  
+
   // Batch delete states
   const [selectedStudents, setSelectedStudents] = useState([]);
-  
+
   // Delete dialog states
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [studentToDelete, setStudentToDelete] = useState(null);
   const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
-  
+
   // Create dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newStudentData, setNewStudentData] = useState({
@@ -53,13 +53,13 @@ const StudentsManagement = () => {
     sus_ort: ''
   });
   const [creating, setCreating] = useState(false);
-  
+
   // iPad list dialog (click on "X iPad(s)" badge to see assigned iPads)
   const [ipadListDialogOpen, setIpadListDialogOpen] = useState(false);
   const [ipadListStudent, setIpadListStudent] = useState(null);
   const [ipadListData, setIpadListData] = useState([]);
   const [ipadListLoading, setIpadListLoading] = useState(false);
-  
+
   // Load iPads for a student
   const loadStudentIPads = async (student) => {
     setIpadListLoading(true);
@@ -71,7 +71,7 @@ const StudentsManagement = () => {
       const studentAssignments = assignmentsRes.data.filter(
         a => a.student_id === student.id && a.is_active
       );
-      
+
       // Get iPad details for each assignment
       const ipadsRes = await api.get('/ipads');
       const studentIPads = studentAssignments.map(assignment => {
@@ -82,7 +82,7 @@ const StudentsManagement = () => {
           assigned_at: assignment.assigned_at
         };
       }).filter(Boolean);
-      
+
       setIpadListData(studentIPads);
     } catch (error) {
       toast.error('Fehler beim Laden der iPad-Liste');
@@ -90,7 +90,7 @@ const StudentsManagement = () => {
       setIpadListLoading(false);
     }
   };
-  
+
   // Dissolve single assignment from student view
   const dissolveAssignmentFromStudent = async (assignmentId) => {
     try {
@@ -105,42 +105,42 @@ const StudentsManagement = () => {
       toast.error('Fehler beim Auflösen der Zuordnung');
     }
   };
-  
+
   // Filtered and sorted students
   const filteredStudents = students.filter(student => {
-    const vornMatch = !studentVornameFilter || 
+    const vornMatch = !studentVornameFilter ||
       student.sus_vorn?.toLowerCase().includes(studentVornameFilter.toLowerCase());
-    const nachMatch = !studentNachnameFilter || 
+    const nachMatch = !studentNachnameFilter ||
       student.sus_nachn?.toLowerCase().includes(studentNachnameFilter.toLowerCase());
-    const klMatch = !studentKlasseFilter || 
+    const klMatch = !studentKlasseFilter ||
       student.sus_kl?.toLowerCase().includes(studentKlasseFilter.toLowerCase());
-    
+
     return vornMatch && nachMatch && klMatch;
   }).sort((a, b) => {
     if (!sortField) return 0;
-    
+
     let aVal = a[sortField] || '';
     let bVal = b[sortField] || '';
-    
+
     // Handle assigned status (boolean -> number for 1:n)
     if (sortField === 'assigned') {
       aVal = a.assignment_count || 0;
       bVal = b.assignment_count || 0;
     }
-    
+
     // String comparison
     if (typeof aVal === 'string') {
       aVal = aVal.toLowerCase();
       bVal = bVal.toLowerCase();
     }
-    
+
     if (sortDirection === 'asc') {
       return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
     } else {
       return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
     }
   });
-  
+
   // Sort handler
   const handleSort = (field) => {
     if (sortField === field) {
@@ -150,7 +150,7 @@ const StudentsManagement = () => {
       setSortDirection('asc');
     }
   };
-  
+
   // Batch delete handlers
   const toggleStudentSelection = (studentId) => {
     setSelectedStudents(prev =>
@@ -159,7 +159,7 @@ const StudentsManagement = () => {
         : [...prev, studentId]
     );
   };
-  
+
   const toggleAllStudents = () => {
     if (selectedStudents.length === filteredStudents.length) {
       setSelectedStudents([]);
@@ -167,17 +167,17 @@ const StudentsManagement = () => {
       setSelectedStudents(filteredStudents.map(student => student.id));
     }
   };
-  
+
   const openBatchDeleteDialog = () => {
     if (selectedStudents.length === 0) return;
     setBatchDeleteDialogOpen(true);
   };
-  
+
   const handleBatchDelete = async () => {
     setDeleting(true);
     let successCount = 0;
     let errorCount = 0;
-    
+
     for (const studentId of selectedStudents) {
       try {
         await api.delete(`/students/${studentId}`);
@@ -187,10 +187,10 @@ const StudentsManagement = () => {
         console.error(`Failed to delete student ${studentId}:`, error);
       }
     }
-    
+
     setDeleting(false);
     setSelectedStudents([]);
-    
+
     if (successCount > 0) {
       toast.success(`${successCount} Schüler erfolgreich gelöscht`);
       loadStudents();
@@ -199,25 +199,25 @@ const StudentsManagement = () => {
       toast.error(`${errorCount} Schüler konnten nicht gelöscht werden`);
     }
   };
-  
+
   const confirmBatchDeleteStudents = async () => {
     setBatchDeleteDialogOpen(false);
     await handleBatchDelete();
   };
-  
+
   const handleCreateStudent = async () => {
     if (!newStudentData.sus_vorn || !newStudentData.sus_nachn) {
       toast.error('Vorname und Nachname sind Pflichtfelder');
       return;
     }
-    
+
     setCreating(true);
     try {
       const response = await api.post('/students', newStudentData);
       toast.success('Schüler erfolgreich angelegt!');
       setCreateDialogOpen(false);
       setNewStudentData({
-        sus_vorn: '', sus_nachn: '', sus_kl: '', 
+        sus_vorn: '', sus_nachn: '', sus_kl: '',
         sus_geb: '', sus_str: '', sus_ort: ''
       });
       loadStudents();
@@ -243,7 +243,7 @@ const StudentsManagement = () => {
       setLoading(false);
     }
   };
-  
+
   const loadAvailableIPads = async () => {
     try {
       const response = await api.get('/ipads/available-for-assignment');
@@ -262,15 +262,15 @@ const StudentsManagement = () => {
     setStudentToDelete(student);
     setDeleteDialogOpen(true);
   };
-  
+
   const confirmDeleteStudent = async () => {
     if (!studentToDelete) return;
 
     try {
       toast.info('Lösche Schüler und alle zugehörigen Daten...');
-      
+
       const response = await api.delete(`/students/${studentToDelete.id}`);
-      
+
       if (response && response.data) {
         const msg = response.data.message || 'Schüler gelöscht';
         const assignments = response.data.deleted_assignments || 0;
@@ -279,11 +279,11 @@ const StudentsManagement = () => {
       } else {
         toast.success('Schüler erfolgreich gelöscht');
       }
-      
+
       // Reload students list AND available iPads (freigegebene iPads!)
       await loadStudents();
       await loadAvailableIPads();
-      
+
     } catch (error) {
       console.error('Delete student error:', error);
       toast.error(error.response?.data?.detail || 'Fehler beim Löschen des Schülers');
@@ -296,28 +296,28 @@ const StudentsManagement = () => {
   const handleBatchDeleteStudents = async (deleteAll = false) => {
     const count = deleteAll ? students.length : filteredStudents.length;
     const type = deleteAll ? "ALLE" : "gefilterte";
-    
+
     // Build confirmation message
     const message = `⚠️ WARNUNG: Sie sind dabei ${count} ${type} Schüler zu löschen!\n\nFür jeden Schüler wird gelöscht:\n- Alle Zuordnungen\n- Alle Verträge\n- Komplette Historie\n- iPads werden freigegeben\n\nDies kann NICHT rückgängig gemacht werden!\n\nMöchten Sie fortfahren?`;
-    
+
     if (!window.confirm(message)) {
       return;
     }
-    
+
     // Second confirmation
     const secondConfirm = window.confirm(`🚨 LETZTE BESTÄTIGUNG\n\n${count} Schüler werden PERMANENT gelöscht!\n\nWirklich fortfahren?`);
-    
+
     if (!secondConfirm) {
       return;
     }
-    
+
     try {
       setDeleting(true);
       toast.info(`Lösche ${count} Schüler...`);
-      
+
       // Build filter parameters
       const filterParams = {};
-      
+
       if (deleteAll) {
         filterParams.all = true;
       } else {
@@ -326,16 +326,16 @@ const StudentsManagement = () => {
         if (studentNachnameFilter) filterParams.sus_nachn = studentNachnameFilter;
         if (studentKlasseFilter) filterParams.sus_kl = studentKlasseFilter;
       }
-      
+
       // Call batch delete endpoint
       const response = await api.post('/students/batch-delete', filterParams);
-      
+
       toast.success(`✅ ${response.data.deleted_count} Schüler gelöscht, ${response.data.freed_ipads} iPads freigegeben!`);
-      
+
       // Reload data AND available iPads (freigegebene iPads!)
       await loadStudents();
       await loadAvailableIPads();
-      
+
     } catch (error) {
       console.error('Batch delete students error:', error);
       toast.error(error.response?.data?.detail || 'Fehler beim Löschen der Schüler');
@@ -346,7 +346,7 @@ const StudentsManagement = () => {
 
   const handleManualIPadAssignment = async (studentId, ipadId) => {
     if (!ipadId || ipadId === 'none') return;
-    
+
     try {
       const response = await api.post('/assignments/manual', {
         student_id: studentId,
@@ -414,11 +414,11 @@ const StudentsManagement = () => {
                 />
               </div>
             </div>
-            
+
             {/* Action Buttons */}
             <div className="flex gap-2 flex-wrap">
               {(studentVornameFilter || studentNachnameFilter || studentKlasseFilter) && (
-                <Button 
+                <Button
                   onClick={() => {
                     setStudentVornameFilter('');
                     setStudentNachnameFilter('');
@@ -431,7 +431,7 @@ const StudentsManagement = () => {
               )}
             </div>
           </div>
-          
+
           {/* Batch Delete Button */}
           {selectedStudents.length > 0 && (
             <div className="mb-4">
@@ -444,7 +444,7 @@ const StudentsManagement = () => {
               </Button>
             </div>
           )}
-          
+
           {loading ? (
             <div className="text-center py-8">Lade Schüler...</div>
           ) : students.length === 0 ? (
@@ -462,7 +462,7 @@ const StudentsManagement = () => {
                         onCheckedChange={toggleAllStudents}
                       />
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('sus_nachn')}
                     >
@@ -473,7 +473,7 @@ const StudentsManagement = () => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('sus_kl')}
                     >
@@ -484,7 +484,7 @@ const StudentsManagement = () => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('assigned')}
                     >
@@ -495,7 +495,7 @@ const StudentsManagement = () => {
                         )}
                       </div>
                     </TableHead>
-                    <TableHead 
+                    <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('created_at')}
                     >
@@ -535,9 +535,9 @@ const StudentsManagement = () => {
                         </button>
                       </TableCell>
                       <TableCell>
-                        <Badge 
-                          className={`${(student.assignment_count && student.assignment_count > 0) 
-                            ? 'bg-green-100 text-green-800 cursor-pointer hover:bg-green-200' 
+                        <Badge
+                          className={`${(student.assignment_count && student.assignment_count > 0)
+                            ? 'bg-green-100 text-green-800 cursor-pointer hover:bg-green-200'
                             : 'bg-gray-100 text-gray-800'} transition-colors`}
                           onClick={() => student.assignment_count > 0 && loadStudentIPads(student)}
                           title={student.assignment_count > 0 ? 'Klicken um zugewiesene iPads anzuzeigen' : ''}
@@ -550,8 +550,8 @@ const StudentsManagement = () => {
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => setSelectedStudentId(student.id)}
                             title="Schülerdetails anzeigen"
@@ -573,8 +573,8 @@ const StudentsManagement = () => {
                           >
                             {student.assignment_count >= 3 ? 'Limit erreicht' : 'iPad zuordnen'}
                           </Button>
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => handleDeleteStudent(student)}
                             title="Schüler löschen (inkl. aller Daten, iPad wird freigegeben)"
@@ -664,8 +664,8 @@ const StudentsManagement = () => {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction 
-              onClick={handleCreateStudent} 
+            <AlertDialogAction
+              onClick={handleCreateStudent}
               disabled={creating || !newStudentData.sus_vorn || !newStudentData.sus_nachn}
             >
               {creating ? 'Erstelle...' : 'Schüler anlegen'}
@@ -673,7 +673,7 @@ const StudentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Delete Student Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
@@ -701,7 +701,7 @@ const StudentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Batch Delete Students Confirmation Dialog */}
       <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
         <AlertDialogContent>
@@ -729,7 +729,7 @@ const StudentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* iPad Search Dialog */}
       <AlertDialog open={searchDialogOpen} onOpenChange={setSearchDialogOpen}>
         <AlertDialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
@@ -749,8 +749,8 @@ const StudentsManagement = () => {
             />
             <div className="flex-1 overflow-y-auto border rounded-md">
               {availableIPads
-                .filter(ipad => 
-                  !ipadSearchQuery || 
+                .filter(ipad =>
+                  !ipadSearchQuery ||
                   ipad.itnr.toLowerCase().includes(ipadSearchQuery.toLowerCase())
                 )
                 .map((ipad) => (
@@ -774,8 +774,8 @@ const StudentsManagement = () => {
                     <div className="text-sm text-gray-500">Status: {ipad.status}</div>
                   </div>
                 ))}
-              {availableIPads.filter(ipad => 
-                !ipadSearchQuery || 
+              {availableIPads.filter(ipad =>
+                !ipadSearchQuery ||
                 ipad.itnr.toLowerCase().includes(ipadSearchQuery.toLowerCase())
               ).length === 0 && (
                 <div className="px-4 py-8 text-center text-gray-500">
@@ -789,7 +789,7 @@ const StudentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* iPad List Dialog - Shows assigned iPads when clicking "X iPad(s)" badge */}
       <AlertDialog open={ipadListDialogOpen} onOpenChange={setIpadListDialogOpen}>
         <AlertDialogContent className="max-w-lg">
@@ -817,7 +817,7 @@ const StudentsManagement = () => {
                               Typ: {ipad.typ || 'N/A'}
                             </div>
                             <div className="text-sm text-gray-600">
-                              Zugewiesen am: {ipad.assigned_at 
+                              Zugewiesen am: {ipad.assigned_at
                                 ? new Date(ipad.assigned_at).toLocaleDateString('de-DE')
                                 : 'N/A'}
                             </div>
@@ -857,11 +857,11 @@ const StudentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      
+
       {/* Student Detail Viewer Modal */}
       {selectedStudentId && (
-        <StudentDetailViewer 
-          studentId={selectedStudentId} 
+        <StudentDetailViewer
+          studentId={selectedStudentId}
           onClose={() => setSelectedStudentId(null)}
           onUpdate={loadStudents}
         />

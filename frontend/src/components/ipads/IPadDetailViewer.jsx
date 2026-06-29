@@ -74,7 +74,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
   }
 
   const { ipad, assignments, contracts } = ipadData;
-  
+
   const current_assignment = assignments?.find(a => a.is_active);
   const assignment_history = assignments || [];
   const current_contract = contracts?.find(c => c.is_active && c.assignment_id === current_assignment?.id);
@@ -109,7 +109,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
       toast.error(error.response?.data?.detail || 'Fehler beim Übernehmen');
     }
   };
-  
+
   const handleRelease = async () => {
     if (ipad.current_assignment_id) {
       if (!window.confirm(`iPad ${ipad.itnr} ist einem Schüler zugeordnet. Die Zuordnung wird automatisch aufgelöst. Fortfahren?`)) {
@@ -294,7 +294,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
                   <div><strong>Modell:</strong> {ipad.modell || 'N/A'}</div>
                   <div><strong>Pencil:</strong> {ipad.pencil || 'N/A'}</div>
                   <div><strong>Karton:</strong> {ipad.karton || 'N/A'}</div>
-                  <div><strong>Status:</strong> 
+                  <div><strong>Status:</strong>
                     <Badge className={`ml-2 ${
                       ipad.status === 'ok' ? 'bg-green-100 text-green-800' :
                       ipad.status === 'defekt' ? 'bg-yellow-100 text-yellow-800' :
@@ -353,8 +353,8 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
                       <div className="text-sm"><strong>Datei:</strong> {current_contract.filename}</div>
                       <div className="text-sm"><strong>Hochgeladen:</strong> {new Date(current_contract.uploaded_at).toLocaleDateString('de-DE')}</div>
                     </div>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={() => handleDownload(current_contract.id, current_contract.filename)}
                     >
@@ -459,8 +459,8 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
                           <Badge className={contract.is_active ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}>
                             {contract.is_active ? 'Aktiv' : 'Historisch'}
                           </Badge>
-                          <Button 
-                            variant="outline" 
+                          <Button
+                            variant="outline"
                             size="sm"
                             onClick={() => handleDownload(contract.id, contract.filename)}
                           >

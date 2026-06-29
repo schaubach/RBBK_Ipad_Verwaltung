@@ -2,62 +2,23 @@
 
 Auto-extracted from monolithic server.py during refactor (Session 12).
 """
+
 import io
-import json
-import os
-import random
-import re
-import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import List, Optional
 
-import pandas as pd
-import PyPDF2
-import xlsxwriter
-from fastapi import Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
-from starlette.requests import Request
-
+from contract_generator import create_contracts_from_assignments
 from core.config import (
-    ACCESS_TOKEN_EXPIRE_MINUTES,
-    MAX_CONTRACTS_PER_STUDENT,
-    MAX_IPADS_PER_STUDENT,
     db,
-    limiter,
 )
-from core.mongo import parse_from_mongo, prepare_for_mongo
 from core.router import api_router
 from core.security import (
-    create_access_token,
     get_current_user,
-    get_ipad_filter_with_pool,
-    get_password_hash,
     get_user_filter,
-    is_admin,
-    require_admin,
-    validate_resource_ownership,
-    verify_password,
 )
-from core.validators import is_contract_validated, sanitize_input, validate_uploaded_file
-from models.assignment import (
-    Assignment,
-    AssignmentResponse,
-    ManualAssignmentRequest,
-    UploadResponse,
-)
-from models.contract import AssignmentHistory, Contract
-from models.ipad import iPad
-from models.student import Student, StudentWithAssignmentCount
-from models.user import (
-    LoginResponse,
-    User,
-    UserCreate,
-    UserLogin,
-    UserResponse,
-    UserUpdate,
-)
-from contract_generator import create_contracts_from_assignments
+from fastapi import Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 
 # Contract Generation
@@ -69,14 +30,14 @@ class GenerateContractsRequest(BaseModel):
 async def generate_contracts(
     request: Optional[GenerateContractsRequest] = None,
     sus_vorn: Optional[str] = None,
-    sus_nachn: Optional[str] = None, 
+    sus_nachn: Optional[str] = None,
     sus_kl: Optional[str] = None,
     itnr: Optional[str] = None,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Generate PDF contracts as encrypted ZIP archives.
-    
+
     Supports two modes:
     1. Filter-based: Use query parameters (sus_vorn, sus_nachn, sus_kl, itnr)
     2. Selection-based: Pass assignment_ids in request body
@@ -84,14 +45,10 @@ async def generate_contracts(
     try:
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
-        
+
         # Mode 1: Selection-based (assignment_ids provided)
         if request and request.assignment_ids:
-            assignment_filter = {
-                "id": {"$in": request.assignment_ids},
-                "is_active": True,
-                **user_filter
-            }
+            assignment_filter = {"id": {"$in": request.assignment_ids}, "is_active": True, **user_filter}
             assignments = await db.assignments.find(assignment_filter).to_list(length=None)
         else:
             # Mode 2: Filter-based (query parameters)
@@ -103,30 +60,30 @@ async def generate_contracts(
                 student_filter["sus_nachn"] = {"$regex": sus_nachn, "$options": "i"}
             if sus_kl:
                 student_filter["sus_kl"] = {"$regex": sus_kl, "$options": "i"}
-            
+
             # Build filter query for assignments (IT-Nummer) with user filter!
             assignment_filter = user_filter.copy()
             assignment_filter["is_active"] = True
             if itnr:
                 assignment_filter["itnr"] = {"$regex": itnr, "$options": "i"}
-            
+
             if sus_vorn or sus_nachn or sus_kl:
                 # Get matching students (filtered by user_id!)
                 students = await db.students.find(student_filter).to_list(length=None)
                 student_ids = [s["id"] for s in students]
-                
+
                 if not student_ids:
                     raise HTTPException(status_code=404, detail="Keine passenden Zuordnungen gefunden")
-                
+
                 # Add student filter to assignment filter
                 assignment_filter["student_id"] = {"$in": student_ids}
-            
+
             # Get assignments matching all filters (filtered by user_id!)
             assignments = await db.assignments.find(assignment_filter).to_list(length=None)
-        
+
         if not assignments:
             raise HTTPException(status_code=404, detail="Keine Zuordnungen gefunden")
-        
+
         # Prepare data for contract generation
         contract_data = []
         for assignment in assignments:
@@ -134,14 +91,14 @@ async def generate_contracts(
             student = await db.students.find_one({"id": assignment["student_id"]})
             # Get iPad data
             ipad = await db.ipads.find_one({"id": assignment["ipad_id"]})
-            
+
             if student and ipad:
                 # Format Geburtstag to DD.MM.YYYY
                 geburtstag_formatted = ""
                 if student.get("sus_geb"):
                     try:
                         geb_str = str(student["sus_geb"]).strip()
-                        if geb_str and geb_str.lower() != 'nan':
+                        if geb_str and geb_str.lower() != "nan":
                             if "." in geb_str:
                                 parts = geb_str.split(".")
                                 if len(parts) == 3:
@@ -157,18 +114,18 @@ async def generate_contracts(
                                 geburtstag_formatted = geb_str
                     except:
                         pass
-                
+
                 # Format AusleiheDatum
                 ausleihe_datum_formatted = ""
                 if assignment.get("assigned_at"):
                     try:
                         assigned_str = str(assignment["assigned_at"])
                         if "T" in assigned_str:
-                            date_obj = datetime.fromisoformat(assigned_str.replace('Z', '+00:00'))
+                            date_obj = datetime.fromisoformat(assigned_str.replace("Z", "+00:00"))
                             ausleihe_datum_formatted = date_obj.strftime("%d.%m.%Y")
                     except:
                         pass
-                
+
                 row_data = {
                     "sus_vorn": student.get("sus_vorn", ""),
                     "sus_nachn": student.get("sus_nachn", ""),
@@ -195,37 +152,33 @@ async def generate_contracts(
                     "ausleihe_datum": ausleihe_datum_formatted,
                 }
                 contract_data.append(row_data)
-        
+
         if not contract_data:
             raise HTTPException(status_code=404, detail="Keine gültigen Daten für Vertragserstellung gefunden")
-        
+
         # Generate contracts
         zip_bytes, success_count, error_count, errors = create_contracts_from_assignments(contract_data)
-        
+
         if success_count == 0:
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Keine Verträge erstellt. Fehler: {'; '.join(errors[:5])}"
-            )
-        
+            raise HTTPException(status_code=500, detail=f"Keine Verträge erstellt. Fehler: {'; '.join(errors[:5])}")
+
         # Create filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"Vertraege_{timestamp}.zip"
-        
+
         return StreamingResponse(
             io.BytesIO(zip_bytes),
-            media_type='application/zip',
+            media_type="application/zip",
             headers={
                 "Content-Disposition": f"attachment; filename={filename}",
                 "X-Success-Count": str(success_count),
-                "X-Error-Count": str(error_count)
-            }
+                "X-Error-Count": str(error_count),
+            },
         )
-        
+
     except HTTPException:
         raise
     except FileNotFoundError as e:
         raise HTTPException(status_code=500, detail=f"Vorlagendatei nicht gefunden: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fehler bei der Vertragserstellung: {str(e)}")
-

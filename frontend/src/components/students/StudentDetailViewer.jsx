@@ -351,7 +351,7 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div><strong>iPad ITNr:</strong> {current_assignment.itnr}</div>
                     <div><strong>Zugewiesen am:</strong> {new Date(current_assignment.assigned_at).toLocaleDateString('de-DE')}</div>
-                    <div><strong>Vertrag:</strong> 
+                    <div><strong>Vertrag:</strong>
                       <Badge className={current_assignment.contract_id ? 'bg-green-100 text-green-800 ml-2' : 'bg-gray-100 text-gray-800 ml-2'}>
                         {current_assignment.contract_id ? 'Vorhanden' : 'Fehlend'}
                       </Badge>
@@ -414,8 +414,8 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
                           <Badge className={contract.is_active ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}>
                             {contract.is_active ? 'Aktiv' : 'Historisch'}
                           </Badge>
-                          <Button 
-                            size="sm" 
+                          <Button
+                            size="sm"
                             variant="outline"
                             onClick={async () => {
                               try {

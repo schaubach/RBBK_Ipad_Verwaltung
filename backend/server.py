@@ -5,17 +5,14 @@ CORS, logging and the shared `api_router` populated by the modules under
 `routes/`. All business logic lives in `routes/`, all helpers in `core/`,
 all Pydantic models in `models/`.
 """
+
 import logging
 import os
-
-from fastapi import FastAPI
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from starlette.middleware.cors import CORSMiddleware
 
 from core.config import client, limiter
 from core.middleware import SecurityHeadersMiddleware
 from core.router import api_router
+from fastapi import FastAPI
 
 # Importing the route modules registers their endpoints onto `api_router`.
 # Keep the imports here even though some IDEs flag them as unused.
@@ -31,6 +28,9 @@ from routes import (  # noqa: F401
     settings,
     students,
 )
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.cors import CORSMiddleware
 
 # ---------------------------------------------------------------------------
 # FastAPI app setup
@@ -48,9 +48,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
     allow_origins=os.environ.get(
-        'CORS_ORIGINS',
-        'http://localhost:3000,https://vertraege-lab.preview.emergentagent.com',
-    ).split(','),
+        "CORS_ORIGINS",
+        "http://localhost:3000,https://vertraege-lab.preview.emergentagent.com",
+    ).split(","),
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
@@ -58,7 +58,7 @@ app.add_middleware(
 # Logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 

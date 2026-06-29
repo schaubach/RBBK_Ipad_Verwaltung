@@ -47,24 +47,24 @@ window.SESSION_CONFIG = {
 // Environment Detection
 window.APP_ENV = (function() {
   var hostname = window.location.hostname;
-  
+
   // Emergent Preview
   if (hostname.includes('emergentagent.com') || hostname.includes('preview.emergent')) {
     return 'emergent';
   }
-  
+
   // Lokale Entwicklung
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return 'development';
   }
-  
+
   // Produktion: Alles andere (IP-Adressen, Domains, etc.)
   // Wenn über Port 80/443 oder ohne Port = Produktion
   var port = window.location.port;
   if (!port || port === '80' || port === '443') {
     return 'production';
   }
-  
+
   return 'development';
 })();
 

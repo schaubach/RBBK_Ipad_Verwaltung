@@ -1,0 +1,44 @@
+# Ruff configuration — see https://docs.astral.sh/ruff/configuration/
+# Scope: backend/ only (frontend uses ESLint).
+target-version = "py311"
+line-length = 120
+
+[lint]
+# E,F = pyflakes + pycodestyle errors (the important ones)
+# W   = warnings
+# B   = flake8-bugbear (catches real bugs like mutable defaults)
+# I   = import sorting
+# UP  = pyupgrade (modernize syntax)
+# S   = bandit (security)
+select = ["E", "F", "W", "B", "I", "UP", "S"]
+
+# Things we explicitly DO NOT want to enforce yet:
+# E501 — line-too-long (already covered by formatter)
+# E722 — bare except (legacy code has many, fix gradually)
+# B008 — function-call-in-default-arg (FastAPI Depends() needs this)
+# UP006/UP007 — modern typing (forces `list` over `List`, would require huge rewrite)
+# S101 — assert used (fine in dev/tests)
+# S104 — bind 0.0.0.0 (intentional in our K8s env)
+# S105/S106 — hardcoded password (false positives on "password" strings)
+# S311 — random not for crypto (used for non-security purposes)
+# Things we explicitly DO NOT want to enforce yet:
+# E501  — line-too-long (formatter handles long lines)
+# E722  — bare except (legacy code has many, fix gradually)
+# B008  — function-call-in-default-arg (FastAPI Depends() needs this)
+# B904  — exception chaining (would require touching 24 raise statements)
+# UP006/UP007/UP035 — modern typing (List → list rewrite touches every file)
+# S101  — assert (fine in tests/dev)
+# S104  — bind 0.0.0.0 (intentional in K8s container)
+# S105/S106 — hardcoded password (false positives on plain "password" string literals)
+# S110  — try-except-pass (acceptable for best-effort cleanup paths)
+# S113  — requests without timeout (test code uses session)
+# S311  — random for non-crypto use
+ignore = ["E501", "E722", "B008", "B904", "UP006", "UP007", "UP035", "S101", "S104", "S105", "S106", "S110", "S113", "S311"]
+
+[lint.per-file-ignores]
+# Tests use plenty of patterns Ruff would otherwise flag
+"backend/tests/**/*.py" = ["S101", "S110", "S113", "E722", "F841", "B904", "E702"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

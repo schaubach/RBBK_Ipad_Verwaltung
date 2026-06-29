@@ -5,13 +5,13 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#379683" />
         <meta name="description" content="iPad-Verwaltung - RBBK Dortmund" />
-        
-        <!-- 
+
+        <!--
         Content Security Policy
         ========================
         Konfiguriert für Docker/Intranet: Same-Origin API (/api/*)
         Alle API-Aufrufe gehen über Nginx Reverse Proxy.
-        
+
         Hinweis: frame-ancestors und X-Frame-Options funktionieren nur via HTTP-Header (Nginx).
         -->
         <meta http-equiv="Content-Security-Policy" content="
@@ -26,23 +26,23 @@
             base-uri 'self';
             form-action 'self';
         ">
-        
+
         <meta http-equiv="X-Content-Type-Options" content="nosniff" />
         <meta name="referrer" content="strict-origin-when-cross-origin" />
-        
+
         <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
         <link rel="icon" type="image/svg+xml" href="%PUBLIC_URL%/favicon.svg" />
         <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-        
+
         <title>iPad-Verwaltung - RBBK Dortmund</title>
-        
+
         <!-- Runtime Configuration - MUSS VOR React geladen werden -->
         <script src="%PUBLIC_URL%/config.js"></script>
     </head>
     <body>
         <noscript>Sie müssen JavaScript aktivieren, um diese Anwendung zu nutzen.</noscript>
         <div id="root"></div>
-        
+
         <!-- RBBK Logo Badge -->
         <a
             id="rbbk-badge"

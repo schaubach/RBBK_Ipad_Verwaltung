@@ -1,7 +1,8 @@
 """iPad model."""
-from datetime import datetime, timezone
-from typing import List, Optional
+
 import uuid
+from datetime import UTC, datetime
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -21,5 +22,5 @@ class iPad(BaseModel):
     current_assignment_id: Optional[str] = None
     is_in_pool: bool = False
     pool_history: List[dict] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

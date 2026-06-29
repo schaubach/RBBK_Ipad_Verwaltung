@@ -1,7 +1,8 @@
 """Student models."""
-from datetime import datetime, timezone
-from typing import Optional
+
 import uuid
+from datetime import UTC, datetime
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,8 +28,8 @@ class Student(BaseModel):
     erz2_str_hnr: Optional[str] = None
     erz2_plz: Optional[str] = None
     erz2_ort: Optional[str] = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class StudentWithAssignmentCount(Student):

@@ -1,4 +1,5 @@
 """Mongo (de)serialization helpers."""
+
 from datetime import datetime
 
 
@@ -13,7 +14,7 @@ def prepare_for_mongo(data):
 def parse_from_mongo(item):
     if isinstance(item, dict):
         for key, value in item.items():
-            if isinstance(value, str) and key.endswith('_at'):
+            if isinstance(value, str) and key.endswith("_at"):
                 try:
                     item[key] = datetime.fromisoformat(value)
                 except Exception:

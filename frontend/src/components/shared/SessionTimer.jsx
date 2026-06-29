@@ -17,7 +17,7 @@ const SessionTimer = ({ onLogout }) => {
 
     // Activity events to monitor
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-    
+
     events.forEach(event => {
       document.addEventListener(event, updateActivity, true);
     });
@@ -41,7 +41,7 @@ const SessionTimer = ({ onLogout }) => {
     const warningTimer = setInterval(() => {
       const current = Date.now();
       const timeSinceActivity = (current - lastActivity) / 1000;
-      
+
       if (timeSinceActivity >= 25 * 60 && timeSinceActivity < 25 * 60 + 5) { // 25 minutes
         toast.warning('Session läuft in 5 Minuten ab. Bewegen Sie die Maus, um die Session zu verlängern.');
       }

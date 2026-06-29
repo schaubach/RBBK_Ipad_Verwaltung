@@ -12,15 +12,17 @@ Covers:
 - Contract generation: zipfile readable, inner ZIP password-protected (ZipCrypto)
 - User deletion preserving pool iPads
 """
+
 import io
 import os
 import time
 import uuid
 import zipfile
-import requests
-import pytest
-import pyminizip  # noqa: F401  (ensures backend deps available)
+
 import pandas as pd
+import pyminizip  # noqa: F401  (ensures backend deps available)
+import pytest
+import requests
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://vertraege-lab.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
@@ -30,6 +32,7 @@ ADMIN_PASS = "admin123"
 
 
 # ---------- Fixtures ----------
+
 
 def _login(username, password):
     r = requests.post(f"{API}/auth/login", json={"username": username, "password": password}, timeout=30)
@@ -124,6 +127,7 @@ def cleanup_after(admin_client):
 
 # ---------- AUTH ----------
 
+
 class TestAuth:
     def test_admin_login(self):
         r = _login(ADMIN_USER, ADMIN_PASS)
@@ -144,7 +148,7 @@ class TestAuth:
         # /api/auth/me requires Authorization header OR cookie - test cookie path
         me = s.get(f"{API}/auth/me")
         # Accept 200 (cookie OK) or document issue
-        cookie_works = (me.status_code == 200)
+        cookie_works = me.status_code == 200
         out = s.post(f"{API}/auth/logout")
         assert out.status_code == 200
         me2 = s.get(f"{API}/auth/me")
@@ -155,6 +159,7 @@ class TestAuth:
 
 
 # ---------- RBAC ----------
+
 
 class TestRBAC:
     def test_user_cannot_update_global_settings(self, user_client):
@@ -189,13 +194,14 @@ class TestRBAC:
 
 # ---------- Pool Feature ----------
 
+
 class TestPool:
     def test_admin_create_pool_ipad(self, admin_client):
         itnr = f"TEST_POOL_{uuid.uuid4().hex[:8]}"
-        r = admin_client.post(f"{API}/ipads", json={
-            "itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}",
-            "is_in_pool": True, "modell": "iPad 9. Gen"
-        })
+        r = admin_client.post(
+            f"{API}/ipads",
+            json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True, "modell": "iPad 9. Gen"},
+        )
         assert r.status_code == 200, r.text
         ipad = r.json()
         _created_ipads.append(ipad["id"])
@@ -204,7 +210,9 @@ class TestPool:
 
     def test_pool_ipad_visible_to_both(self, admin_client, user_client):
         itnr = f"TEST_POOL_VIS_{uuid.uuid4().hex[:6]}"
-        r = admin_client.post(f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True})
+        r = admin_client.post(
+            f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True}
+        )
         assert r.status_code == 200
         ipad_id = r.json()["id"]
         _created_ipads.append(ipad_id)
@@ -218,7 +226,9 @@ class TestPool:
 
     def test_user_claim_pool_ipad(self, admin_client, user_client, test_user):
         itnr = f"TEST_POOL_CLAIM_{uuid.uuid4().hex[:6]}"
-        r = admin_client.post(f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True})
+        r = admin_client.post(
+            f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True}
+        )
         assert r.status_code == 200
         ipad_id = r.json()["id"]
         _created_ipads.append(ipad_id)
@@ -237,8 +247,11 @@ class TestPool:
 
     def test_race_condition_claim(self, admin_client, user_client):
         from concurrent.futures import ThreadPoolExecutor
+
         itnr = f"TEST_RACE_{uuid.uuid4().hex[:6]}"
-        r = admin_client.post(f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True})
+        r = admin_client.post(
+            f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True}
+        )
         ipad_id = r.json()["id"]
         _created_ipads.append(ipad_id)
 
@@ -256,7 +269,9 @@ class TestPool:
     def test_release_to_pool_dissolves_assignment(self, admin_client, user_client, test_user):
         # Create iPad owned by user (via pool claim)
         itnr = f"TEST_REL_{uuid.uuid4().hex[:6]}"
-        r = admin_client.post(f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True})
+        r = admin_client.post(
+            f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True}
+        )
         ipad_id = r.json()["id"]
         _created_ipads.append(ipad_id)
         user_client.post(f"{API}/ipads/{ipad_id}/claim")
@@ -282,7 +297,9 @@ class TestPool:
         ids = []
         for _ in range(3):
             itnr = f"TEST_BULK_{uuid.uuid4().hex[:6]}"
-            r = admin_client.post(f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True})
+            r = admin_client.post(
+                f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True}
+            )
             ipad_id = r.json()["id"]
             ids.append(ipad_id)
             _created_ipads.append(ipad_id)
@@ -297,11 +314,16 @@ class TestPool:
 
     def test_one_step_claim_and_assign(self, admin_client, user_client):
         itnr = f"TEST_ONESTEP_{uuid.uuid4().hex[:6]}"
-        r = admin_client.post(f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True})
+        r = admin_client.post(
+            f"{API}/ipads", json={"itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}", "is_in_pool": True}
+        )
         ipad_id = r.json()["id"]
         _created_ipads.append(ipad_id)
 
-        sr = user_client.post(f"{API}/students", json={"sus_vorn": "One", "sus_nachn": f"Step{uuid.uuid4().hex[:4]}", "sus_geb": "02.02.2010"})
+        sr = user_client.post(
+            f"{API}/students",
+            json={"sus_vorn": "One", "sus_nachn": f"Step{uuid.uuid4().hex[:4]}", "sus_geb": "02.02.2010"},
+        )
         assert sr.status_code == 200
         student_id = sr.json()["id"]
         _created_students.append(student_id)
@@ -312,16 +334,23 @@ class TestPool:
         assert body.get("claimed_from_pool") is True
 
     def test_pool_import_via_excel(self, admin_client):
-        df = pd.DataFrame([
-            {"ITNr": f"TEST_PIMP_{uuid.uuid4().hex[:6]}", "SNr": f"S{uuid.uuid4().hex[:6]}", "Modell": "iPad Air"},
-            {"ITNr": f"TEST_PIMP_{uuid.uuid4().hex[:6]}", "SNr": f"S{uuid.uuid4().hex[:6]}", "Modell": "iPad Pro 11"},
-        ])
+        df = pd.DataFrame(
+            [
+                {"ITNr": f"TEST_PIMP_{uuid.uuid4().hex[:6]}", "SNr": f"S{uuid.uuid4().hex[:6]}", "Modell": "iPad Air"},
+                {
+                    "ITNr": f"TEST_PIMP_{uuid.uuid4().hex[:6]}",
+                    "SNr": f"S{uuid.uuid4().hex[:6]}",
+                    "Modell": "iPad Pro 11",
+                },
+            ]
+        )
         buf = io.BytesIO()
-        df.to_excel(buf, index=False, engine='openpyxl')
+        df.to_excel(buf, index=False, engine="openpyxl")
         buf.seek(0)
 
-        files = {"file": ("import.xlsx", buf.getvalue(),
-                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+        files = {
+            "file": ("import.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        }
         headers = {"Authorization": admin_client.headers["Authorization"]}
         r = requests.post(f"{API}/imports/inventory", files=files, data={"import_to_pool": "true"}, headers=headers)
         assert r.status_code == 200, r.text
@@ -341,14 +370,22 @@ class TestPool:
     def test_pool_import_global_unique(self, admin_client):
         itnr = f"TEST_UNQ_{uuid.uuid4().hex[:6]}"
         df = pd.DataFrame([{"ITNr": itnr, "SNr": "S1"}])
-        buf = io.BytesIO(); df.to_excel(buf, index=False, engine='openpyxl'); buf.seek(0)
-        files = {"file": ("imp.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+        buf = io.BytesIO()
+        df.to_excel(buf, index=False, engine="openpyxl")
+        buf.seek(0)
+        files = {
+            "file": ("imp.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        }
         headers = {"Authorization": admin_client.headers["Authorization"]}
         r1 = requests.post(f"{API}/imports/inventory", files=files, data={"import_to_pool": "true"}, headers=headers)
         assert r1.status_code == 200
         # second import same itnr → skipped
-        buf2 = io.BytesIO(); df.to_excel(buf2, index=False, engine='openpyxl'); buf2.seek(0)
-        files2 = {"file": ("imp.xlsx", buf2.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+        buf2 = io.BytesIO()
+        df.to_excel(buf2, index=False, engine="openpyxl")
+        buf2.seek(0)
+        files2 = {
+            "file": ("imp.xlsx", buf2.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        }
         r2 = requests.post(f"{API}/imports/inventory", files=files2, data={"import_to_pool": "true"}, headers=headers)
         assert r2.status_code == 200, r2.text
         body = r2.json()
@@ -370,9 +407,11 @@ class TestPool:
         lr = _login(uname, "Pwd123!!")
         if lr.json().get("force_password_change"):
             tk = lr.json()["access_token"]
-            requests.put(f"{API}/auth/change-password-forced",
-                         json={"current_password": "Pwd123!!", "new_password": "Pwd123!!new"},
-                         headers={"Authorization": f"Bearer {tk}"})
+            requests.put(
+                f"{API}/auth/change-password-forced",
+                json={"current_password": "Pwd123!!", "new_password": "Pwd123!!new"},
+                headers={"Authorization": f"Bearer {tk}"},
+            )
             lr = _login(uname, "Pwd123!!new")
         user_token = lr.json()["access_token"]
         user_sess = requests.Session()
@@ -400,6 +439,7 @@ class TestPool:
 
 
 # ---------- modell field ----------
+
 
 class TestModellField:
     def test_create_with_modell(self, admin_client):
@@ -438,25 +478,32 @@ class TestModellField:
         r = admin_client.post(f"{API}/ipads", json={"itnr": itnr, "snr": "S", "modell": "iPad Air 5"})
         _created_ipads.append(r.json()["id"])
 
-        exp = requests.get(f"{API}/exports/inventory",
-                           headers={"Authorization": admin_client.headers["Authorization"]})
+        exp = requests.get(f"{API}/exports/inventory", headers={"Authorization": admin_client.headers["Authorization"]})
         assert exp.status_code == 200, exp.text
-        df = pd.read_excel(io.BytesIO(exp.content), engine='openpyxl')
+        df = pd.read_excel(io.BytesIO(exp.content), engine="openpyxl")
         assert "Modell" in df.columns, f"Modell column missing, got: {list(df.columns)}"
 
 
 # ---------- Contract Generation ----------
+
 
 class TestContracts:
     def test_generate_contracts_zip(self, admin_client):
         # Need at least one assignment with all required fields. Use admin context.
         # Create student + ipad + assign
         student_payload = {
-            "sus_vorn": "TESTC", "sus_nachn": f"Reg{uuid.uuid4().hex[:4]}",
-            "sus_kl": "10A", "sus_geb": "15.05.2008",
-            "sus_str_hnr": "Teststr 1", "sus_plz": "12345", "sus_ort": "Berlin",
-            "erz1_vorn": "Mom", "erz1_nachn": "Test",
-            "erz1_str_hnr": "Teststr 1", "erz1_plz": "12345", "erz1_ort": "Berlin",
+            "sus_vorn": "TESTC",
+            "sus_nachn": f"Reg{uuid.uuid4().hex[:4]}",
+            "sus_kl": "10A",
+            "sus_geb": "15.05.2008",
+            "sus_str_hnr": "Teststr 1",
+            "sus_plz": "12345",
+            "sus_ort": "Berlin",
+            "erz1_vorn": "Mom",
+            "erz1_nachn": "Test",
+            "erz1_str_hnr": "Teststr 1",
+            "erz1_plz": "12345",
+            "erz1_ort": "Berlin",
         }
         sr = admin_client.post(f"{API}/students", json=student_payload)
         assert sr.status_code == 200, sr.text
@@ -464,11 +511,17 @@ class TestContracts:
         _created_students.append(student_id)
 
         itnr = f"TEST_CT_{uuid.uuid4().hex[:6]}"
-        ipr = admin_client.post(f"{API}/ipads", json={
-            "itnr": itnr, "snr": f"SN-{uuid.uuid4().hex[:6]}",
-            "modell": "iPad 9. Gen", "ansch_jahr": "2024",
-            "ausleihe_datum": "01.09.2024", "typ": "Apple iPad",
-        })
+        ipr = admin_client.post(
+            f"{API}/ipads",
+            json={
+                "itnr": itnr,
+                "snr": f"SN-{uuid.uuid4().hex[:6]}",
+                "modell": "iPad 9. Gen",
+                "ansch_jahr": "2024",
+                "ausleihe_datum": "01.09.2024",
+                "typ": "Apple iPad",
+            },
+        )
         assert ipr.status_code == 200, ipr.text
         ipad_id = ipr.json()["id"]
         _created_ipads.append(ipad_id)
@@ -497,8 +550,9 @@ class TestContracts:
         assert inner_names, "Inner zip is empty"
         # Verify inner zip entries are flagged encrypted
         infos = inner.infolist()
-        assert any(bool(i.flag_bits & 0x1) for i in infos), \
-            f"Inner ZIP not encrypted! flag_bits: {[hex(i.flag_bits) for i in infos]}"
+        assert any(
+            bool(i.flag_bits & 0x1) for i in infos
+        ), f"Inner ZIP not encrypted! flag_bits: {[hex(i.flag_bits) for i in infos]}"
 
         # Wrong password should fail
         try:
@@ -528,7 +582,9 @@ class TestContracts:
         _created_students.append(student_id)
 
         itnr = f"TEST_MFX_{uuid.uuid4().hex[:6]}"
-        ipr = admin_client.post(f"{API}/ipads", json={"itnr": itnr, "snr": ""})  # snr empty triggers missing? snr required
+        ipr = admin_client.post(
+            f"{API}/ipads", json={"itnr": itnr, "snr": ""}
+        )  # snr empty triggers missing? snr required
         # snr is required → cannot create. Use a valid SNr + missing modell instead
         if ipr.status_code != 200:
             ipr = admin_client.post(f"{API}/ipads", json={"itnr": itnr, "snr": "x"})

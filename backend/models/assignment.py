@@ -1,7 +1,8 @@
 """Assignment models."""
-from datetime import datetime, timezone
-from typing import List, Optional
+
 import uuid
+from datetime import UTC, datetime
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +15,7 @@ class Assignment(BaseModel):
     itnr: str
     student_name: str
     is_active: bool = True
-    assigned_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    assigned_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     unassigned_at: Optional[datetime] = None
     contract_id: Optional[str] = None
     contract_warning: Optional[bool] = False
