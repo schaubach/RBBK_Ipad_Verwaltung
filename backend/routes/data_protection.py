@@ -60,7 +60,8 @@ from models.user import (
 
 @api_router.post("/data-protection/cleanup-old-data")
 async def cleanup_old_data(current_user: dict = Depends(get_current_user)):
-    """Delete students and contracts older than 5 years"""
+    """Delete students and contracts older than 5 years (Admin only)."""
+    require_admin(current_user)
     try:
         five_years_ago = datetime.now(timezone.utc) - timedelta(days=5*365)
         

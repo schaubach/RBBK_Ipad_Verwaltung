@@ -221,7 +221,31 @@ Getestet via curl mit echtem User-Token: alle RBAC-Checks bestanden ✅
 
 ---
 
-## Session 11 (25.06.2026) — Admin: Pool-iPad an User zuweisen ✅ VERIFIZIERT
+## Session 17 (29.06.2026) — server.py Refactoring ✅ ABGESCHLOSSEN + verifiziert
+
+**Refactor:**
+- Monolithisches `server.py` (4331 Zeilen) → schlanker Entry-Point (68 Zeilen, nur App-Setup + `app.include_router`)
+- Neue Struktur passend zu Frontend:
+  - `core/` (7 Module): `config.py`, `router.py`, `security.py`, `validators.py`, `mongo.py`, `middleware.py`, `__init__.py`
+  - `models/` (5 Module): `user.py`, `ipad.py`, `student.py`, `assignment.py`, `contract.py`
+  - `routes/` (10 Module): `auth.py`, `admin_users.py`, `ipads.py`, `students.py`, `assignments.py`, `contracts.py`, `settings.py`, `imports_exports.py`, `data_protection.py`, `contract_generation.py`
+- Alle 59 API-Endpoints unverändert in der gleichen URL-Struktur
+- Single `api_router = APIRouter(prefix="/api")` in `core/router.py`, von allen Route-Modulen geteilt → kein Decorator-Rewriting nötig
+
+**Verifiziert (Testing-Agent + curl):**
+- ✅ Testing-Agent: 24/25 PASS (alle Endpoints reagieren, Pool-Lifecycle, Rate-Limit, Vertrag-Export-Spalten, RBAC)
+- ✅ AST-Parse + Import: alle 25 Module fehlerfrei
+- ✅ Smoke-Test: 12 GET-Endpoints liefern HTTP 200
+
+**Security-Fix (vorher schon offen, jetzt geschlossen):**
+- `POST /api/data-protection/cleanup-old-data` war auf "authenticated"-Level statt "admin"
+- Fix: `require_admin(current_user)` ergänzt
+- Verifiziert: Standard-User → 403, Admin → 200
+
+**Pre-Existing Issues (NICHT durch Refactor, nicht in Scope):**
+- `PUT /api/ipads/{id}/status` nutzt Query-Parameter statt JSON-Body (Inkonsistenz, aber Frontend funktioniert)
+- Mehrere Lint-Warnings (bare `except`, unused vars) — bestanden bereits in der Monolith-Version
+
 
 **Feature:** Admin kann ein oder mehrere Pool-iPads explizit einem bestimmten Standard-User zuweisen.
 
