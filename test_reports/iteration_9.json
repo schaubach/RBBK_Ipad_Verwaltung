@@ -1,0 +1,40 @@
+{
+  "summary": "Sanity/regression backend-only iteration verifying the libmagic defensive-import fix. Backend is UP after the fix: /api/auth/me returns 401 (not 502/504), admin login works, HttpOnly cookie is set, /me returns admin user. Defensive try/except in /app/backend/core/validators.py (ImportError + OSError) is correctly in place; simulated libmagic outage was reproduced in-process and the app degraded gracefully (extension/size checks still block bad files). All primary endpoints from the review request work: contract PDF upload, xlsx inventory import, inventory export, assignments export, assignments export-selected. Full 38-test refactor regression suite + all 9 admin cross-owner focused tests + 10 new libmagic-fix tests ALL PASS. Only pre-existing test-suite friction observed: two tests in the older test_contracts.py file rely on process-level env var REACT_APP_BACKEND_URL (not the .env file) and got hit by 5/min login rate limit — these are TEST issues, not product issues.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/login", "issue": "Rate limit 5/min occasionally causes test_contracts.py setup fixtures to receive 429 (pre-existing test flake, not a product bug; add sleep between suites or bump limit for tests)"}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_libmagic_defensive_fix.py",
+    "/app/test_reports/pytest/iter9_libmagic.xml",
+    "/app/test_reports/pytest/iter9_regression.xml",
+    "/app/test_reports/pytest/iter9_upload_and_cross.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "core/validators.py L14-23 correctly guards `import magic` with `try / except (ImportError, OSError)` and sets `_HAS_MAGIC=False` on failure — matches recommended pattern for optional native deps. Warning is printed to stdout so ops can see when the pod is running in degraded mode.",
+    "validate_uploaded_file (L37-49) enforces size + extension guards BEFORE the libmagic branch and short-circuits with `return True` when `_HAS_MAGIC` is False — so upload path is never blocked by a missing native lib. Extension whitelist {.pdf,.xlsx,.xls} is still the primary defense.",
+    "Simulated-outage test (in-process ImportError injection) confirms: with libmagic missing, `_HAS_MAGIC=False`, warning printed, and `validate_uploaded_file(b'%PDF fake', 'foo.pdf')` returns cleanly instead of raising. Fix is structurally sound.",
+    "SUGGESTION (not blocking): consider replacing `print(...)` with a proper logger.warning() call so warning is captured in structured logs / supervisor logs consistently. Also consider a lightweight /api/healthz endpoint that includes `magic_available: bool` so ops can see degraded state without reading stdout."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_libmagic_defensive_fix.py (NEW - 10 tests: server-health, defensive-import code review, upload endpoints, xlsx import, 3 excel-export endpoints)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 libmagic-fix tests + 38/38 refactor regression + 9/9 admin cross-owner focused = 57/57 relevant tests PASS). Overall test-suite run had 2 pre-existing rate-limit ERRORs in test_contracts.py (test infra issue, not product).",
+    "frontend": "N/A (backend-only as requested)"
+  },
+  "test_credentials": {"admin_username": "admin", "admin_password": "admin123"},
+  "seed_data_creation": "None (no persistent seed data added). New tests hit read-only endpoints or use bogus UUIDs that never touch the DB.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "libmagic defensive-import fix is verified end-to-end. Reusable test file: /app/backend/tests/test_libmagic_defensive_fix.py. It (a) hits the live preview URL to verify server is UP after any future libmagic outage and (b) code-reviews validators.py to catch regressions if someone removes the try/except. NOTE: test_contracts.py (older file) expects REACT_APP_BACKEND_URL env var at pytest-invocation time — export it before running that file. Login is rate-limited 5/min so back-to-back test-suite runs need a 30s sleep or the setup fixtures will 429.",
+  "rca_of_the_issue": "PREV BUG: libmagic1 native lib disappears from preview pods intermittently (bind-mount/rebuild artifact). python-magic's `import magic` calls `ctypes.CDLL('libmagic.so.1')` at import time and raises OSError if the .so is missing, which propagated through core/validators.py → routes → server.py → worker process crash → 502/504 through Cloudflare. FIX: wrap `import magic` in `try / except (ImportError, OSError)`, set `_HAS_MAGIC=False`, and have validate_uploaded_file early-return after the extension+size guard when the native lib is unavailable. Reproduction (pre-fix): remove libmagic1 pkg, restart backend → worker crash. Verification (post-fix, simulated in-process): inject `ImportError` on magic module load → `_HAS_MAGIC=False`, warning printed, upload validator still runs (extension+size checks only). App survives the outage."
+}

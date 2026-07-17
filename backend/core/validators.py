@@ -4,8 +4,23 @@ import re
 from typing import Optional
 
 import bleach
-import magic
 from fastapi import HTTPException
+
+# ``python-magic`` needs libmagic on the OS.  In production the Dockerfile
+# installs ``libmagic1``; in some transient preview pods it can be missing
+# and would otherwise crash the whole app on import.  We degrade gracefully:
+# the extension + size guards below are the primary defense; MIME sniffing
+# is an extra hardening layer that we skip when the library is unavailable.
+try:
+    import magic  # type: ignore
+
+    _HAS_MAGIC = True
+except (ImportError, OSError) as _magic_err:
+    magic = None  # type: ignore
+    _HAS_MAGIC = False
+    print(
+        f"WARNING: python-magic unavailable ({_magic_err}); MIME sniffing disabled, extension/size checks still active."
+    )
 
 
 def sanitize_input(value: str, max_length: int = 255, allow_html: bool = False) -> str:
@@ -28,6 +43,10 @@ def validate_uploaded_file(file_content: bytes, filename: str, max_size_mb: int 
     file_ext = filename.lower().split(".")[-1] if "." in filename else ""
     if f".{file_ext}" not in allowed_extensions:
         raise HTTPException(status_code=400, detail=f"File type not allowed. Allowed: {allowed_extensions}")
+
+    # MIME sniffing is optional — only runs if libmagic is available on the host.
+    if not _HAS_MAGIC:
+        return True
 
     try:
         mime_type = magic.from_buffer(file_content[:2048], mime=True)
