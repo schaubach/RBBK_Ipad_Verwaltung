@@ -8,7 +8,7 @@ import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Alert, AlertDescription } from '../ui/alert';
 import { toast } from 'sonner';
-import { Users, Trash2, Shield, Edit, Plus, AlertTriangle, Download, Mail, Send, History } from 'lucide-react';
+import { Users, Trash2, Shield, Edit, Plus, AlertTriangle, Download, Mail, Send, History, Lock, Unlock, Server, KeyRound, RefreshCw } from 'lucide-react';
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
@@ -55,6 +55,33 @@ const UserManagement = () => {
   const [loadingSchedule, setLoadingSchedule] = useState(true);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [sendingTestMail, setSendingTestMail] = useState(false);
+
+  // Backup responsible admin + backup encryption password
+  const [backupResponsible, setBackupResponsible] = useState({
+    responsible_admin_id: null,
+    responsible_admin_username: null,
+    password_configured: false,
+    is_current_user_responsible: false
+  });
+  const [loadingResponsible, setLoadingResponsible] = useState(true);
+  const [selectedResponsibleId, setSelectedResponsibleId] = useState('');
+  const [savingResponsible, setSavingResponsible] = useState(false);
+  const [newBackupPassword, setNewBackupPassword] = useState('');
+  const [newBackupPasswordConfirm, setNewBackupPasswordConfirm] = useState('');
+  const [savingBackupPassword, setSavingBackupPassword] = useState(false);
+
+  // SMTP configuration
+  const [smtpConfig, setSmtpConfig] = useState({
+    host: '', port: 587, user: '', from_addr: '', use_tls: true, password_configured: false, source: 'none'
+  });
+  const [smtpPasswordInput, setSmtpPasswordInput] = useState('');
+  const [loadingSmtp, setLoadingSmtp] = useState(true);
+  const [savingSmtp, setSavingSmtp] = useState(false);
+
+  // Server-side backups (MongoDB/GridFS, rolling 7-day retention)
+  const [serverBackups, setServerBackups] = useState([]);
+  const [loadingServerBackups, setLoadingServerBackups] = useState(false);
+  const [runningServerBackupNow, setRunningServerBackupNow] = useState(false);
 
   const handleCleanupOrphanedData = async () => {
     const confirmed = window.confirm(
@@ -138,12 +165,148 @@ const UserManagement = () => {
     }
   };
 
+  const loadBackupResponsible = async () => {
+    setLoadingResponsible(true);
+    try {
+      const response = await api.get('/admin/backup-responsible');
+      setBackupResponsible(response.data);
+      setSelectedResponsibleId(response.data.responsible_admin_id || '');
+    } catch (error) {
+      console.error('Failed to load backup responsible:', error);
+    } finally {
+      setLoadingResponsible(false);
+    }
+  };
+
+  const loadSmtpConfig = async () => {
+    setLoadingSmtp(true);
+    try {
+      const response = await api.get('/settings/smtp-config');
+      setSmtpConfig(response.data);
+    } catch (error) {
+      console.error('Failed to load SMTP config:', error);
+    } finally {
+      setLoadingSmtp(false);
+    }
+  };
+
+  const loadServerBackups = async () => {
+    setLoadingServerBackups(true);
+    try {
+      const response = await api.get('/backup/server-backups');
+      setServerBackups(response.data);
+    } catch (error) {
+      console.error('Failed to load server backups:', error);
+    } finally {
+      setLoadingServerBackups(false);
+    }
+  };
+
   useEffect(() => {
     loadUsers();
     loadBackupSchedule();
     loadPreRestoreBackups();
     prefillScheduleEmail();
+    loadBackupResponsible();
+    loadSmtpConfig();
+    loadServerBackups();
   }, []);
+
+  const handleSetResponsible = async () => {
+    if (!selectedResponsibleId) {
+      toast.error('Bitte einen Admin auswählen');
+      return;
+    }
+    setSavingResponsible(true);
+    try {
+      const response = await api.put('/admin/backup-responsible', { admin_id: selectedResponsibleId });
+      toast.success(response.data.message);
+      await loadBackupResponsible();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Festlegen des Backup-Verantwortlichen');
+    } finally {
+      setSavingResponsible(false);
+    }
+  };
+
+  const handleSetBackupPassword = async () => {
+    if (newBackupPassword.length < 8) {
+      toast.error('Das Backup-Passwort muss mindestens 8 Zeichen lang sein');
+      return;
+    }
+    if (newBackupPassword !== newBackupPasswordConfirm) {
+      toast.error('Die Passwörter stimmen nicht überein');
+      return;
+    }
+    setSavingBackupPassword(true);
+    try {
+      const response = await api.put('/admin/backup-password', { password: newBackupPassword });
+      toast.success(response.data.message);
+      setNewBackupPassword('');
+      setNewBackupPasswordConfirm('');
+      await loadBackupResponsible();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Setzen des Backup-Passworts');
+    } finally {
+      setSavingBackupPassword(false);
+    }
+  };
+
+  const handleSaveSmtpConfig = async () => {
+    if (!smtpConfig.host) {
+      toast.error('Bitte einen SMTP-Host angeben');
+      return;
+    }
+    setSavingSmtp(true);
+    try {
+      const response = await api.put('/settings/smtp-config', {
+        host: smtpConfig.host,
+        port: Number(smtpConfig.port) || 587,
+        user: smtpConfig.user,
+        password: smtpPasswordInput || undefined,
+        from_addr: smtpConfig.from_addr,
+        use_tls: smtpConfig.use_tls
+      });
+      toast.success(response.data.message);
+      setSmtpPasswordInput('');
+      await loadSmtpConfig();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Speichern der SMTP-Konfiguration');
+    } finally {
+      setSavingSmtp(false);
+    }
+  };
+
+  const handleRunServerBackupNow = async () => {
+    setRunningServerBackupNow(true);
+    try {
+      const response = await api.post('/backup/server-backups/run-now');
+      toast.success(response.data.message);
+      await loadServerBackups();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Erstellen des Server-Backups');
+    } finally {
+      setRunningServerBackupNow(false);
+    }
+  };
+
+  const handleDownloadServerBackup = async (backup) => {
+    try {
+      const response = await api.get(`/backup/server-backups/${backup.id}/download`, {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', backup.filename);
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (error) {
+      toast.error('Fehler beim Herunterladen des Server-Backups');
+    }
+  };
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
@@ -583,6 +746,11 @@ const UserManagement = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            {backupResponsible.password_configured && (
+              <div className="text-sm text-green-700 bg-green-50 border-l-4 border-green-400 p-2 rounded flex items-center gap-2">
+                <Lock className="h-4 w-4" /> Export/Import sind aktuell mit dem Backup-Passwort verschlüsselt (.json.enc).
+              </div>
+            )}
             <div className="border-l-4 border-amber-400 bg-amber-50 p-4 rounded">
               <h4 className="font-medium text-amber-800 mb-2">System-Backup erstellen</h4>
               <p className="text-sm text-amber-700 mb-4">
@@ -603,13 +771,14 @@ const UserManagement = () => {
               <h4 className="font-medium text-red-800 mb-2">System-Backup wiederherstellen</h4>
               <p className="text-sm text-red-700 mb-4">
                 <strong>ACHTUNG:</strong> Das Einspielen eines Backups überschreibt <strong>ALLE</strong> aktuellen Daten im System.
-                Laden Sie hier eine zuvor erstellte .json Backup-Datei hoch. Vor der Wiederherstellung wird
+                Laden Sie hier eine zuvor erstellte .json oder .json.enc Backup-Datei hoch (verschlüsselte Dateien werden
+                automatisch mit dem aktuellen Backup-Passwort entschlüsselt). Vor der Wiederherstellung wird
                 automatisch ein Sicherheits-Backup der aktuellen Daten angelegt.
               </p>
               <div className="border-2 border-dashed border-red-300 rounded-lg p-4 text-center hover:border-red-500 transition-colors bg-white">
                 <Input
                   type="file"
-                  accept=".json"
+                  accept=".json,.enc"
                   onChange={(e) => {
                     if (e.target.files[0]) {
                       handleBackupImport(e.target.files[0]);
@@ -662,6 +831,187 @@ const UserManagement = () => {
               )}
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Backup Security: responsible admin, encryption password, SMTP credentials */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            {backupResponsible.password_configured ? (
+              <Lock className="h-5 w-5 text-green-600" />
+            ) : (
+              <Unlock className="h-5 w-5 text-gray-400" />
+            )}
+            Backup-Sicherheit
+          </CardTitle>
+          <CardDescription>
+            Backup-Verantwortlicher, Verschlüsselungs-Passwort und SMTP-Zugangsdaten für automatische Backups
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingResponsible || loadingSmtp ? (
+            <div className="text-center py-4">Lade Konfiguration...</div>
+          ) : (
+            <div className="space-y-6">
+              <div className={`border-l-4 p-3 rounded text-sm ${backupResponsible.password_configured ? 'border-green-400 bg-green-50 text-green-800' : 'border-gray-300 bg-gray-50 text-gray-600'}`}>
+                {backupResponsible.password_configured ? (
+                  <>🔒 Alle Backups (manuell, E-Mail, Server) werden aktuell verschlüsselt. Verantwortlich: <strong>{backupResponsible.responsible_admin_username}</strong></>
+                ) : (
+                  <>🔓 Backups sind aktuell <strong>nicht</strong> verschlüsselt. Backup-Verantwortlichen festlegen und Passwort setzen, um das zu ändern.</>
+                )}
+              </div>
+
+              {/* Responsible admin selection */}
+              <div className="space-y-2 max-w-lg">
+                <Label htmlFor="backup-responsible">Backup-Verantwortlicher (Admin)</Label>
+                <div className="flex gap-2">
+                  <select
+                    id="backup-responsible"
+                    value={selectedResponsibleId}
+                    onChange={(e) => setSelectedResponsibleId(e.target.value)}
+                    className="w-full p-2 border rounded-md"
+                  >
+                    <option value="">-- Admin auswählen --</option>
+                    {users.filter(u => u.role === 'admin').map(u => (
+                      <option key={u.id} value={u.id}>{u.username}</option>
+                    ))}
+                  </select>
+                  <Button
+                    onClick={handleSetResponsible}
+                    disabled={savingResponsible || selectedResponsibleId === backupResponsible.responsible_admin_id}
+                    variant="outline"
+                  >
+                    {savingResponsible ? 'Speichert...' : 'Festlegen'}
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Das Backup-Passwort dieser Person wird zum Verschlüsseln aller automatischen Backups verwendet.
+                  Ein Wechsel setzt ein bereits gesetztes Passwort zurück.
+                </p>
+              </div>
+
+              {/* Self-service backup password */}
+              {backupResponsible.responsible_admin_id && (
+                backupResponsible.is_current_user_responsible ? (
+                  <div className="space-y-2 max-w-lg border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
+                    <h4 className="font-medium text-blue-800 flex items-center gap-2">
+                      <KeyRound className="h-4 w-4" />
+                      Ihr Backup-Passwort {backupResponsible.password_configured ? 'ändern' : 'setzen'}
+                    </h4>
+                    <p className="text-xs text-blue-700 mb-2">
+                      Unabhängig von Ihrem Login-Passwort. Mindestens 8 Zeichen. Wird server-seitig verschlüsselt gespeichert,
+                      damit automatische Backups auch ohne Ihr Zutun verschlüsselt werden können.
+                    </p>
+                    <Input
+                      type="password"
+                      value={newBackupPassword}
+                      onChange={(e) => setNewBackupPassword(e.target.value)}
+                      placeholder="Neues Backup-Passwort"
+                      minLength={8}
+                    />
+                    <Input
+                      type="password"
+                      value={newBackupPasswordConfirm}
+                      onChange={(e) => setNewBackupPasswordConfirm(e.target.value)}
+                      placeholder="Backup-Passwort bestätigen"
+                      minLength={8}
+                    />
+                    <Button
+                      onClick={handleSetBackupPassword}
+                      disabled={savingBackupPassword || !newBackupPassword}
+                      className="bg-gradient-to-r from-ipad-teal to-ipad-blue"
+                    >
+                      {savingBackupPassword ? 'Speichert...' : 'Backup-Passwort speichern'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded max-w-lg">
+                    Nur <strong>{backupResponsible.responsible_admin_username}</strong> kann das Backup-Passwort setzen.
+                    Status: {backupResponsible.password_configured ? '✅ Passwort ist gesetzt' : '❌ Noch kein Passwort gesetzt'}
+                  </div>
+                )
+              )}
+
+              {/* SMTP credentials */}
+              <div className="space-y-3 max-w-lg border-l-4 border-purple-400 bg-purple-50 p-4 rounded">
+                <h4 className="font-medium text-purple-800 flex items-center gap-2">
+                  <Mail className="h-4 w-4" />
+                  SMTP-Zugangsdaten
+                </h4>
+                {smtpConfig.source === 'env' && (
+                  <p className="text-xs text-purple-700">Aktuell aus backend/.env geladen. Speichern hier überschreibt das für die Datenbank-Konfiguration.</p>
+                )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="smtp-host">Host</Label>
+                    <Input
+                      id="smtp-host"
+                      value={smtpConfig.host}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
+                      placeholder="smtp.example.com"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="smtp-port">Port</Label>
+                    <Input
+                      id="smtp-port"
+                      type="number"
+                      value={smtpConfig.port}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, port: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="smtp-user">Benutzername</Label>
+                    <Input
+                      id="smtp-user"
+                      value={smtpConfig.user}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, user: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="smtp-password">
+                      Passwort {smtpConfig.password_configured && <span className="text-xs text-gray-500">(gesetzt, leer lassen zum Beibehalten)</span>}
+                    </Label>
+                    <Input
+                      id="smtp-password"
+                      type="password"
+                      value={smtpPasswordInput}
+                      onChange={(e) => setSmtpPasswordInput(e.target.value)}
+                      placeholder={smtpConfig.password_configured ? '••••••••' : ''}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="smtp-from">Absender-Adresse</Label>
+                    <Input
+                      id="smtp-from"
+                      type="email"
+                      value={smtpConfig.from_addr}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, from_addr: e.target.value })}
+                      placeholder="Standard: Benutzername"
+                    />
+                  </div>
+                  <div className="flex items-center space-x-2 pt-5">
+                    <input
+                      type="checkbox"
+                      id="smtp-tls"
+                      checked={smtpConfig.use_tls}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, use_tls: e.target.checked })}
+                      className="w-4 h-4"
+                    />
+                    <Label htmlFor="smtp-tls">STARTTLS verwenden</Label>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleSaveSmtpConfig}
+                  disabled={savingSmtp}
+                  className="bg-gradient-to-r from-ipad-teal to-ipad-blue"
+                >
+                  {savingSmtp ? 'Speichert...' : 'SMTP-Konfiguration speichern'}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -749,10 +1099,64 @@ const UserManagement = () => {
                 </Button>
               </div>
               <p className="text-xs text-gray-500">
-                Für den Versand muss der Server unter <code className="bg-gray-100 px-1 rounded">backend/.env</code> mit
-                SMTP-Zugangsdaten (SMTP_HOST, SMTP_USER, SMTP_PASSWORD, ...) konfiguriert sein.
+                Für den Versand müssen SMTP-Zugangsdaten hinterlegt sein (siehe Karte "Backup-Sicherheit" oben).
+                {backupResponsible.password_configured && (
+                  <span className="text-green-700"> Backups werden aktuell verschlüsselt versendet.</span>
+                )}
               </p>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Server-side daily backups (MongoDB/GridFS, 7-day retention) */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Server className="h-5 w-5" />
+                Server-Backups (MongoDB)
+              </CardTitle>
+              <CardDescription>
+                Läuft automatisch einmal täglich, unabhängig vom E-Mail-Versand. Die letzten 7 Tage werden aufbewahrt.
+              </CardDescription>
+            </div>
+            <Button
+              onClick={handleRunServerBackupNow}
+              disabled={runningServerBackupNow}
+              variant="outline"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              {runningServerBackupNow ? 'Erstellt...' : 'Jetzt erstellen'}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loadingServerBackups ? (
+            <div className="text-center py-4">Lade Server-Backups...</div>
+          ) : serverBackups.length === 0 ? (
+            <div className="text-sm text-gray-500">Noch keine Server-Backups vorhanden.</div>
+          ) : (
+            <ul className="space-y-1">
+              {serverBackups.map((backup) => (
+                <li key={backup.id} className="flex items-center justify-between text-sm bg-gray-50 border rounded px-3 py-2">
+                  <span className="text-gray-700 flex items-center gap-2">
+                    {backup.encrypted ? <Lock className="h-3 w-3 text-green-600" /> : <Unlock className="h-3 w-3 text-gray-400" />}
+                    {new Date(backup.created_at).toLocaleString('de-DE')}
+                    <span className="text-gray-400">({Math.round(backup.size_bytes / 1024)} KB)</span>
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownloadServerBackup(backup)}
+                  >
+                    <Download className="h-3 w-3 mr-1" />
+                    Herunterladen
+                  </Button>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>

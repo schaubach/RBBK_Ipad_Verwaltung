@@ -126,8 +126,10 @@ MONGO_URL=mongodb://localhost:27017/iPadDatabase
 DB_NAME=iPadDatabase
 
 # SMTP-Zugangsdaten für automatische Backup-E-Mails (optional).
-# Ohne SMTP_HOST/SMTP_USER bleibt der automatische Backup-Versand inaktiv,
-# manuelles Backup-Export/Import funktioniert weiterhin ohne diese Werte.
+# Können alternativ bequemer über die Admin-UI (Tab "Admin" > Backup-Sicherheit)
+# gepflegt werden - die dortige Konfiguration hat Vorrang vor diesen Werten.
+# Ohne SMTP_HOST/SMTP_USER (weder hier noch in der UI) bleibt der automatische
+# Backup-Versand inaktiv; manuelles Backup-Export/Import funktioniert trotzdem.
 SMTP_HOST=
 SMTP_PORT=587
 SMTP_USER=

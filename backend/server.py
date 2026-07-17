@@ -15,6 +15,7 @@ from bson.binary import Binary
 import os
 import logging
 import base64
+import hashlib
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
@@ -37,6 +38,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+from cryptography.fernet import Fernet, InvalidToken
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 from contract_generator import create_contracts_from_assignments
 
 ROOT_DIR = Path(__file__).parent
@@ -4254,6 +4259,172 @@ def deserialize_backup_value(value):
         return {key: deserialize_backup_value(item) for key, item in value.items()}
     return value
 
+
+# --- Secret wrapping (at-rest protection for admin-entered secrets like the backup
+# encryption password and the SMTP password). Derived deterministically from SECRET_KEY,
+# so the server can unwrap these automatically for unattended cron jobs. This protects
+# against casual DB reads; anyone with SECRET_KEY + DB access can still unwrap. ---
+
+def _server_wrapping_fernet() -> Fernet:
+    key_material = hashlib.sha256(SECRET_KEY.encode("utf-8")).digest()
+    return Fernet(base64.urlsafe_b64encode(key_material))
+
+
+def wrap_secret(plaintext: str) -> str:
+    return _server_wrapping_fernet().encrypt(plaintext.encode("utf-8")).decode("ascii")
+
+
+def unwrap_secret(wrapped: str) -> Optional[str]:
+    try:
+        return _server_wrapping_fernet().decrypt(wrapped.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError):
+        return None
+
+
+# --- Password-based backup content encryption (independent of the wrapping layer above).
+# Every encrypted backup file is self-contained: magic header + random salt + Fernet token,
+# so import can auto-detect an encrypted upload vs. a plain legacy JSON export. ---
+
+BACKUP_ENCRYPTION_MAGIC = b"RBBKENC1"
+BACKUP_ENCRYPTION_PBKDF2_ITERATIONS = 390000
+
+
+def _derive_backup_fernet(password: str, salt: bytes) -> Fernet:
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=BACKUP_ENCRYPTION_PBKDF2_ITERATIONS)
+    return Fernet(base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8"))))
+
+
+def encrypt_backup_bytes(plaintext: bytes, password: str) -> bytes:
+    salt = os.urandom(16)
+    token = _derive_backup_fernet(password, salt).encrypt(plaintext)
+    return BACKUP_ENCRYPTION_MAGIC + salt + token
+
+
+def is_encrypted_backup(blob: bytes) -> bool:
+    return blob.startswith(BACKUP_ENCRYPTION_MAGIC)
+
+
+def decrypt_backup_bytes(blob: bytes, password: str) -> bytes:
+    if not is_encrypted_backup(blob):
+        raise ValueError("Kein verschlüsseltes Backup-Format erkannt.")
+    salt = blob[len(BACKUP_ENCRYPTION_MAGIC):len(BACKUP_ENCRYPTION_MAGIC) + 16]
+    token = blob[len(BACKUP_ENCRYPTION_MAGIC) + 16:]
+    try:
+        return _derive_backup_fernet(password, salt).decrypt(token)
+    except InvalidToken:
+        raise ValueError("Falsches Backup-Passwort oder beschädigte Datei.")
+
+
+async def get_active_backup_password() -> Optional[str]:
+    """Return the currently configured backup encryption password (unwrapped), or None if unset."""
+    settings = await db.global_settings.find_one({"type": "backup_responsible"})
+    if not settings or not settings.get("wrapped_password"):
+        return None
+    return unwrap_secret(settings["wrapped_password"])
+
+
+async def build_backup_export_bytes() -> tuple:
+    """Build the current backup as bytes, encrypting it if a backup password is configured.
+    Returns (content_bytes, filename, is_encrypted)."""
+    backup_data = await build_backup_payload()
+    json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    password = await get_active_backup_password()
+    if password:
+        return encrypt_backup_bytes(json_bytes, password), f"rbbk_ipad_verwaltung_backup_{timestamp}.json.enc", True
+    return json_bytes, f"rbbk_ipad_verwaltung_backup_{timestamp}.json", False
+
+
+async def decrypt_uploaded_backup(content: bytes) -> bytes:
+    """Decrypt an uploaded backup if it looks encrypted; pass plain JSON through unchanged."""
+    if not is_encrypted_backup(content):
+        return content
+    password = await get_active_backup_password()
+    if not password:
+        raise ValueError(
+            "Diese Datei ist verschlüsselt, aber es ist aktuell kein Backup-Passwort konfiguriert "
+            "(siehe Admin-Tab > Backup-Sicherheit)."
+        )
+    return decrypt_backup_bytes(content, password)
+
+
+@api_router.get("/admin/backup-responsible")
+async def get_backup_responsible(current_user: dict = Depends(get_current_user)):
+    """Get the admin responsible for the backup encryption password (admin only)."""
+    require_admin(current_user)
+    settings = await db.global_settings.find_one({"type": "backup_responsible"})
+    responsible_admin_id = settings.get("responsible_admin_id") if settings else None
+    responsible_username = None
+    if responsible_admin_id:
+        responsible_user = await db.users.find_one({"id": responsible_admin_id})
+        responsible_username = responsible_user["username"] if responsible_user else None
+    return {
+        "responsible_admin_id": responsible_admin_id,
+        "responsible_admin_username": responsible_username,
+        "password_configured": bool(settings and settings.get("wrapped_password")),
+        "is_current_user_responsible": responsible_admin_id == current_user["id"],
+    }
+
+
+class BackupResponsibleUpdate(BaseModel):
+    admin_id: str
+
+
+@api_router.put("/admin/backup-responsible")
+async def set_backup_responsible(payload: BackupResponsibleUpdate, current_user: dict = Depends(get_current_user)):
+    """Assign which admin is responsible for the backup encryption password (admin only).
+    Reassigning clears any previously stored password - the new responsible admin must set their own."""
+    require_admin(current_user)
+    target_user = await db.users.find_one({"id": payload.admin_id})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
+    if target_user.get("role") != "admin":
+        raise HTTPException(status_code=400, detail="Nur Administratoren können Backup-Verantwortliche sein")
+
+    existing = await db.global_settings.find_one({"type": "backup_responsible"})
+    previous_admin_id = existing.get("responsible_admin_id") if existing else None
+
+    update_data = {
+        "responsible_admin_id": payload.admin_id,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if previous_admin_id != payload.admin_id:
+        # Handover to a different admin: the old password is meaningless to them, reset it.
+        update_data["wrapped_password"] = None
+
+    await db.global_settings.update_one({"type": "backup_responsible"}, {"$set": update_data}, upsert=True)
+    return {
+        "message": f"{target_user['username']} ist jetzt für das Backup-Passwort verantwortlich.",
+        "responsible_admin_id": payload.admin_id,
+        "password_reset": previous_admin_id != payload.admin_id,
+    }
+
+
+class BackupPasswordUpdate(BaseModel):
+    password: str
+
+
+@api_router.put("/admin/backup-password")
+async def set_backup_password(payload: BackupPasswordUpdate, current_user: dict = Depends(get_current_user)):
+    """Set/update the backup encryption password (only the designated responsible admin may do this)."""
+    require_admin(current_user)
+    if len(payload.password) < 8:
+        raise HTTPException(status_code=400, detail="Das Backup-Passwort muss mindestens 8 Zeichen lang sein")
+
+    settings = await db.global_settings.find_one({"type": "backup_responsible"})
+    responsible_admin_id = settings.get("responsible_admin_id") if settings else None
+    if not responsible_admin_id:
+        raise HTTPException(status_code=400, detail="Bitte zuerst einen Backup-Verantwortlichen festlegen")
+    if responsible_admin_id != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Nur der Backup-Verantwortliche kann dieses Passwort setzen")
+
+    await db.global_settings.update_one(
+        {"type": "backup_responsible"},
+        {"$set": {"wrapped_password": wrap_secret(payload.password), "updated_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    return {"message": "Backup-Passwort erfolgreich gesetzt. Zukünftige Backups werden damit verschlüsselt."}
+
+
 async def build_backup_payload() -> dict:
     """Build the full JSON-safe backup payload for all COLLECTIONS."""
     backup_data = {}
@@ -4287,7 +4458,7 @@ async def restore_backup_payload(backup_data: dict):
 # Pre-restore safety backups: written to disk before every /backup/import so a failed
 # or unwanted restore can be rolled back / manually recovered.
 PRE_RESTORE_BACKUPS_DIR = ROOT_DIR / "uploads" / "backups"
-PRE_RESTORE_FILENAME_RE = re.compile(r"^pre_restore_backup_\d{8}_\d{6}\.json$")
+PRE_RESTORE_FILENAME_RE = re.compile(r"^pre_restore_backup_\d{8}_\d{6}\.json(\.enc)?$")
 PRE_RESTORE_KEEP_COUNT = 5
 
 
@@ -4296,14 +4467,14 @@ def _pre_restore_backups_dir() -> Path:
     return PRE_RESTORE_BACKUPS_DIR
 
 
-def _write_pre_restore_backup(json_bytes: bytes) -> str:
+def _write_pre_restore_backup(content_bytes: bytes, encrypted: bool = False) -> str:
     """Persist a pre-restore snapshot to disk and prune old ones. Returns the filename."""
     backups_dir = _pre_restore_backups_dir()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"pre_restore_backup_{timestamp}.json"
-    (backups_dir / filename).write_bytes(json_bytes)
+    filename = f"pre_restore_backup_{timestamp}.json" + (".enc" if encrypted else "")
+    (backups_dir / filename).write_bytes(content_bytes)
 
-    existing = sorted(backups_dir.glob("pre_restore_backup_*.json"))
+    existing = sorted(backups_dir.glob("pre_restore_backup_*.json*"))
     for old_file in existing[:-PRE_RESTORE_KEEP_COUNT]:
         try:
             old_file.unlink()
@@ -4317,11 +4488,9 @@ def _write_pre_restore_backup(json_bytes: bytes) -> str:
 async def export_backup(current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
     try:
-        backup_data = await build_backup_payload()
-        json_data = json.dumps(backup_data, ensure_ascii=False)
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"rbbk_ipad_verwaltung_backup_{timestamp}.json"
-        return Response(content=json_data, media_type="application/json", headers={"Content-Disposition": f"attachment; filename={filename}"})
+        content_bytes, filename, is_encrypted = await build_backup_export_bytes()
+        media_type = "application/octet-stream" if is_encrypted else "application/json"
+        return Response(content=content_bytes, media_type=media_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
     except Exception as e:
         logger.error(f"Backup export error: {str(e)}")
         raise HTTPException(status_code=500, detail="Fehler beim Erstellen des Backups.")
@@ -4329,16 +4498,21 @@ async def export_backup(current_user: dict = Depends(get_current_user)):
 @api_router.post("/backup/import")
 async def import_backup(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
-    if not file.filename.endswith('.json'):
-        raise HTTPException(status_code=400, detail="Es muss eine .json Datei hochgeladen werden.")
+    if not (file.filename.endswith('.json') or file.filename.endswith('.json.enc')):
+        raise HTTPException(status_code=400, detail="Es muss eine .json oder verschlüsselte .json.enc Datei hochgeladen werden.")
 
-    content = await file.read()
+    raw_content = await file.read()
+    try:
+        content = await decrypt_uploaded_backup(raw_content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     try:
         backup_data = json.loads(content.decode("utf-8"))
         if not isinstance(backup_data, dict):
             raise ValueError("Ungültiges Backup-Format.")
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Die hochgeladene Datei ist kein gültiges JSON.")
+        raise HTTPException(status_code=400, detail="Die hochgeladene Datei ist kein gültiges (entschlüsseltes) JSON.")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -4346,8 +4520,10 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
     # unwanted restore can be rolled back / manually recovered afterwards.
     pre_restore_payload = await build_backup_payload()
     pre_restore_json = json.dumps(pre_restore_payload, ensure_ascii=False).encode("utf-8")
+    backup_password = await get_active_backup_password()
+    pre_restore_content = encrypt_backup_bytes(pre_restore_json, backup_password) if backup_password else pre_restore_json
     try:
-        pre_restore_filename = _write_pre_restore_backup(pre_restore_json)
+        pre_restore_filename = _write_pre_restore_backup(pre_restore_content, encrypted=bool(backup_password))
     except OSError as e:
         logger.error(f"Could not write pre-restore backup: {str(e)}")
         raise HTTPException(status_code=500, detail="Sicherheits-Backup konnte nicht gespeichert werden. Wiederherstellung abgebrochen.")
@@ -4389,12 +4565,13 @@ async def list_pre_restore_backups(current_user: dict = Depends(get_current_user
     require_admin(current_user)
     backups_dir = _pre_restore_backups_dir()
     items = []
-    for path in sorted(backups_dir.glob("pre_restore_backup_*.json"), reverse=True):
+    for path in sorted(backups_dir.glob("pre_restore_backup_*.json*"), reverse=True):
         stat = path.stat()
         items.append({
             "filename": path.name,
             "size_bytes": stat.st_size,
             "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            "encrypted": path.name.endswith(".enc"),
         })
     return items
 
@@ -4411,19 +4588,20 @@ async def download_pre_restore_backup(filename: str, current_user: dict = Depend
     if backups_dir.resolve() not in file_path.parents or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Backup-Datei nicht gefunden.")
 
+    media_type = "application/octet-stream" if filename.endswith(".enc") else "application/json"
     return Response(
         content=file_path.read_bytes(),
-        media_type="application/json",
+        media_type=media_type,
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
 
 # --- Automatic scheduled backup emails ---
 
-def _smtp_config() -> dict:
+def _smtp_config_from_env() -> dict:
     return {
         "host": os.environ.get("SMTP_HOST", ""),
-        "port": int(os.environ.get("SMTP_PORT", 587)),
+        "port": int(os.environ.get("SMTP_PORT") or 587),
         "user": os.environ.get("SMTP_USER", ""),
         "password": os.environ.get("SMTP_PASSWORD", ""),
         "from_addr": os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER", ""),
@@ -4431,23 +4609,95 @@ def _smtp_config() -> dict:
     }
 
 
-def send_backup_email(recipient_email: str, json_bytes: bytes, filename: str):
-    """Send a backup JSON file as an e-mail attachment. Blocking (run via asyncio.to_thread)."""
-    config = _smtp_config()
+async def get_smtp_config() -> dict:
+    """SMTP config, preferring the DB (settable via the Admin UI) over backend/.env."""
+    settings = await db.global_settings.find_one({"type": "smtp_config"})
+    if settings and settings.get("host"):
+        return {
+            "host": settings.get("host", ""),
+            "port": int(settings.get("port") or 587),
+            "user": settings.get("user", ""),
+            "password": unwrap_secret(settings["wrapped_password"]) if settings.get("wrapped_password") else "",
+            "from_addr": settings.get("from_addr") or settings.get("user", ""),
+            "use_tls": settings.get("use_tls", True),
+        }
+    return _smtp_config_from_env()
+
+
+@api_router.get("/settings/smtp-config")
+async def get_smtp_config_settings(current_user: dict = Depends(get_current_user)):
+    """Get the SMTP configuration (admin only). Never returns the actual password."""
+    require_admin(current_user)
+    settings = await db.global_settings.find_one({"type": "smtp_config"})
+    if settings and settings.get("host"):
+        return {
+            "host": settings.get("host", ""),
+            "port": settings.get("port", 587),
+            "user": settings.get("user", ""),
+            "from_addr": settings.get("from_addr", ""),
+            "use_tls": settings.get("use_tls", True),
+            "password_configured": bool(settings.get("wrapped_password")),
+            "source": "database",
+        }
+    env_config = _smtp_config_from_env()
+    return {
+        "host": env_config["host"],
+        "port": env_config["port"],
+        "user": env_config["user"],
+        "from_addr": env_config["from_addr"],
+        "use_tls": env_config["use_tls"],
+        "password_configured": bool(env_config["password"]),
+        "source": "env" if env_config["host"] else "none",
+    }
+
+
+class SmtpConfigUpdate(BaseModel):
+    host: str
+    port: int = 587
+    user: str = ""
+    password: Optional[str] = None  # omitted/blank = keep existing stored password
+    from_addr: str = ""
+    use_tls: bool = True
+
+
+@api_router.put("/settings/smtp-config")
+async def update_smtp_config_settings(payload: SmtpConfigUpdate, current_user: dict = Depends(get_current_user)):
+    """Update the SMTP configuration (admin only). Stored in the DB, password kept wrapped at rest."""
+    require_admin(current_user)
+
+    update_data = {
+        "host": payload.host.strip(),
+        "port": payload.port,
+        "user": payload.user.strip(),
+        "from_addr": payload.from_addr.strip() or payload.user.strip(),
+        "use_tls": payload.use_tls,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if payload.password:
+        update_data["wrapped_password"] = wrap_secret(payload.password)
+
+    await db.global_settings.update_one({"type": "smtp_config"}, {"$set": update_data}, upsert=True)
+    return {"message": "SMTP-Konfiguration gespeichert."}
+
+
+def send_backup_email(recipient_email: str, content_bytes: bytes, filename: str, config: dict):
+    """Send a backup file as an e-mail attachment. Blocking (run via asyncio.to_thread)."""
     if not config["host"] or not config["user"]:
-        raise RuntimeError("SMTP ist nicht konfiguriert (SMTP_HOST/SMTP_USER fehlen in backend/.env).")
+        raise RuntimeError("SMTP ist nicht konfiguriert (siehe Admin-Tab > Backup-Sicherheit oder backend/.env).")
 
     msg = MIMEMultipart()
     msg["From"] = config["from_addr"]
     msg["To"] = recipient_email
     msg["Subject"] = f"iPad-Verwaltung: Automatisches Backup vom {datetime.now().strftime('%d.%m.%Y %H:%M')}"
-    msg.attach(MIMEText(
+    is_encrypted = filename.endswith(".enc")
+    body_text = (
         "Im Anhang befindet sich das automatisch erstellte System-Backup der iPad-Verwaltung.\n\n"
-        "Diese E-Mail wurde automatisch generiert.",
-        "plain",
-    ))
-    part = MIMEBase("application", "json")
-    part.set_payload(json_bytes)
+        + ("Der Anhang ist verschlüsselt (Backup-Passwort erforderlich zum Öffnen).\n\n" if is_encrypted else "")
+        + "Diese E-Mail wurde automatisch generiert."
+    )
+    msg.attach(MIMEText(body_text, "plain"))
+    part = MIMEBase("application", "octet-stream" if is_encrypted else "json")
+    part.set_payload(content_bytes)
     encoders.encode_base64(part)
     part.add_header("Content-Disposition", f"attachment; filename={filename}")
     msg.attach(part)
@@ -4526,12 +4776,11 @@ async def send_backup_now(payload: SendBackupNowRequest, current_user: dict = De
         raise HTTPException(status_code=400, detail="Keine Ziel-E-Mail-Adresse angegeben oder konfiguriert.")
 
     try:
-        backup_data = await build_backup_payload()
-        json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"rbbk_ipad_verwaltung_backup_{timestamp}.json"
-        await asyncio.to_thread(send_backup_email, recipient, json_bytes, filename)
-        return {"message": f"Backup wurde erfolgreich an {recipient} gesendet."}
+        content_bytes, filename, is_encrypted = await build_backup_export_bytes()
+        config = await get_smtp_config()
+        await asyncio.to_thread(send_backup_email, recipient, content_bytes, filename, config)
+        suffix = " (verschlüsselt)" if is_encrypted else ""
+        return {"message": f"Backup wurde erfolgreich an {recipient} gesendet{suffix}."}
     except Exception as e:
         logger.error(f"Manual backup email failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Fehler beim Senden der Backup-E-Mail: {str(e)}")
@@ -4562,11 +4811,9 @@ async def run_scheduled_backup_check():
             return
 
     try:
-        backup_data = await build_backup_payload()
-        json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"rbbk_ipad_verwaltung_backup_{timestamp}.json"
-        await asyncio.to_thread(send_backup_email, recipient_email, json_bytes, filename)
+        content_bytes, filename, _is_encrypted = await build_backup_export_bytes()
+        config = await get_smtp_config()
+        await asyncio.to_thread(send_backup_email, recipient_email, content_bytes, filename, config)
         await db.global_settings.update_one(
             {"type": "backup_schedule"},
             {"$set": {
@@ -4588,6 +4835,126 @@ async def run_scheduled_backup_check():
         )
 
 
+# --- Daily server-side backup, stored in MongoDB via GridFS (survives independently of the
+# host filesystem/volume). Always runs regardless of the e-mail schedule; retains 7 days. ---
+
+SERVER_BACKUP_RETENTION_DAYS = 7
+
+
+def _backups_gridfs_bucket() -> AsyncIOMotorGridFSBucket:
+    return AsyncIOMotorGridFSBucket(db, bucket_name="backups")
+
+
+async def save_server_backup() -> dict:
+    """Create a server-side backup snapshot in GridFS and prune snapshots older than the retention window."""
+    content_bytes, filename, is_encrypted = await build_backup_export_bytes()
+    bucket = _backups_gridfs_bucket()
+    file_id = await bucket.upload_from_stream(
+        filename,
+        content_bytes,
+        metadata={"encrypted": is_encrypted, "created_at": datetime.now(timezone.utc).isoformat()},
+    )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=SERVER_BACKUP_RETENTION_DAYS)
+    cursor = db["backups.files"].find({"uploadDate": {"$lt": cutoff}}, {"_id": 1})
+    async for old_file in cursor:
+        try:
+            await bucket.delete(old_file["_id"])
+        except Exception as e:
+            logger.error(f"Could not prune old server backup {old_file['_id']}: {str(e)}")
+
+    return {"file_id": str(file_id), "filename": filename, "encrypted": is_encrypted}
+
+
+@api_router.get("/backup/server-backups")
+async def list_server_backups(current_user: dict = Depends(get_current_user)):
+    """List the daily server-side backups stored in MongoDB (admin only, last 7 days retained)."""
+    require_admin(current_user)
+    items = []
+    cursor = db["backups.files"].find({}).sort("uploadDate", -1)
+    async for doc in cursor:
+        items.append({
+            "id": str(doc["_id"]),
+            "filename": doc["filename"],
+            "size_bytes": doc.get("length", 0),
+            "created_at": doc["uploadDate"].isoformat() if hasattr(doc["uploadDate"], "isoformat") else doc["uploadDate"],
+            "encrypted": bool((doc.get("metadata") or {}).get("encrypted")),
+        })
+    return items
+
+
+@api_router.get("/backup/server-backups/{file_id}/download")
+async def download_server_backup(file_id: str, current_user: dict = Depends(get_current_user)):
+    """Download a specific server-side backup from MongoDB (admin only)."""
+    require_admin(current_user)
+    try:
+        object_id = ObjectId(file_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Ungültige Backup-ID.")
+
+    doc = await db["backups.files"].find_one({"_id": object_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Server-Backup nicht gefunden.")
+
+    bucket = _backups_gridfs_bucket()
+    try:
+        stream = await bucket.open_download_stream(object_id)
+        content = await stream.read()
+    except Exception:
+        raise HTTPException(status_code=404, detail="Server-Backup nicht gefunden.")
+
+    is_encrypted = bool((doc.get("metadata") or {}).get("encrypted"))
+    media_type = "application/octet-stream" if is_encrypted else "application/json"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f"attachment; filename={doc['filename']}"},
+    )
+
+
+@api_router.post("/backup/server-backups/run-now")
+async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
+    """Manually trigger the daily server-side backup immediately (admin only)."""
+    require_admin(current_user)
+    try:
+        result = await save_server_backup()
+        await db.global_settings.update_one(
+            {"type": "server_backup_state"},
+            {"$set": {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_status": "success", "last_error": None}},
+            upsert=True,
+        )
+        return {"message": "Server-Backup erfolgreich erstellt.", **result}
+    except Exception as e:
+        logger.error(f"Manual server backup failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fehler beim Erstellen des Server-Backups: {str(e)}")
+
+
+async def run_scheduled_server_backup_check():
+    """Create the daily server-side backup if the last one is more than a day old (always on)."""
+    state = await db.global_settings.find_one({"type": "server_backup_state"})
+    last_run_at = state.get("last_run_at") if state else None
+    if last_run_at:
+        last_run_dt = datetime.fromisoformat(last_run_at)
+        if datetime.now(timezone.utc) - last_run_dt < timedelta(days=1):
+            return
+
+    try:
+        await save_server_backup()
+        await db.global_settings.update_one(
+            {"type": "server_backup_state"},
+            {"$set": {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_status": "success", "last_error": None}},
+            upsert=True,
+        )
+        logger.info("Daily server-side backup created")
+    except Exception as e:
+        logger.error(f"Daily server-side backup failed: {str(e)}")
+        await db.global_settings.update_one(
+            {"type": "server_backup_state"},
+            {"$set": {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_status": "error", "last_error": str(e)}},
+            upsert=True,
+        )
+
+
 async def _backup_scheduler_loop():
     await asyncio.sleep(60)  # let the app finish starting up first
     while True:
@@ -4595,6 +4962,10 @@ async def _backup_scheduler_loop():
             await run_scheduled_backup_check()
         except Exception as e:
             logger.error(f"Backup scheduler loop error: {str(e)}")
+        try:
+            await run_scheduled_server_backup_check()
+        except Exception as e:
+            logger.error(f"Server backup scheduler loop error: {str(e)}")
         await asyncio.sleep(BACKUP_SCHEDULE_CHECK_INTERVAL_SECONDS)
 
 
