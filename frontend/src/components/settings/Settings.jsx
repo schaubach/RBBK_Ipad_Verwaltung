@@ -4,12 +4,13 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
-import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { toast } from 'sonner';
 import { Upload, Download, Shield, Settings as SettingsIcon, User } from 'lucide-react';
 
 const Settings = () => {
   const [cleaning, setCleaning] = useState(false);
+  const [exportingBackup, setExportingBackup] = useState(false);
+  const [importingBackup, setImportingBackup] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importToPool, setImportToPool] = useState(false);
@@ -19,8 +20,7 @@ const Settings = () => {
   });
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
-  const [exportDialogOpen, setExportDialogOpen] = useState(false);
-
+  
   // Account management states
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -59,25 +59,82 @@ const Settings = () => {
     }
   };
 
-  const handleInventoryExport = async (columns = null) => {
-    setExporting(true);
+  const handleBackupExport = async () => {
+    setExportingBackup(true);
     try {
-      const params = new URLSearchParams();
-      if (columns && columns.length > 0) {
-        params.append('columns', columns.join(','));
-      }
-      const queryString = params.toString();
-      const url = queryString ? `/exports/inventory?${queryString}` : '/exports/inventory';
-
-      const response = await api.get(url, {
+      const response = await api.get('/backup/export', {
         responseType: 'blob'
       });
-
-      // Create download link
-      const downloadUrl = window.URL.createObjectURL(new Blob([response.data]));
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
-      link.href = downloadUrl;
+      link.href = url;
+      
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = 'rbbk_ipad_verwaltung_backup.json';
+      if (contentDisposition) {
+        const matches = contentDisposition.match(/filename="(.+)"/);
+        if (matches) {
+          filename = matches[1];
+        }
+      }
+      
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+      
+      toast.success('Komplettes System-Backup erfolgreich exportiert');
+    } catch (error) {
+      console.error('Failed to export backup:', error);
+      toast.error('Fehler beim Exportieren des Backups');
+    } finally {
+      setExportingBackup(false);
+    }
+  };
 
+  const handleBackupImport = async (file) => {
+    if (!file) return;
+    
+    // Safety check
+    if (!window.confirm("ACHTUNG: Das Einspielen eines Backups überschreibt ALLE aktuellen Daten im System. Möchten Sie wirklich fortfahren?")) {
+      return;
+    }
+    
+    setImportingBackup(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      toast.info('System-Backup wird wiederhergestellt...');
+      
+      const response = await api.post('/backup/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      toast.success(response.data.message);
+      
+    } catch (error) {
+      console.error('Failed to import backup:', error);
+      toast.error(error.response?.data?.detail || 'Fehler beim Wiederherstellen des Backups');
+    } finally {
+      setImportingBackup(false);
+    }
+  };
+
+  const handleInventoryExport = async () => {
+    setExporting(true);
+    try {
+      const response = await api.get('/exports/inventory', {
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
       // Extract filename from response headers or create default
       const contentDisposition = response.headers['content-disposition'];
       let filename = 'bestandsliste_export.xlsx';
@@ -87,13 +144,13 @@ const Settings = () => {
           filename = matches[1];
         }
       }
-
+      
       link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
-      window.URL.revokeObjectURL(downloadUrl);
+      window.URL.revokeObjectURL(url);
       document.body.removeChild(link);
-
+      
       toast.success('Datensicherung erfolgreich exportiert');
     } catch (error) {
       console.error('Failed to export inventory:', error);
@@ -103,54 +160,49 @@ const Settings = () => {
     }
   };
 
-  const handleExportColumnsConfirmed = (columns) => {
-    setExportDialogOpen(false);
-    handleInventoryExport(columns);
-  };
-
   const handleInventoryImport = async (file, importToPool = false) => {
     if (!file) return;
-
+    
     setImporting(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('import_to_pool', importToPool ? 'true' : 'false');
-
+      
       toast.info(importToPool ? 'Importiere iPads in den Pool...' : 'Importiere Datensicherung...');
-
+      
       const response = await api.post('/imports/inventory', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-
+      
       toast.success(response.data.message);
-
+      
       // Show detailed results if available
       if (response.data.ipads_created > 0 || response.data.students_created > 0 || response.data.assignments_created > 0) {
         const details = [];
         if (response.data.ipads_created > 0) details.push(`${response.data.ipads_created} neue iPads`);
         if (response.data.students_created > 0) details.push(`${response.data.students_created} neue Schüler`);
         if (response.data.assignments_created > 0) details.push(`${response.data.assignments_created} neue Zuordnungen`);
-
+        
         toast.info(`Erstellt: ${details.join(', ')}`);
       }
-
+      
       // Show skipped items
       if (response.data.ipads_skipped > 0 || response.data.students_skipped > 0) {
         const skipped = [];
         if (response.data.ipads_skipped > 0) skipped.push(`${response.data.ipads_skipped} iPads übersprungen`);
         if (response.data.students_skipped > 0) skipped.push(`${response.data.students_skipped} Schüler übersprungen`);
-
+        
         toast.info(`Übersprungen: ${skipped.join(', ')}`);
       }
-
+      
       // Show errors if any
       if (response.data.errors && response.data.errors.length > 0) {
         response.data.errors.forEach(error => {
           toast.error(error);
         });
       }
-
+      
     } catch (error) {
       console.error('Failed to import inventory:', error);
       toast.error(error.response?.data?.detail || 'Fehler beim Importieren der Datensicherung');
@@ -176,10 +228,10 @@ const Settings = () => {
         current_password: passwordForm.current_password,
         new_password: passwordForm.new_password
       });
-
+      
       toast.success(response.data.message);
       setPasswordForm({ current_password: '', new_password: '', confirm_password: '' });
-
+      
     } catch (error) {
       console.error('Failed to change password:', error);
       toast.error(error.response?.data?.detail || 'Fehler beim Ändern des Passworts');
@@ -253,9 +305,9 @@ const Settings = () => {
                   />
                 </div>
               </div>
-
+              
               <div className="pt-4 border-t">
-                <Button
+                <Button 
                   onClick={handleSaveGlobalSettings}
                   disabled={savingSettings}
                   className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue transition-all duration-200"
@@ -274,10 +326,69 @@ const Settings = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Download className="h-5 w-5" />
-            Datensicherung
+            Vollständiges System-Backup (JSON)
           </CardTitle>
           <CardDescription>
-            Vollständige Datensicherung aller Schüler und iPads für Backup und Wiederherstellung
+            Komplettes Backup der gesamten Datenbank inkl. Benutzer und Zuordnungen (nur für Administratoren)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="border-l-4 border-amber-400 bg-amber-50 p-4 rounded">
+              <h4 className="font-medium text-amber-800 mb-2">System-Backup erstellen</h4>
+              <p className="text-sm text-amber-700 mb-4">
+                Exportiert alle Daten (Benutzer, Schüler, iPads, Verträge, Einstellungen) in eine JSON-Datei, 
+                die später zur vollständigen Wiederherstellung verwendet werden kann.
+              </p>
+              <Button 
+                onClick={handleBackupExport}
+                disabled={exportingBackup}
+                className="bg-amber-600 hover:bg-amber-700 text-white transition-all duration-200"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {exportingBackup ? 'Erstellt Backup...' : 'Backup herunterladen (JSON)'}
+              </Button>
+            </div>
+
+            <div className="border-l-4 border-red-400 bg-red-50 p-4 rounded mt-4">
+              <h4 className="font-medium text-red-800 mb-2">System-Backup wiederherstellen</h4>
+              <p className="text-sm text-red-700 mb-4">
+                <strong>ACHTUNG:</strong> Das Einspielen eines Backups überschreibt <strong>ALLE</strong> aktuellen Daten im System.
+                Laden Sie hier eine zuvor erstellte .json Backup-Datei hoch.
+              </p>
+              <div className="border-2 border-dashed border-red-300 rounded-lg p-4 text-center hover:border-red-500 transition-colors bg-white">
+                <Input
+                  type="file"
+                  accept=".json"
+                  onChange={(e) => {
+                    if (e.target.files[0]) {
+                      handleBackupImport(e.target.files[0]);
+                      e.target.value = ''; // Reset input
+                    }
+                  }}
+                  disabled={importingBackup}
+                  className="mb-2"
+                />
+                {importingBackup && (
+                  <div className="text-sm text-red-600 font-medium mt-2">
+                    Backup wird wiederhergestellt, bitte warten...
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Excel Export */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Download className="h-5 w-5" />
+            Excel Datensicherung
+          </CardTitle>
+          <CardDescription>
+            Vollständige Datensicherung aller Schüler und iPads als Excel-Datei
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -286,15 +397,14 @@ const Settings = () => {
             <div className="border-l-4 border-green-400 bg-green-50 p-4 rounded">
               <h4 className="font-medium text-green-800 mb-2">Datensicherung erstellen</h4>
               <p className="text-sm text-green-700 mb-4">
-                Exportiert eine vollständige Excel-Datei mit allen Daten: Schüler (auch ohne iPad),
-                iPads (auch ohne Zuordnung) und alle aktiven Zuordnungen. Bei Schülern mit mehreren
+                Exportiert eine vollständige Excel-Datei mit allen Daten: Schüler (auch ohne iPad), 
+                iPads (auch ohne Zuordnung) und alle aktiven Zuordnungen. Bei Schülern mit mehreren 
                 iPads wird pro Zuordnung eine Zeile erstellt.
               </p>
-              <Button
-                onClick={() => setExportDialogOpen(true)}
+              <Button 
+                onClick={handleInventoryExport}
                 disabled={exporting}
                 className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue transition-all duration-200"
-                data-testid="inventory-export-btn"
               >
                 <Download className="h-4 w-4 mr-2" />
                 {exporting ? 'Exportiert...' : 'Als Excel exportieren'}
@@ -324,7 +434,7 @@ const Settings = () => {
               <p className="text-sm text-purple-700 mb-3">
                 Laden Sie eine Excel-Vorlage mit allen unterstützten Spalten und Beispieldaten herunter.
               </p>
-              <Button
+              <Button 
                 onClick={async () => {
                   try {
                     const response = await api.get('/imports/template', { responseType: 'blob' });
@@ -361,7 +471,7 @@ const Settings = () => {
                 <li><strong>1:n Zuordnung:</strong> Schüler mit 2 oder 3 iPads erscheinen mehrfach (eine Zeile pro iPad)</li>
               </ul>
               <p className="text-sm text-blue-600 mb-4">
-                Bereits vorhandene Einträge werden automatisch übersprungen.
+                Bereits vorhandene Einträge werden automatisch übersprungen. 
                 Status-Werte: <code className="bg-blue-100 px-1 rounded">ok</code>, <code className="bg-blue-100 px-1 rounded">defekt</code>, <code className="bg-blue-100 px-1 rounded">gestohlen</code> (Standard: ok)
               </p>
               <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center hover:border-blue-500 transition-colors bg-white">
@@ -393,10 +503,10 @@ const Settings = () => {
                 )}
               </div>
             </div>
-
+            
             <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded">
-              <strong>Unterstützte Spalten:</strong> Sname, SuSNachn, SuSVorn, SuSKl, SuSStrHNr, SuSPLZ, SuSOrt, SuSGeb,
-              Erz1Nachn, Erz1Vorn, Erz1StrHNr, Erz1PLZ, Erz1Ort, Erz2Nachn, Erz2Vorn, Erz2StrHNr, Erz2PLZ, Erz2Ort,
+              <strong>Unterstützte Spalten:</strong> Sname, SuSNachn, SuSVorn, SuSKl, SuSStrHNr, SuSPLZ, SuSOrt, SuSGeb, 
+              Erz1Nachn, Erz1Vorn, Erz1StrHNr, Erz1PLZ, Erz1Ort, Erz2Nachn, Erz2Vorn, Erz2StrHNr, Erz2PLZ, Erz2Ort, 
               ITNr, SNr, Typ, Pencil, <strong>Status</strong>, AnschJahr, AusleiheDatum
             </div>
           </div>
@@ -448,7 +558,7 @@ const Settings = () => {
                   className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <Button
+              <Button 
                 onClick={handlePasswordChange}
                 disabled={changingPassword || !passwordForm.current_password || !passwordForm.new_password || !passwordForm.confirm_password}
                 className="w-full bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
@@ -473,10 +583,10 @@ const Settings = () => {
             <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
               <h4 className="font-medium text-blue-800 mb-2">Automatisches Daten-Cleanup</h4>
               <p className="text-sm text-blue-700 mb-4">
-                Löscht automatisch alle Schüler- und Vertragsdaten, die älter als 5 Jahre sind,
+                Löscht automatisch alle Schüler- und Vertragsdaten, die älter als 5 Jahre sind, 
                 um DSGVO-Compliance sicherzustellen.
               </p>
-              <Button
+              <Button 
                 onClick={handleDataProtectionCleanup}
                 disabled={cleaning}
                 className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600"
@@ -485,7 +595,7 @@ const Settings = () => {
                 {cleaning ? 'Bereinigung läuft...' : 'Datenschutz-Bereinigung starten'}
               </Button>
             </div>
-
+            
             <div className="border-l-4 border-gray-400 bg-gray-50 p-4 rounded">
               <h4 className="font-medium text-gray-800 mb-2">System-Information</h4>
               <div className="text-sm text-gray-700 space-y-1">
@@ -497,15 +607,6 @@ const Settings = () => {
           </div>
         </CardContent>
       </Card>
-
-      {/* Export-Spalten-Auswahl Dialog (für Datensicherung) */}
-      <ExportColumnsDialog
-        open={exportDialogOpen}
-        onOpenChange={setExportDialogOpen}
-        onConfirm={handleExportColumnsConfirmed}
-        title="Spalten für Datensicherung wählen"
-        description="Wähle die Spalten, die in der vollständigen Datensicherung enthalten sein sollen. Die Datensicherung enthält alle Schüler (auch ohne iPad), alle iPads (auch ohne Zuordnung) und alle aktiven Zuordnungen. Deine Auswahl wird für das nächste Mal gespeichert."
-      />
     </div>
   );
 };
