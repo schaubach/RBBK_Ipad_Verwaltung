@@ -16,6 +16,7 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_user_filter,
+    is_admin,
     validate_resource_ownership,
 )
 from fastapi import Depends, HTTPException
@@ -404,13 +405,11 @@ async def batch_delete_students(filter_params: dict, current_user: dict = Depend
                 student_name = f"{student.get('sus_vorn', 'Unknown')} {student.get('sus_nachn', 'Unknown')}"
 
                 # Step 1: Dissolve ALL active assignments (1:n - student can have multiple iPads)
-                active_assignments = await db.assignments.find(
-                    {
-                        "student_id": student_id,
-                        "is_active": True,
-                        "user_id": current_user["id"],  # Security: ensure it's user's assignment
-                    }
-                ).to_list(length=None)
+                # Admin sees ALL assignments for that student; regular user only theirs.
+                assignment_filter = {"student_id": student_id, "is_active": True}
+                if not is_admin(current_user):
+                    assignment_filter["user_id"] = current_user["id"]
+                active_assignments = await db.assignments.find(assignment_filter).to_list(length=None)
 
                 for active_assignment in active_assignments:
                     # Move contract to inactive if exists

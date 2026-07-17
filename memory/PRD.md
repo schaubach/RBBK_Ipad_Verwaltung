@@ -297,3 +297,31 @@ Getestet via curl mit echtem User-Token: alle RBAC-Checks bestanden ✅
 - ✅ `GET /exports/columns` liefert Spec für Frontend
 - ✅ LocalStorage-Persistenz tab-übergreifend (Settings → Zuordnungen behält Auswahl)
 
+
+---
+
+## Session 19 (17.07.2026) — Admin Cross-Owner Bugs (durch Refactor exponiert) ✅
+
+**Symptom (User-Report):** "Nach dem Backend-Refactor läuft Zuordnungen anschauen ins Leere."
+
+**RCA:** Pre-existing Bug, durch Testing-Agent-Cleanup (Session 17/18) exponiert. Nach dem Cleanup gehörten viele iPads plötzlich anderen (deleted) usern → Admin konnte sie nicht mehr manuell zuordnen, weil der atomic-Write-Query `user_id: current_user["id"]` = `admin.id` gegen iPad.user_id = fremd matchte und die find_one_and_update-Operation still fehlschlug (409).
+
+**Zwei Stellen betroffen:**
+1. `routes/assignments.py:manual_assign` (Zeile 149-159): atomic-claim/assign filterte nach admin.user_id
+2. `routes/students.py:batch_delete_students` (Zeile 407-412): assignment-dissolution während cascade filterte nach admin.user_id → assignments blieben aktiv, iPads dangelten
+
+**Fix:** `is_admin(current_user)`-Bypass am atomic-Write-Layer ergänzt. Admins hatten den Bypass schon am Read-Layer (`get_user_filter` returns `{}`) — Write-Layer war die Lücke. Standard-User werden weiter durch `get_ipad_filter_with_pool` und `assignment.user_id`-Filter geschützt (Security bleibt).
+
+**Verifiziert (testing_agent iteration_8.json):**
+- ✅ Admin manual-assign auf fremdes iPad → 200 (vorher 409)
+- ✅ Standard-User manual-assign auf fremdes iPad → 404 (Security preserved)
+- ✅ Pool-iPad atomic claim+assign funktioniert
+- ✅ Admin batch-delete Cascade → assignments dissolved, iPads freed (freed_ipads=1)
+- ✅ Standard-User batch-delete bleibt gescoped
+- ✅ Full-Regression 38/38 Refactor-Tests + 8/8 neue Cross-Owner-Tests + 100% Backend
+
+**Test-Suite:** `/app/backend/tests/test_admin_cross_owner_fixes.py` (9 fokussierte Tests, wiederverwendbar für Regression)
+
+**Weitere Findings (nicht in Scope, dokumentiert):**
+- `/students/batch-delete` unterstützt nur filter-based Löschung (sus_vorn/sus_nachn/sus_kl/all), NICHT `{student_ids: [...]}`-Array. UI nutzt Filter — kein Impact aktuell.
+

@@ -19,6 +19,7 @@ from core.security import (
     get_current_user,
     get_ipad_filter_with_pool,
     get_user_filter,
+    is_admin,
     validate_resource_ownership,
 )
 from core.validators import validate_uploaded_file
@@ -151,7 +152,11 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
             update_doc["$push"] = {"pool_history": {"action": "claimed", "by": current_user["id"], "at": now_iso}}
             query = {"id": request.ipad_id, "is_in_pool": True, "current_assignment_id": None}
         else:
-            query = {"id": request.ipad_id, "current_assignment_id": None, "user_id": current_user["id"]}
+            # Admins may assign any owned iPad (regardless of owner);
+            # regular users are already scoped to their own iPads by get_ipad_filter_with_pool above.
+            query = {"id": request.ipad_id, "current_assignment_id": None}
+            if not is_admin(current_user):
+                query["user_id"] = current_user["id"]
 
         claim_result = await db.ipads.find_one_and_update(query, update_doc)
 
