@@ -152,7 +152,7 @@ build_containers() {
 
     cd config
 
-    if $DOCKER_COMPOSE_CMD build; then
+    if $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml build; then
         print_success "Container erfolgreich gebaut"
     else
         print_error "Fehler beim Bauen der Container"
@@ -169,7 +169,7 @@ start_services() {
 
     cd config
 
-    if $DOCKER_COMPOSE_CMD up -d; then
+    if $DOCKER_COMPOSE_CMD -f docker-compose.yml -f docker-compose.dev.yml up -d; then
         print_success "Services gestartet"
     else
         print_error "Fehler beim Starten der Services"
