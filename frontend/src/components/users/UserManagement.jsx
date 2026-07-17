@@ -8,7 +8,7 @@ import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Alert, AlertDescription } from '../ui/alert';
 import { toast } from 'sonner';
-import { Users, Trash2, Shield, Edit, Plus, AlertTriangle } from 'lucide-react';
+import { Users, Trash2, Shield, Edit, Plus, AlertTriangle, Download, Mail, Send, History } from 'lucide-react';
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
@@ -26,6 +26,7 @@ const UserManagement = () => {
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
+  const [newEmail, setNewEmail] = useState('');
   const [creating, setCreating] = useState(false);
 
   // Edit user form state
@@ -33,7 +34,27 @@ const UserManagement = () => {
   const [editPasswordConfirm, setEditPasswordConfirm] = useState('');
   const [editRole, setEditRole] = useState('user');
   const [editIsActive, setEditIsActive] = useState(true);
+  const [editEmail, setEditEmail] = useState('');
   const [updating, setUpdating] = useState(false);
+
+  // Manual system backup (export/import)
+  const [exportingBackup, setExportingBackup] = useState(false);
+  const [importingBackup, setImportingBackup] = useState(false);
+  const [preRestoreBackups, setPreRestoreBackups] = useState([]);
+  const [loadingPreRestoreBackups, setLoadingPreRestoreBackups] = useState(false);
+
+  // Automatic backup e-mail schedule
+  const [backupSchedule, setBackupSchedule] = useState({
+    enabled: false,
+    frequency: 'daily',
+    recipient_email: '',
+    last_run_at: null,
+    last_status: null,
+    last_error: null
+  });
+  const [loadingSchedule, setLoadingSchedule] = useState(true);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [sendingTestMail, setSendingTestMail] = useState(false);
 
   const handleCleanupOrphanedData = async () => {
     const confirmed = window.confirm(
@@ -82,8 +103,46 @@ const UserManagement = () => {
     }
   };
 
+  const loadBackupSchedule = async () => {
+    setLoadingSchedule(true);
+    try {
+      const response = await api.get('/settings/backup-schedule');
+      setBackupSchedule(response.data);
+    } catch (error) {
+      console.error('Failed to load backup schedule:', error);
+    } finally {
+      setLoadingSchedule(false);
+    }
+  };
+
+  const loadPreRestoreBackups = async () => {
+    setLoadingPreRestoreBackups(true);
+    try {
+      const response = await api.get('/backup/pre-restore-backups');
+      setPreRestoreBackups(response.data);
+    } catch (error) {
+      console.error('Failed to load pre-restore backups:', error);
+    } finally {
+      setLoadingPreRestoreBackups(false);
+    }
+  };
+
+  const prefillScheduleEmail = async () => {
+    try {
+      const response = await api.get('/auth/me');
+      if (response.data.email) {
+        setBackupSchedule((prev) => (prev.recipient_email ? prev : { ...prev, recipient_email: response.data.email }));
+      }
+    } catch (error) {
+      // Ignore - prefill is a convenience, not required
+    }
+  };
+
   useEffect(() => {
     loadUsers();
+    loadBackupSchedule();
+    loadPreRestoreBackups();
+    prefillScheduleEmail();
   }, []);
 
   const handleCreateUser = async (e) => {
@@ -94,13 +153,15 @@ const UserManagement = () => {
       await api.post('/admin/users', {
         username: newUsername,
         password: newPassword,
-        role: newRole
+        role: newRole,
+        email: newEmail || undefined
       });
       toast.success(`Benutzer ${newUsername} erfolgreich erstellt!`);
       setShowCreateDialog(false);
       setNewUsername('');
       setNewPassword('');
       setNewRole('user');
+      setNewEmail('');
       await loadUsers();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler beim Erstellen des Benutzers');
@@ -129,7 +190,8 @@ const UserManagement = () => {
     try {
       const updateData = {
         role: editRole,
-        is_active: editIsActive
+        is_active: editIsActive,
+        email: editEmail || undefined
       };
 
       if (editPassword) {
@@ -148,6 +210,131 @@ const UserManagement = () => {
       console.error('User update error:', error);
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleBackupExport = async () => {
+    setExportingBackup(true);
+    try {
+      const response = await api.get('/backup/export', {
+        responseType: 'blob'
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+
+      const contentDisposition = response.headers['content-disposition'];
+      let filename = 'rbbk_ipad_verwaltung_backup.json';
+      if (contentDisposition) {
+        const matches = contentDisposition.match(/filename="(.+)"/);
+        if (matches) {
+          filename = matches[1];
+        }
+      }
+
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+
+      toast.success('Komplettes System-Backup erfolgreich exportiert');
+    } catch (error) {
+      console.error('Failed to export backup:', error);
+      toast.error('Fehler beim Exportieren des Backups');
+    } finally {
+      setExportingBackup(false);
+    }
+  };
+
+  const handleBackupImport = async (file) => {
+    if (!file) return;
+
+    // Safety check
+    if (!window.confirm("ACHTUNG: Das Einspielen eines Backups überschreibt ALLE aktuellen Daten im System. Vor der Wiederherstellung wird automatisch ein Sicherheits-Backup der aktuellen Daten angelegt. Möchten Sie wirklich fortfahren?")) {
+      return;
+    }
+
+    setImportingBackup(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      toast.info('System-Backup wird wiederhergestellt...');
+
+      const response = await api.post('/backup/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      toast.success(response.data.message);
+      await loadPreRestoreBackups();
+
+    } catch (error) {
+      console.error('Failed to import backup:', error);
+      toast.error(error.response?.data?.detail || 'Fehler beim Wiederherstellen des Backups');
+      await loadPreRestoreBackups();
+    } finally {
+      setImportingBackup(false);
+    }
+  };
+
+  const handleDownloadPreRestoreBackup = async (filename) => {
+    try {
+      const response = await api.get(`/backup/pre-restore-backups/${filename}/download`, {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (error) {
+      toast.error('Fehler beim Herunterladen des Sicherheits-Backups');
+    }
+  };
+
+  const handleSaveBackupSchedule = async () => {
+    if (backupSchedule.enabled && !backupSchedule.recipient_email) {
+      toast.error('Bitte eine Ziel-E-Mail-Adresse angeben');
+      return;
+    }
+
+    setSavingSchedule(true);
+    try {
+      const response = await api.put('/settings/backup-schedule', {
+        enabled: backupSchedule.enabled,
+        frequency: backupSchedule.frequency,
+        recipient_email: backupSchedule.recipient_email || undefined
+      });
+      toast.success(response.data.message);
+      await loadBackupSchedule();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Speichern des Backup-Zeitplans');
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  const handleSendTestMail = async () => {
+    if (!backupSchedule.recipient_email) {
+      toast.error('Bitte eine Ziel-E-Mail-Adresse angeben');
+      return;
+    }
+
+    setSendingTestMail(true);
+    try {
+      const response = await api.post('/backup/send-now', {
+        recipient_email: backupSchedule.recipient_email
+      });
+      toast.success(response.data.message);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Senden der Test-Mail');
+    } finally {
+      setSendingTestMail(false);
     }
   };
 
@@ -242,6 +429,7 @@ const UserManagement = () => {
     setSelectedUser(user);
     setEditRole(user.role);
     setEditIsActive(user.is_active);
+    setEditEmail(user.email || '');
     setEditPassword('');
     setEditPasswordConfirm('');
     setShowEditDialog(true);
@@ -297,6 +485,7 @@ const UserManagement = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Benutzername</TableHead>
+                    <TableHead>E-Mail</TableHead>
                     <TableHead>Rolle</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Erstellt von</TableHead>
@@ -308,6 +497,7 @@ const UserManagement = () => {
                   {users.map((user) => (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">{user.username}</TableCell>
+                      <TableCell className="text-gray-600">{user.email || '—'}</TableCell>
                       <TableCell>
                         <Badge className={user.role === 'admin' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}>
                           {user.role === 'admin' ? 'Administrator' : 'Benutzer'}
@@ -380,6 +570,193 @@ const UserManagement = () => {
         </CardContent>
       </Card>
 
+      {/* Manual System Backup */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Download className="h-5 w-5" />
+            Vollständiges System-Backup (JSON)
+          </CardTitle>
+          <CardDescription>
+            Komplettes Backup der gesamten Datenbank inkl. Benutzer und Zuordnungen (nur für Administratoren)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="border-l-4 border-amber-400 bg-amber-50 p-4 rounded">
+              <h4 className="font-medium text-amber-800 mb-2">System-Backup erstellen</h4>
+              <p className="text-sm text-amber-700 mb-4">
+                Exportiert alle Daten (Benutzer, Schüler, iPads, Verträge, Einstellungen) in eine JSON-Datei,
+                die später zur vollständigen Wiederherstellung verwendet werden kann.
+              </p>
+              <Button
+                onClick={handleBackupExport}
+                disabled={exportingBackup}
+                className="bg-amber-600 hover:bg-amber-700 text-white transition-all duration-200"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {exportingBackup ? 'Erstellt Backup...' : 'Backup herunterladen (JSON)'}
+              </Button>
+            </div>
+
+            <div className="border-l-4 border-red-400 bg-red-50 p-4 rounded mt-4">
+              <h4 className="font-medium text-red-800 mb-2">System-Backup wiederherstellen</h4>
+              <p className="text-sm text-red-700 mb-4">
+                <strong>ACHTUNG:</strong> Das Einspielen eines Backups überschreibt <strong>ALLE</strong> aktuellen Daten im System.
+                Laden Sie hier eine zuvor erstellte .json Backup-Datei hoch. Vor der Wiederherstellung wird
+                automatisch ein Sicherheits-Backup der aktuellen Daten angelegt.
+              </p>
+              <div className="border-2 border-dashed border-red-300 rounded-lg p-4 text-center hover:border-red-500 transition-colors bg-white">
+                <Input
+                  type="file"
+                  accept=".json"
+                  onChange={(e) => {
+                    if (e.target.files[0]) {
+                      handleBackupImport(e.target.files[0]);
+                      e.target.value = ''; // Reset input
+                    }
+                  }}
+                  disabled={importingBackup}
+                  className="mb-2"
+                />
+                {importingBackup && (
+                  <div className="text-sm text-red-600 font-medium mt-2">
+                    Backup wird wiederhergestellt, bitte warten...
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="border-l-4 border-gray-400 bg-gray-50 p-4 rounded mt-4">
+              <h4 className="font-medium text-gray-800 mb-2 flex items-center gap-2">
+                <History className="h-4 w-4" />
+                Automatische Sicherheits-Backups (vor Wiederherstellung)
+              </h4>
+              <p className="text-sm text-gray-600 mb-3">
+                Vor jeder Wiederherstellung wird automatisch ein Backup der vorherigen Daten angelegt.
+                Die letzten {preRestoreBackups.length > 0 ? Math.max(preRestoreBackups.length, 5) : 5} Sicherheits-Backups bleiben erhalten.
+              </p>
+              {loadingPreRestoreBackups ? (
+                <div className="text-sm text-gray-500">Lade Sicherheits-Backups...</div>
+              ) : preRestoreBackups.length === 0 ? (
+                <div className="text-sm text-gray-500">Noch keine Sicherheits-Backups vorhanden.</div>
+              ) : (
+                <ul className="space-y-1">
+                  {preRestoreBackups.map((backup) => (
+                    <li key={backup.filename} className="flex items-center justify-between text-sm bg-white border rounded px-3 py-2">
+                      <span className="text-gray-700">
+                        {new Date(backup.created_at).toLocaleString('de-DE')}
+                        <span className="text-gray-400 ml-2">({Math.round(backup.size_bytes / 1024)} KB)</span>
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDownloadPreRestoreBackup(backup.filename)}
+                      >
+                        <Download className="h-3 w-3 mr-1" />
+                        Herunterladen
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Automatic Backup E-Mail Schedule */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            Automatisches Backup per E-Mail
+          </CardTitle>
+          <CardDescription>
+            Verschickt regelmäßig ein vollständiges System-Backup an eine hinterlegte E-Mail-Adresse
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingSchedule ? (
+            <div className="text-center py-4">Lade Zeitplan...</div>
+          ) : (
+            <div className="space-y-4 max-w-lg">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="schedule-enabled"
+                  checked={backupSchedule.enabled}
+                  onChange={(e) => setBackupSchedule({ ...backupSchedule, enabled: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <Label htmlFor="schedule-enabled">Automatische Backup-Mails aktivieren</Label>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="schedule-frequency">Häufigkeit</Label>
+                <select
+                  id="schedule-frequency"
+                  value={backupSchedule.frequency}
+                  onChange={(e) => setBackupSchedule({ ...backupSchedule, frequency: e.target.value })}
+                  className="w-full p-2 border rounded-md"
+                >
+                  <option value="daily">Täglich</option>
+                  <option value="weekly">Wöchentlich</option>
+                  <option value="monthly">Monatlich</option>
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="schedule-email">Ziel-E-Mail-Adresse</Label>
+                <Input
+                  id="schedule-email"
+                  type="email"
+                  value={backupSchedule.recipient_email || ''}
+                  onChange={(e) => setBackupSchedule({ ...backupSchedule, recipient_email: e.target.value })}
+                  placeholder="z.B. Ihre eigene Benutzer-E-Mail"
+                />
+              </div>
+
+              {backupSchedule.last_run_at && (
+                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
+                  Letztes automatisches Backup: {new Date(backupSchedule.last_run_at).toLocaleString('de-DE')}
+                  {' — '}
+                  {backupSchedule.last_status === 'success' ? (
+                    <span className="text-green-700 font-medium">erfolgreich</span>
+                  ) : (
+                    <span className="text-red-700 font-medium">
+                      fehlgeschlagen{backupSchedule.last_error ? `: ${backupSchedule.last_error}` : ''}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleSaveBackupSchedule}
+                  disabled={savingSchedule}
+                  className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
+                >
+                  {savingSchedule ? 'Speichert...' : 'Zeitplan speichern'}
+                </Button>
+                <Button
+                  onClick={handleSendTestMail}
+                  disabled={sendingTestMail}
+                  variant="outline"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  {sendingTestMail ? 'Sendet...' : 'Test-Mail jetzt senden'}
+                </Button>
+              </div>
+              <p className="text-xs text-gray-500">
+                Für den Versand muss der Server unter <code className="bg-gray-100 px-1 rounded">backend/.env</code> mit
+                SMTP-Zugangsdaten (SMTP_HOST, SMTP_USER, SMTP_PASSWORD, ...) konfiguriert sein.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Create User Dialog */}
       {showCreateDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -427,6 +804,16 @@ const UserManagement = () => {
                     <option value="admin">Administrator</option>
                   </select>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-email">E-Mail-Adresse (optional)</Label>
+                  <Input
+                    id="new-email"
+                    type="email"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                    placeholder="z.B. für automatische Backup-Mails"
+                  />
+                </div>
                 <div className="flex gap-2 justify-end">
                   <Button
                     type="button"
@@ -436,6 +823,7 @@ const UserManagement = () => {
                       setNewUsername('');
                       setNewPassword('');
                       setNewRole('user');
+                      setNewEmail('');
                     }}
                   >
                     Abbrechen
@@ -505,6 +893,16 @@ const UserManagement = () => {
                     <option value="user">Benutzer</option>
                     <option value="admin">Administrator</option>
                   </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-email">E-Mail-Adresse (optional)</Label>
+                  <Input
+                    id="edit-email"
+                    type="email"
+                    value={editEmail}
+                    onChange={(e) => setEditEmail(e.target.value)}
+                    placeholder="z.B. für automatische Backup-Mails"
+                  />
                 </div>
                 <div className="flex items-center space-x-2">
                   <input

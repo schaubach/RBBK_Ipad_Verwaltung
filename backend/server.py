@@ -16,7 +16,7 @@ import os
 import logging
 import base64
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
@@ -31,6 +31,12 @@ from datetime import timedelta
 import magic
 import bleach
 import re
+import asyncio
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
 from contract_generator import create_contracts_from_assignments
 
 ROOT_DIR = Path(__file__).parent
@@ -73,6 +79,7 @@ class User(BaseModel):
     username: str
     password_hash: str
     role: str = "user"  # "admin" or "user"
+    email: Optional[str] = None  # Used as target address for automatic backup mails
     is_active: bool = True
     force_password_change: bool = False  # True when admin resets password
     created_by: Optional[str] = None  # User ID of creator
@@ -197,16 +204,19 @@ class UserCreate(BaseModel):
     username: str
     password: str
     role: str = "user"  # "admin" or "user"
+    email: Optional[EmailStr] = None
 
 class UserUpdate(BaseModel):
     password: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    email: Optional[EmailStr] = None
 
 class UserResponse(BaseModel):
     id: str
     username: str
     role: str
+    email: Optional[str] = None
     is_active: bool
     force_password_change: bool = False
     created_by: Optional[str]
@@ -585,6 +595,7 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         "id": current_user["id"],
         "username": current_user["username"],
         "role": current_user.get("role", "user"),
+        "email": current_user.get("email"),
         "is_active": current_user.get("is_active", True)
     }
 
@@ -593,8 +604,8 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
 @api_router.post("/admin/users", response_model=UserResponse)
 async def create_user(user_data: UserCreate, current_user: dict = Depends(get_current_user)):
     """Create a new user (admin only)"""
-    
-    
+    require_admin(current_user)
+
     # Validate username
     if len(user_data.username) < 3:
         raise HTTPException(status_code=400, detail="Username must be at least 3 characters long")
@@ -618,18 +629,20 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
         username=user_data.username,
         password_hash=hashed_password,
         role=user_data.role,
+        email=user_data.email,
         is_active=True,
         created_by=current_user["id"]
     )
-    
+
     user_dict = prepare_for_mongo(new_user.dict())
     await db.users.insert_one(user_dict)
-    
+
     # Return user response without password_hash
     return UserResponse(
         id=new_user.id,
         username=new_user.username,
         role=new_user.role,
+        email=new_user.email,
         is_active=new_user.is_active,
         force_password_change=new_user.force_password_change,
         created_by=new_user.created_by,
@@ -641,15 +654,16 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
 @limiter.limit("30/minute")
 async def list_users(request: Request, current_user: dict = Depends(get_current_user)):
     """List all users (admin only)"""
-    
-    
+    require_admin(current_user)
+
     users = await db.users.find().to_list(length=None)
-    
+
     return [
         UserResponse(
             id=user["id"],
             username=user["username"],
             role=user.get("role", "user"),
+            email=user.get("email"),
             is_active=user.get("is_active", True),
             force_password_change=user.get("force_password_change", False),
             created_by=user.get("created_by"),
@@ -666,8 +680,8 @@ async def update_user(
     current_user: dict = Depends(get_current_user)
 ):
     """Update a user (admin only)"""
-    
-    
+    require_admin(current_user)
+
     # Get user to update
     target_user = await db.users.find_one({"id": user_id})
     if not target_user:
@@ -692,20 +706,24 @@ async def update_user(
     
     if user_data.is_active is not None:
         update_dict["is_active"] = user_data.is_active
-    
+
+    if user_data.email is not None:
+        update_dict["email"] = user_data.email
+
     # Update user
     await db.users.update_one(
         {"id": user_id},
         {"$set": update_dict}
     )
-    
+
     # Get updated user
     updated_user = await db.users.find_one({"id": user_id})
-    
+
     return UserResponse(
         id=updated_user["id"],
         username=updated_user["username"],
         role=updated_user.get("role", "user"),
+        email=updated_user.get("email"),
         is_active=updated_user.get("is_active", True),
         force_password_change=updated_user.get("force_password_change", False),
         created_by=updated_user.get("created_by"),
@@ -716,8 +734,8 @@ async def update_user(
 @api_router.delete("/admin/users/{user_id}")
 async def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
     """Delete a user (admin only) - NOTE: This will NOT delete user's data, just deactivate the account"""
-    
-    
+    require_admin(current_user)
+
     # Get user to delete
     target_user = await db.users.find_one({"id": user_id})
     if not target_user:
@@ -761,8 +779,8 @@ async def delete_user_complete(user_id: str, current_user: dict = Depends(get_cu
     WARNING: This action is IRREVERSIBLE!
     Deletes: User account, iPads, Students, Assignments, Contracts
     """
-    
-    
+    require_admin(current_user)
+
     # Get user to delete
     target_user = await db.users.find_one({"id": user_id})
     if not target_user:
@@ -830,8 +848,8 @@ async def cleanup_orphaned_data(current_user: dict = Depends(get_current_user)):
     Cleanup orphaned data (iPads, Students, etc.) from deleted users (admin only)
     This removes data that belongs to non-existent users
     """
-    
-    
+    require_admin(current_user)
+
     try:
         # Get all existing user IDs
         existing_users = await db.users.find({}, {"id": 1}).to_list(length=None)
@@ -885,8 +903,8 @@ async def cleanup_orphaned_data(current_user: dict = Depends(get_current_user)):
 @api_router.post("/admin/users/{user_id}/reset-password")
 async def reset_user_password(user_id: str, current_user: dict = Depends(get_current_user)):
     """Reset user password to a temporary 8-digit code (admin only)"""
-    
-    
+    require_admin(current_user)
+
     # Get user to reset
     target_user = await db.users.find_one({"id": user_id})
     if not target_user:
@@ -4236,16 +4254,70 @@ def deserialize_backup_value(value):
         return {key: deserialize_backup_value(item) for key, item in value.items()}
     return value
 
+async def build_backup_payload() -> dict:
+    """Build the full JSON-safe backup payload for all COLLECTIONS."""
+    backup_data = {}
+    for coll_name in COLLECTIONS:
+        collection = db[coll_name]
+        cursor = collection.find({})
+        records = await cursor.to_list(length=None)
+        backup_data[coll_name] = [serialize_backup_value(record) for record in records]
+    return backup_data
+
+
+async def restore_backup_payload(backup_data: dict):
+    """Overwrite COLLECTIONS with the given (already deserialized-ready) backup payload."""
+    for coll_name, records in backup_data.items():
+        if coll_name in COLLECTIONS:
+            decoded_records = []
+            for record in records:
+                decoded_record = deserialize_backup_value(record)
+                if "_id" in decoded_record and isinstance(decoded_record["_id"], str):
+                    try:
+                        decoded_record["_id"] = ObjectId(decoded_record["_id"])
+                    except Exception:
+                        del decoded_record["_id"]
+                decoded_records.append(decoded_record)
+            collection = db[coll_name]
+            await collection.delete_many({})
+            if decoded_records:
+                await collection.insert_many(decoded_records)
+
+
+# Pre-restore safety backups: written to disk before every /backup/import so a failed
+# or unwanted restore can be rolled back / manually recovered.
+PRE_RESTORE_BACKUPS_DIR = ROOT_DIR / "uploads" / "backups"
+PRE_RESTORE_FILENAME_RE = re.compile(r"^pre_restore_backup_\d{8}_\d{6}\.json$")
+PRE_RESTORE_KEEP_COUNT = 5
+
+
+def _pre_restore_backups_dir() -> Path:
+    PRE_RESTORE_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    return PRE_RESTORE_BACKUPS_DIR
+
+
+def _write_pre_restore_backup(json_bytes: bytes) -> str:
+    """Persist a pre-restore snapshot to disk and prune old ones. Returns the filename."""
+    backups_dir = _pre_restore_backups_dir()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"pre_restore_backup_{timestamp}.json"
+    (backups_dir / filename).write_bytes(json_bytes)
+
+    existing = sorted(backups_dir.glob("pre_restore_backup_*.json"))
+    for old_file in existing[:-PRE_RESTORE_KEEP_COUNT]:
+        try:
+            old_file.unlink()
+        except OSError:
+            pass
+
+    return filename
+
+
 @api_router.get("/backup/export")
 async def export_backup(current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
     try:
-        backup_data = {}
-        for coll_name in COLLECTIONS:
-            collection = db[coll_name]
-            cursor = collection.find({})
-            records = await cursor.to_list(length=None)
-            backup_data[coll_name] = [serialize_backup_value(record) for record in records]
+        backup_data = await build_backup_payload()
         json_data = json.dumps(backup_data, ensure_ascii=False)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"rbbk_ipad_verwaltung_backup_{timestamp}.json"
@@ -4259,32 +4331,273 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
     require_admin(current_user)
     if not file.filename.endswith('.json'):
         raise HTTPException(status_code=400, detail="Es muss eine .json Datei hochgeladen werden.")
+
+    content = await file.read()
     try:
-        content = await file.read()
         backup_data = json.loads(content.decode("utf-8"))
         if not isinstance(backup_data, dict):
             raise ValueError("Ungültiges Backup-Format.")
-        for coll_name, records in backup_data.items():
-            if coll_name in COLLECTIONS:
-                decoded_records = []
-                for record in records:
-                    decoded_record = deserialize_backup_value(record)
-                    if "_id" in decoded_record and isinstance(decoded_record["_id"], str):
-                        try:
-                            decoded_record["_id"] = ObjectId(decoded_record["_id"])
-                        except Exception:
-                            del decoded_record["_id"]
-                    decoded_records.append(decoded_record)
-                collection = db[coll_name]
-                await collection.delete_many({})
-                if decoded_records:
-                    await collection.insert_many(decoded_records)
-        return {"message": "Backup erfolgreich wiederhergestellt."}
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Die hochgeladene Datei ist kein gültiges JSON.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Safety net: snapshot current data BEFORE touching anything, so a failed or
+    # unwanted restore can be rolled back / manually recovered afterwards.
+    pre_restore_payload = await build_backup_payload()
+    pre_restore_json = json.dumps(pre_restore_payload, ensure_ascii=False).encode("utf-8")
+    try:
+        pre_restore_filename = _write_pre_restore_backup(pre_restore_json)
+    except OSError as e:
+        logger.error(f"Could not write pre-restore backup: {str(e)}")
+        raise HTTPException(status_code=500, detail="Sicherheits-Backup konnte nicht gespeichert werden. Wiederherstellung abgebrochen.")
+
+    try:
+        await restore_backup_payload(backup_data)
+        return {
+            "message": "Backup erfolgreich wiederhergestellt.",
+            "pre_restore_backup": pre_restore_filename,
+        }
     except Exception as e:
-        logger.error(f"Backup import error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Fehler beim Wiederherstellen: {str(e)}")
+        logger.error(f"Backup import error, attempting rollback: {str(e)}")
+        try:
+            await restore_backup_payload(pre_restore_payload)
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Fehler beim Wiederherstellen: {str(e)}. "
+                    f"Die vorherigen Daten wurden automatisch wiederhergestellt (Sicherheits-Backup: {pre_restore_filename})."
+                ),
+            )
+        except HTTPException:
+            raise
+        except Exception as rollback_error:
+            logger.error(f"Rollback after failed restore also failed: {str(rollback_error)}")
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Fehler beim Wiederherstellen: {str(e)}. "
+                    f"WARNUNG: Automatisches Rollback ist ebenfalls fehlgeschlagen ({str(rollback_error)}). "
+                    f"Bitte manuell das Sicherheits-Backup '{pre_restore_filename}' wiederherstellen."
+                ),
+            )
+
+
+@api_router.get("/backup/pre-restore-backups")
+async def list_pre_restore_backups(current_user: dict = Depends(get_current_user)):
+    """List automatically created pre-restore safety backups (admin only)."""
+    require_admin(current_user)
+    backups_dir = _pre_restore_backups_dir()
+    items = []
+    for path in sorted(backups_dir.glob("pre_restore_backup_*.json"), reverse=True):
+        stat = path.stat()
+        items.append({
+            "filename": path.name,
+            "size_bytes": stat.st_size,
+            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+        })
+    return items
+
+
+@api_router.get("/backup/pre-restore-backups/{filename}/download")
+async def download_pre_restore_backup(filename: str, current_user: dict = Depends(get_current_user)):
+    """Download a specific pre-restore safety backup (admin only)."""
+    require_admin(current_user)
+    if not PRE_RESTORE_FILENAME_RE.match(filename):
+        raise HTTPException(status_code=400, detail="Ungültiger Dateiname.")
+
+    backups_dir = _pre_restore_backups_dir()
+    file_path = (backups_dir / filename).resolve()
+    if backups_dir.resolve() not in file_path.parents or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Backup-Datei nicht gefunden.")
+
+    return Response(
+        content=file_path.read_bytes(),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# --- Automatic scheduled backup emails ---
+
+def _smtp_config() -> dict:
+    return {
+        "host": os.environ.get("SMTP_HOST", ""),
+        "port": int(os.environ.get("SMTP_PORT", 587)),
+        "user": os.environ.get("SMTP_USER", ""),
+        "password": os.environ.get("SMTP_PASSWORD", ""),
+        "from_addr": os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER", ""),
+        "use_tls": os.environ.get("SMTP_USE_TLS", "true").lower() != "false",
+    }
+
+
+def send_backup_email(recipient_email: str, json_bytes: bytes, filename: str):
+    """Send a backup JSON file as an e-mail attachment. Blocking (run via asyncio.to_thread)."""
+    config = _smtp_config()
+    if not config["host"] or not config["user"]:
+        raise RuntimeError("SMTP ist nicht konfiguriert (SMTP_HOST/SMTP_USER fehlen in backend/.env).")
+
+    msg = MIMEMultipart()
+    msg["From"] = config["from_addr"]
+    msg["To"] = recipient_email
+    msg["Subject"] = f"iPad-Verwaltung: Automatisches Backup vom {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+    msg.attach(MIMEText(
+        "Im Anhang befindet sich das automatisch erstellte System-Backup der iPad-Verwaltung.\n\n"
+        "Diese E-Mail wurde automatisch generiert.",
+        "plain",
+    ))
+    part = MIMEBase("application", "json")
+    part.set_payload(json_bytes)
+    encoders.encode_base64(part)
+    part.add_header("Content-Disposition", f"attachment; filename={filename}")
+    msg.attach(part)
+
+    with smtplib.SMTP(config["host"], config["port"], timeout=30) as server:
+        if config["use_tls"]:
+            server.starttls()
+        if config["user"]:
+            server.login(config["user"], config["password"])
+        server.sendmail(config["from_addr"], [recipient_email], msg.as_string())
+
+
+@api_router.get("/settings/backup-schedule")
+async def get_backup_schedule_settings(current_user: dict = Depends(get_current_user)):
+    """Get the automatic backup e-mail schedule (admin only)."""
+    require_admin(current_user)
+    settings = await db.global_settings.find_one({"type": "backup_schedule"})
+    if not settings:
+        return {
+            "enabled": False,
+            "frequency": "daily",
+            "recipient_email": "",
+            "last_run_at": None,
+            "last_status": None,
+            "last_error": None,
+        }
+    return {
+        "enabled": settings.get("enabled", False),
+        "frequency": settings.get("frequency", "daily"),
+        "recipient_email": settings.get("recipient_email", ""),
+        "last_run_at": settings.get("last_run_at"),
+        "last_status": settings.get("last_status"),
+        "last_error": settings.get("last_error"),
+    }
+
+
+class BackupScheduleUpdate(BaseModel):
+    enabled: bool
+    frequency: str  # "daily" | "weekly" | "monthly"
+    recipient_email: Optional[EmailStr] = None
+
+
+@api_router.put("/settings/backup-schedule")
+async def update_backup_schedule_settings(payload: BackupScheduleUpdate, current_user: dict = Depends(get_current_user)):
+    """Update the automatic backup e-mail schedule (admin only)."""
+    require_admin(current_user)
+    if payload.frequency not in ("daily", "weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="Ungültige Frequenz. Erlaubt: daily, weekly, monthly")
+    if payload.enabled and not payload.recipient_email:
+        raise HTTPException(status_code=400, detail="Für aktivierte automatische Backups ist eine Ziel-E-Mail-Adresse erforderlich.")
+
+    update_data = {
+        "enabled": payload.enabled,
+        "frequency": payload.frequency,
+        "recipient_email": payload.recipient_email or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.global_settings.update_one({"type": "backup_schedule"}, {"$set": update_data}, upsert=True)
+    return {"message": "Backup-Zeitplan gespeichert.", **update_data}
+
+
+class SendBackupNowRequest(BaseModel):
+    recipient_email: Optional[EmailStr] = None
+
+
+@api_router.post("/backup/send-now")
+async def send_backup_now(payload: SendBackupNowRequest, current_user: dict = Depends(get_current_user)):
+    """Immediately send a backup e-mail (admin only) - useful to test SMTP configuration."""
+    require_admin(current_user)
+
+    recipient = payload.recipient_email
+    if not recipient:
+        settings = await db.global_settings.find_one({"type": "backup_schedule"})
+        recipient = settings.get("recipient_email") if settings else None
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Keine Ziel-E-Mail-Adresse angegeben oder konfiguriert.")
+
+    try:
+        backup_data = await build_backup_payload()
+        json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"rbbk_ipad_verwaltung_backup_{timestamp}.json"
+        await asyncio.to_thread(send_backup_email, recipient, json_bytes, filename)
+        return {"message": f"Backup wurde erfolgreich an {recipient} gesendet."}
+    except Exception as e:
+        logger.error(f"Manual backup email failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Fehler beim Senden der Backup-E-Mail: {str(e)}")
+
+
+BACKUP_SCHEDULE_CHECK_INTERVAL_SECONDS = 3600  # check hourly whether a scheduled backup is due
+BACKUP_SCHEDULE_FREQUENCY_TO_TIMEDELTA = {
+    "daily": timedelta(days=1),
+    "weekly": timedelta(days=7),
+    "monthly": timedelta(days=30),
+}
+
+
+async def run_scheduled_backup_check():
+    """Send the automatic backup e-mail if one is enabled and due."""
+    settings = await db.global_settings.find_one({"type": "backup_schedule"})
+    if not settings or not settings.get("enabled"):
+        return
+    recipient_email = settings.get("recipient_email")
+    if not recipient_email:
+        return
+
+    interval = BACKUP_SCHEDULE_FREQUENCY_TO_TIMEDELTA.get(settings.get("frequency", "daily"), timedelta(days=1))
+    last_run_at = settings.get("last_run_at")
+    if last_run_at:
+        last_run_dt = datetime.fromisoformat(last_run_at)
+        if datetime.now(timezone.utc) - last_run_dt < interval:
+            return
+
+    try:
+        backup_data = await build_backup_payload()
+        json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"rbbk_ipad_verwaltung_backup_{timestamp}.json"
+        await asyncio.to_thread(send_backup_email, recipient_email, json_bytes, filename)
+        await db.global_settings.update_one(
+            {"type": "backup_schedule"},
+            {"$set": {
+                "last_run_at": datetime.now(timezone.utc).isoformat(),
+                "last_status": "success",
+                "last_error": None,
+            }},
+        )
+        logger.info(f"Scheduled backup email sent to {recipient_email}")
+    except Exception as e:
+        logger.error(f"Scheduled backup email failed: {str(e)}")
+        await db.global_settings.update_one(
+            {"type": "backup_schedule"},
+            {"$set": {
+                "last_run_at": datetime.now(timezone.utc).isoformat(),
+                "last_status": "error",
+                "last_error": str(e),
+            }},
+        )
+
+
+async def _backup_scheduler_loop():
+    await asyncio.sleep(60)  # let the app finish starting up first
+    while True:
+        try:
+            await run_scheduled_backup_check()
+        except Exception as e:
+            logger.error(f"Backup scheduler loop error: {str(e)}")
+        await asyncio.sleep(BACKUP_SCHEDULE_CHECK_INTERVAL_SECONDS)
+
+
 app.include_router(api_router)
 # Add security middleware
 app.add_middleware(SecurityHeadersMiddleware)
@@ -4301,6 +4614,11 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def start_backup_scheduler():
+    asyncio.create_task(_backup_scheduler_loop())
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

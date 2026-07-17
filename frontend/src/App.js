@@ -21,7 +21,7 @@ import { Button } from './components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { toast } from 'sonner';
 import { Toaster } from './components/ui/sonner';
-import { Users, Tablet, FileText, Settings as SettingsIcon, LogOut, User } from 'lucide-react';
+import { Users, Tablet, FileText, Settings as SettingsIcon, LogOut, User, ShieldCheck } from 'lucide-react';
 
 // Main Dashboard Component
 const Dashboard = ({ onLogout, userRole, currentUsername }) => {
@@ -88,8 +88,8 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
             </TabsTrigger>
             {isAdmin && (
               <TabsTrigger value="users" className="flex items-center gap-2 bg-gradient-to-r from-yellow-400/10 to-orange-500/10">
-                <Users className="h-4 w-4" />
-                Benutzer
+                <ShieldCheck className="h-4 w-4" />
+                Admin
               </TabsTrigger>
             )}
           </TabsList>

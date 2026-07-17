@@ -9,8 +9,6 @@ import { Upload, Download, Shield, Settings as SettingsIcon, User } from 'lucide
 
 const Settings = () => {
   const [cleaning, setCleaning] = useState(false);
-  const [exportingBackup, setExportingBackup] = useState(false);
-  const [importingBackup, setImportingBackup] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importToPool, setImportToPool] = useState(false);
@@ -56,70 +54,6 @@ const Settings = () => {
       toast.error('Fehler beim Speichern der globalen Einstellungen');
     } finally {
       setSavingSettings(false);
-    }
-  };
-
-  const handleBackupExport = async () => {
-    setExportingBackup(true);
-    try {
-      const response = await api.get('/backup/export', {
-        responseType: 'blob'
-      });
-      
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'rbbk_ipad_verwaltung_backup.json';
-      if (contentDisposition) {
-        const matches = contentDisposition.match(/filename="(.+)"/);
-        if (matches) {
-          filename = matches[1];
-        }
-      }
-      
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
-      
-      toast.success('Komplettes System-Backup erfolgreich exportiert');
-    } catch (error) {
-      console.error('Failed to export backup:', error);
-      toast.error('Fehler beim Exportieren des Backups');
-    } finally {
-      setExportingBackup(false);
-    }
-  };
-
-  const handleBackupImport = async (file) => {
-    if (!file) return;
-    
-    // Safety check
-    if (!window.confirm("ACHTUNG: Das Einspielen eines Backups überschreibt ALLE aktuellen Daten im System. Möchten Sie wirklich fortfahren?")) {
-      return;
-    }
-    
-    setImportingBackup(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      toast.info('System-Backup wird wiederhergestellt...');
-      
-      const response = await api.post('/backup/import', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      
-      toast.success(response.data.message);
-      
-    } catch (error) {
-      console.error('Failed to import backup:', error);
-      toast.error(error.response?.data?.detail || 'Fehler beim Wiederherstellen des Backups');
-    } finally {
-      setImportingBackup(false);
     }
   };
 
@@ -318,65 +252,6 @@ const Settings = () => {
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Data Backup */}
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Download className="h-5 w-5" />
-            Vollständiges System-Backup (JSON)
-          </CardTitle>
-          <CardDescription>
-            Komplettes Backup der gesamten Datenbank inkl. Benutzer und Zuordnungen (nur für Administratoren)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="border-l-4 border-amber-400 bg-amber-50 p-4 rounded">
-              <h4 className="font-medium text-amber-800 mb-2">System-Backup erstellen</h4>
-              <p className="text-sm text-amber-700 mb-4">
-                Exportiert alle Daten (Benutzer, Schüler, iPads, Verträge, Einstellungen) in eine JSON-Datei, 
-                die später zur vollständigen Wiederherstellung verwendet werden kann.
-              </p>
-              <Button 
-                onClick={handleBackupExport}
-                disabled={exportingBackup}
-                className="bg-amber-600 hover:bg-amber-700 text-white transition-all duration-200"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                {exportingBackup ? 'Erstellt Backup...' : 'Backup herunterladen (JSON)'}
-              </Button>
-            </div>
-
-            <div className="border-l-4 border-red-400 bg-red-50 p-4 rounded mt-4">
-              <h4 className="font-medium text-red-800 mb-2">System-Backup wiederherstellen</h4>
-              <p className="text-sm text-red-700 mb-4">
-                <strong>ACHTUNG:</strong> Das Einspielen eines Backups überschreibt <strong>ALLE</strong> aktuellen Daten im System.
-                Laden Sie hier eine zuvor erstellte .json Backup-Datei hoch.
-              </p>
-              <div className="border-2 border-dashed border-red-300 rounded-lg p-4 text-center hover:border-red-500 transition-colors bg-white">
-                <Input
-                  type="file"
-                  accept=".json"
-                  onChange={(e) => {
-                    if (e.target.files[0]) {
-                      handleBackupImport(e.target.files[0]);
-                      e.target.value = ''; // Reset input
-                    }
-                  }}
-                  disabled={importingBackup}
-                  className="mb-2"
-                />
-                {importingBackup && (
-                  <div className="text-sm text-red-600 font-medium mt-2">
-                    Backup wird wiederhergestellt, bitte warten...
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
         </CardContent>
       </Card>
 
