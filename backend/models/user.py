@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class User(BaseModel):
@@ -12,6 +12,7 @@ class User(BaseModel):
     username: str
     password_hash: str
     role: str = "user"  # "admin" or "user"
+    email: Optional[str] = None  # Used as target address for automatic backup mails
     is_active: bool = True
     force_password_change: bool = False
     created_by: Optional[str] = None
@@ -28,18 +29,21 @@ class UserCreate(BaseModel):
     username: str
     password: str
     role: str = "user"
+    email: Optional[EmailStr] = None
 
 
 class UserUpdate(BaseModel):
     password: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    email: Optional[EmailStr] = None
 
 
 class UserResponse(BaseModel):
     id: str
     username: str
     role: str
+    email: Optional[str] = None
     is_active: bool
     force_password_change: bool = False
     created_by: Optional[str]

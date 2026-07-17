@@ -57,6 +57,7 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
         username=user_data.username,
         password_hash=hashed_password,
         role=user_data.role,
+        email=user_data.email,
         is_active=True,
         created_by=current_user["id"],
     )
@@ -69,6 +70,7 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
         id=new_user.id,
         username=new_user.username,
         role=new_user.role,
+        email=new_user.email,
         is_active=new_user.is_active,
         force_password_change=new_user.force_password_change,
         created_by=new_user.created_by,
@@ -90,6 +92,7 @@ async def list_users(request: Request, current_user: dict = Depends(get_current_
             id=user["id"],
             username=user["username"],
             role=user.get("role", "user"),
+            email=user.get("email"),
             is_active=user.get("is_active", True),
             force_password_change=user.get("force_password_change", False),
             created_by=user.get("created_by"),
@@ -134,6 +137,9 @@ async def update_user(user_id: str, user_data: UserUpdate, current_user: dict = 
     if user_data.is_active is not None:
         update_dict["is_active"] = user_data.is_active
 
+    if user_data.email is not None:
+        update_dict["email"] = user_data.email
+
     # Update user
     await db.users.update_one({"id": user_id}, {"$set": update_dict})
 
@@ -144,6 +150,7 @@ async def update_user(user_id: str, user_data: UserUpdate, current_user: dict = 
         id=updated_user["id"],
         username=updated_user["username"],
         role=updated_user.get("role", "user"),
+        email=updated_user.get("email"),
         is_active=updated_user.get("is_active", True),
         force_password_change=updated_user.get("force_password_change", False),
         created_by=updated_user.get("created_by"),

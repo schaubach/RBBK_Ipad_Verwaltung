@@ -41,6 +41,9 @@ yarn-error.log*
 frontend/build/
 backend/dist/
 
+# Runtime data (contract uploads, pre-restore safety backups) - lives in a docker volume in prod
+backend/uploads/
+
 # Logs
 *.log
 logs/
