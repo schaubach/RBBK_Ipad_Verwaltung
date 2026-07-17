@@ -746,24 +746,34 @@ const UserManagement = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {backupResponsible.password_configured && (
+            {backupResponsible.password_configured ? (
               <div className="text-sm text-green-700 bg-green-50 border-l-4 border-green-400 p-2 rounded flex items-center gap-2">
                 <Lock className="h-4 w-4" /> Export/Import sind aktuell mit dem Backup-Passwort verschlüsselt (.json.enc).
+              </div>
+            ) : (
+              <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2">
+                <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <span>
+                  <strong>Backup-Export ist gesperrt:</strong> Backups enthalten Schülerdaten und dürfen nur verschlüsselt
+                  exportiert/verschickt werden. Bitte im Bereich "Backup-Sicherheit" oben zuerst einen
+                  Backup-Verantwortlichen festlegen und ein Backup-Passwort setzen.
+                </span>
               </div>
             )}
             <div className="border-l-4 border-amber-400 bg-amber-50 p-4 rounded">
               <h4 className="font-medium text-amber-800 mb-2">System-Backup erstellen</h4>
               <p className="text-sm text-amber-700 mb-4">
-                Exportiert alle Daten (Benutzer, Schüler, iPads, Verträge, Einstellungen) in eine JSON-Datei,
+                Exportiert alle Daten (Benutzer, Schüler, iPads, Verträge, Einstellungen) verschlüsselt in eine Datei,
                 die später zur vollständigen Wiederherstellung verwendet werden kann.
               </p>
               <Button
                 onClick={handleBackupExport}
-                disabled={exportingBackup}
+                disabled={exportingBackup || !backupResponsible.password_configured}
+                title={!backupResponsible.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
                 className="bg-amber-600 hover:bg-amber-700 text-white transition-all duration-200"
               >
                 <Download className="h-4 w-4 mr-2" />
-                {exportingBackup ? 'Erstellt Backup...' : 'Backup herunterladen (JSON)'}
+                {exportingBackup ? 'Erstellt Backup...' : 'Backup herunterladen (verschlüsselt)'}
               </Button>
             </div>
 
@@ -1081,6 +1091,17 @@ const UserManagement = () => {
                 </div>
               )}
 
+              {!backupResponsible.password_configured && (
+                <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2">
+                  <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>
+                    <strong>Kein Mail-Versand ohne Backup-Passwort:</strong> Da Backups Schülerdaten enthalten, wird
+                    <strong> keine E-Mail verschickt</strong>, solange oben unter "Backup-Sicherheit" kein
+                    Backup-Passwort gesetzt ist – auch nicht, wenn der Zeitplan aktiviert ist.
+                  </span>
+                </div>
+              )}
+
               <div className="flex gap-2">
                 <Button
                   onClick={handleSaveBackupSchedule}
@@ -1091,7 +1112,8 @@ const UserManagement = () => {
                 </Button>
                 <Button
                   onClick={handleSendTestMail}
-                  disabled={sendingTestMail}
+                  disabled={sendingTestMail || !backupResponsible.password_configured}
+                  title={!backupResponsible.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
                   variant="outline"
                 >
                   <Send className="h-4 w-4 mr-2" />
@@ -1099,7 +1121,7 @@ const UserManagement = () => {
                 </Button>
               </div>
               <p className="text-xs text-gray-500">
-                Für den Versand müssen SMTP-Zugangsdaten hinterlegt sein (siehe Karte "Backup-Sicherheit" oben).
+                Für den Versand müssen zusätzlich SMTP-Zugangsdaten hinterlegt sein (siehe Karte "Backup-Sicherheit" oben).
                 {backupResponsible.password_configured && (
                   <span className="text-green-700"> Backups werden aktuell verschlüsselt versendet.</span>
                 )}
@@ -1124,7 +1146,8 @@ const UserManagement = () => {
             </div>
             <Button
               onClick={handleRunServerBackupNow}
-              disabled={runningServerBackupNow}
+              disabled={runningServerBackupNow || !backupResponsible.password_configured}
+              title={!backupResponsible.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
               variant="outline"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
@@ -1133,6 +1156,15 @@ const UserManagement = () => {
           </div>
         </CardHeader>
         <CardContent>
+          {!backupResponsible.password_configured && (
+            <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2 mb-4">
+              <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span>
+                Ohne Backup-Passwort werden <strong>keine</strong> täglichen Server-Backups erstellt (Schülerdaten
+                dürfen nicht unverschlüsselt gespeichert werden).
+              </span>
+            </div>
+          )}
           {loadingServerBackups ? (
             <div className="text-center py-4">Lade Server-Backups...</div>
           ) : serverBackups.length === 0 ? (

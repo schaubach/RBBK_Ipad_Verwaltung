@@ -1145,6 +1145,58 @@ async def release_ipad_to_pool(ipad_id: str, request: Request, current_user: dic
     }
 
 
+class AdminAssignToUserRequest(BaseModel):
+    ipad_ids: List[str]
+    target_user_id: str
+
+
+@api_router.post("/admin/ipads/assign-to-user")
+@limiter.limit("30/minute")
+async def admin_assign_ipads_to_user(payload: AdminAssignToUserRequest, request: Request, current_user: dict = Depends(get_current_user)):
+    """Admin-only: Assign one or more pool iPads to a specific user."""
+    require_admin(current_user)
+
+    if not payload.ipad_ids:
+        raise HTTPException(status_code=400, detail="Keine iPads ausgewählt")
+
+    # Verify target user exists
+    target_user = await db.users.find_one({"id": payload.target_user_id})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Ziel-Benutzer nicht gefunden")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    success = []
+    failed = []
+
+    for ipad_id in payload.ipad_ids:
+        # Atomic: only succeeds if iPad is still in pool
+        result = await db.ipads.find_one_and_update(
+            {"id": ipad_id, "is_in_pool": True},
+            {
+                "$set": {"is_in_pool": False, "user_id": payload.target_user_id, "updated_at": now_iso},
+                "$push": {
+                    "pool_history": {
+                        "action": "assigned_by_admin",
+                        "by": current_user["id"],
+                        "target": payload.target_user_id,
+                        "at": now_iso,
+                    }
+                },
+            },
+        )
+        if result:
+            success.append(result.get("itnr"))
+        else:
+            failed.append(ipad_id)
+
+    return {
+        "success_count": len(success),
+        "failed_count": len(failed),
+        "assigned_itnrs": success,
+        "target_username": target_user.get("username"),
+    }
+
+
 @api_router.delete("/ipads/{ipad_id}")
 async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_user)):
     """
@@ -4324,15 +4376,20 @@ async def get_active_backup_password() -> Optional[str]:
 
 
 async def build_backup_export_bytes() -> tuple:
-    """Build the current backup as bytes, encrypting it if a backup password is configured.
-    Returns (content_bytes, filename, is_encrypted)."""
+    """Build the current backup as encrypted bytes. Raises ValueError if no backup password is
+    configured - backups contain student data (Schülerdaten) and must never leave the server
+    (download, e-mail, server-side archive) unencrypted. Returns (content_bytes, filename, is_encrypted)."""
+    password = await get_active_backup_password()
+    if not password:
+        raise ValueError(
+            "Kein Backup-Passwort konfiguriert. Da Backups Schülerdaten enthalten, ist ein Backup-Passwort "
+            "erforderlich (siehe Admin-Tab > Backup-Sicherheit: Backup-Verantwortlichen festlegen und "
+            "Backup-Passwort setzen)."
+        )
     backup_data = await build_backup_payload()
     json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    password = await get_active_backup_password()
-    if password:
-        return encrypt_backup_bytes(json_bytes, password), f"rbbk_ipad_verwaltung_backup_{timestamp}.json.enc", True
-    return json_bytes, f"rbbk_ipad_verwaltung_backup_{timestamp}.json", False
+    return encrypt_backup_bytes(json_bytes, password), f"rbbk_ipad_verwaltung_backup_{timestamp}.json.enc", True
 
 
 async def decrypt_uploaded_backup(content: bytes) -> bytes:
@@ -4491,6 +4548,8 @@ async def export_backup(current_user: dict = Depends(get_current_user)):
         content_bytes, filename, is_encrypted = await build_backup_export_bytes()
         media_type = "application/octet-stream" if is_encrypted else "application/json"
         return Response(content=content_bytes, media_type=media_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Backup export error: {str(e)}")
         raise HTTPException(status_code=500, detail="Fehler beim Erstellen des Backups.")
@@ -4781,6 +4840,8 @@ async def send_backup_now(payload: SendBackupNowRequest, current_user: dict = De
         await asyncio.to_thread(send_backup_email, recipient, content_bytes, filename, config)
         suffix = " (verschlüsselt)" if is_encrypted else ""
         return {"message": f"Backup wurde erfolgreich an {recipient} gesendet{suffix}."}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Manual backup email failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Fehler beim Senden der Backup-E-Mail: {str(e)}")
@@ -4924,6 +4985,8 @@ async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
             upsert=True,
         )
         return {"message": "Server-Backup erfolgreich erstellt.", **result}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Manual server backup failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Fehler beim Erstellen des Server-Backups: {str(e)}")
