@@ -445,7 +445,18 @@ def send_backup_email(recipient_email: str, content_bytes: bytes, filename: str,
         if config["use_tls"]:
             server.starttls()
         if config["user"]:
-            server.login(config["user"], config["password"])
+            try:
+                server.login(config["user"], config["password"])
+            except smtplib.SMTPAuthenticationError as e:
+                error_text = str(e)
+                if "application-specific password" in error_text.lower() or "5.7.9" in error_text:
+                    raise RuntimeError(
+                        "SMTP-Anmeldung fehlgeschlagen: Gmail verlangt ein App-Passwort anstelle des normalen "
+                        "Kontopassworts, sobald die 2-Faktor-Authentifizierung aktiv ist. Unter "
+                        "https://myaccount.google.com/apppasswords ein App-Passwort erstellen und dieses hier "
+                        "als SMTP-Passwort hinterlegen."
+                    ) from e
+                raise RuntimeError(f"SMTP-Anmeldung fehlgeschlagen: {error_text}") from e
         server.sendmail(config["from_addr"], [recipient_email], msg.as_string())
 
 

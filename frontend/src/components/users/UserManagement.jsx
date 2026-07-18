@@ -35,8 +35,7 @@ const UserManagement = () => {
   const [editIsActive, setEditIsActive] = useState(true);
   const [updating, setUpdating] = useState(false);
 
-  // Manual system backup (export/import)
-  const [exportingBackup, setExportingBackup] = useState(false);
+  // Manual system backup (restore/import)
   const [importingBackup, setImportingBackup] = useState(false);
   const [preRestoreBackups, setPreRestoreBackups] = useState([]);
   const [loadingPreRestoreBackups, setLoadingPreRestoreBackups] = useState(false);
@@ -386,41 +385,6 @@ const UserManagement = () => {
       console.error('User update error:', error);
     } finally {
       setUpdating(false);
-    }
-  };
-
-  const handleBackupExport = async () => {
-    setExportingBackup(true);
-    try {
-      const response = await api.get('/backup/export', {
-        responseType: 'blob'
-      });
-
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'rbbk_ipad_verwaltung_backup.json';
-      if (contentDisposition) {
-        const matches = contentDisposition.match(/filename="(.+)"/);
-        if (matches) {
-          filename = matches[1];
-        }
-      }
-
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
-
-      toast.success('Komplettes System-Backup erfolgreich exportiert');
-    } catch (error) {
-      console.error('Failed to export backup:', error);
-      toast.error('Fehler beim Exportieren des Backups');
-    } finally {
-      setExportingBackup(false);
     }
   };
 
@@ -797,117 +761,6 @@ const UserManagement = () => {
         </CardContent>
       </Card>
 
-      {/* Manual System Backup */}
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Download className="h-5 w-5" />
-            Vollständiges System-Backup (JSON)
-          </CardTitle>
-          <CardDescription>
-            Komplettes Backup der gesamten Datenbank inkl. Benutzer und Zuordnungen (nur für Administratoren)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {backupEncryption.password_configured ? (
-              <div className="text-sm text-green-700 bg-green-50 border-l-4 border-green-400 p-2 rounded flex items-center gap-2">
-                <Lock className="h-4 w-4" /> Export/Import sind aktuell mit dem Backup-Passwort verschlüsselt (.json.enc).
-              </div>
-            ) : (
-              <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2">
-                <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                <span>
-                  <strong>Backup-Export ist gesperrt:</strong> Backups enthalten Schülerdaten und dürfen nur verschlüsselt
-                  exportiert/verschickt werden. Bitte im Bereich "Backup-Sicherheit" oben zuerst ein
-                  Backup-Passwort setzen.
-                </span>
-              </div>
-            )}
-            <div className="border-l-4 border-amber-400 bg-amber-50 p-4 rounded">
-              <h4 className="font-medium text-amber-800 mb-2">System-Backup erstellen</h4>
-              <p className="text-sm text-amber-700 mb-4">
-                Exportiert alle Daten (Benutzer, Schüler, iPads, Verträge, Einstellungen) verschlüsselt in eine Datei,
-                die später zur vollständigen Wiederherstellung verwendet werden kann.
-              </p>
-              <Button
-                onClick={handleBackupExport}
-                disabled={exportingBackup || !backupEncryption.password_configured}
-                title={!backupEncryption.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
-                className="bg-amber-600 hover:bg-amber-700 text-white transition-all duration-200"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                {exportingBackup ? 'Erstellt Backup...' : 'Backup herunterladen (verschlüsselt)'}
-              </Button>
-            </div>
-
-            <div className="border-l-4 border-red-400 bg-red-50 p-4 rounded mt-4">
-              <h4 className="font-medium text-red-800 mb-2">System-Backup wiederherstellen</h4>
-              <p className="text-sm text-red-700 mb-4">
-                <strong>ACHTUNG:</strong> Das Einspielen eines Backups überschreibt <strong>ALLE</strong> aktuellen Daten im System.
-                Laden Sie hier eine zuvor erstellte .json oder .json.enc Backup-Datei hoch (verschlüsselte Dateien werden
-                automatisch mit dem aktuellen Backup-Passwort entschlüsselt). Vor der Wiederherstellung wird
-                automatisch ein Sicherheits-Backup der aktuellen Daten angelegt.
-              </p>
-              <div className="border-2 border-dashed border-red-300 rounded-lg p-4 text-center hover:border-red-500 transition-colors bg-white">
-                <Input
-                  type="file"
-                  accept=".json,.enc"
-                  onChange={(e) => {
-                    if (e.target.files[0]) {
-                      handleBackupImport(e.target.files[0]);
-                      e.target.value = ''; // Reset input
-                    }
-                  }}
-                  disabled={importingBackup}
-                  className="mb-2"
-                />
-                {importingBackup && (
-                  <div className="text-sm text-red-600 font-medium mt-2">
-                    Backup wird wiederhergestellt, bitte warten...
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="border-l-4 border-gray-400 bg-gray-50 p-4 rounded mt-4">
-              <h4 className="font-medium text-gray-800 mb-2 flex items-center gap-2">
-                <History className="h-4 w-4" />
-                Automatische Sicherheits-Backups (vor Wiederherstellung)
-              </h4>
-              <p className="text-sm text-gray-600 mb-3">
-                Vor jeder Wiederherstellung wird automatisch ein Backup der vorherigen Daten angelegt.
-                Die letzten {preRestoreBackups.length > 0 ? Math.max(preRestoreBackups.length, 5) : 5} Sicherheits-Backups bleiben erhalten.
-              </p>
-              {loadingPreRestoreBackups ? (
-                <div className="text-sm text-gray-500">Lade Sicherheits-Backups...</div>
-              ) : preRestoreBackups.length === 0 ? (
-                <div className="text-sm text-gray-500">Noch keine Sicherheits-Backups vorhanden.</div>
-              ) : (
-                <ul className="space-y-1">
-                  {preRestoreBackups.map((backup) => (
-                    <li key={backup.filename} className="flex items-center justify-between text-sm bg-white border rounded px-3 py-2">
-                      <span className="text-gray-700">
-                        {new Date(backup.created_at).toLocaleString('de-DE')}
-                        <span className="text-gray-400 ml-2">({Math.round(backup.size_bytes / 1024)} KB)</span>
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDownloadPreRestoreBackup(backup.filename)}
-                      >
-                        <Download className="h-3 w-3 mr-1" />
-                        Herunterladen
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Backup Security: central encryption password + SMTP credentials, any admin can manage both */}
       <Card className="shadow-lg">
         <CardHeader>
@@ -1046,6 +899,29 @@ const UserManagement = () => {
                 >
                   {savingSmtp ? 'Speichert...' : 'SMTP-Konfiguration speichern'}
                 </Button>
+
+                <div className="pt-3 border-t border-purple-200 space-y-2">
+                  <Label htmlFor="backup-recipient-email">Ziel-E-Mail-Adresse</Label>
+                  <Input
+                    id="backup-recipient-email"
+                    type="email"
+                    value={backupSchedule.recipient_email || ''}
+                    onChange={(e) => setBackupSchedule({ ...backupSchedule, recipient_email: e.target.value })}
+                    placeholder="z.B. Ihre eigene Benutzer-E-Mail"
+                  />
+                  <p className="text-xs text-purple-700">
+                    Ziel für automatische Backup-Mails (siehe Zeitplan unten) und für den Testversand.
+                  </p>
+                  <Button
+                    onClick={handleSendTestMail}
+                    disabled={sendingTestMail || !backupEncryption.password_configured}
+                    title={!backupEncryption.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe oben)' : undefined}
+                    variant="outline"
+                  >
+                    <Send className="h-4 w-4 mr-2" />
+                    {sendingTestMail ? 'Sendet...' : 'Test-Mail jetzt senden'}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
@@ -1093,17 +969,6 @@ const UserManagement = () => {
                 </select>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="schedule-email">Ziel-E-Mail-Adresse</Label>
-                <Input
-                  id="schedule-email"
-                  type="email"
-                  value={backupSchedule.recipient_email || ''}
-                  onChange={(e) => setBackupSchedule({ ...backupSchedule, recipient_email: e.target.value })}
-                  placeholder="z.B. Ihre eigene Benutzer-E-Mail"
-                />
-              </div>
-
               {backupSchedule.last_run_at && (
                 <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
                   Letztes automatisches Backup: {new Date(backupSchedule.last_run_at).toLocaleString('de-DE')}
@@ -1137,18 +1002,9 @@ const UserManagement = () => {
                 >
                   {savingSchedule ? 'Speichert...' : 'Zeitplan speichern'}
                 </Button>
-                <Button
-                  onClick={handleSendTestMail}
-                  disabled={sendingTestMail || !backupEncryption.password_configured}
-                  title={!backupEncryption.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
-                  variant="outline"
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  {sendingTestMail ? 'Sendet...' : 'Test-Mail jetzt senden'}
-                </Button>
               </div>
               <p className="text-xs text-gray-500">
-                Für den Versand müssen zusätzlich SMTP-Zugangsdaten hinterlegt sein (siehe Karte "Backup-Sicherheit" oben).
+                Ziel-E-Mail-Adresse und SMTP-Zugangsdaten werden oben in der Karte "Backup-Sicherheit" verwaltet.
                 {backupEncryption.password_configured && (
                   <span className="text-green-700"> Backups werden aktuell verschlüsselt versendet.</span>
                 )}
@@ -1217,6 +1073,88 @@ const UserManagement = () => {
               ))}
             </ul>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Backup Restore: kept as its own card at the bottom of the Backup-Karten, since it's
+          the rarest and most dangerous action - a one-off backup can already be created via
+          "Server-Backups (MongoDB)" above, so there's no separate "System-Backup erstellen" here. */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Download className="h-5 w-5" />
+            Backup wiederherstellen
+          </CardTitle>
+          <CardDescription>
+            Ein zuvor erstelltes System-Backup einspielen (nur für Administratoren)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="border-l-4 border-red-400 bg-red-50 p-4 rounded">
+              <h4 className="font-medium text-red-800 mb-2">System-Backup wiederherstellen</h4>
+              <p className="text-sm text-red-700 mb-4">
+                <strong>ACHTUNG:</strong> Das Einspielen eines Backups überschreibt <strong>ALLE</strong> aktuellen Daten im System.
+                Laden Sie hier eine zuvor erstellte .json oder .json.enc Backup-Datei hoch (verschlüsselte Dateien werden
+                automatisch mit dem aktuellen Backup-Passwort entschlüsselt). Vor der Wiederherstellung wird
+                automatisch ein Sicherheits-Backup der aktuellen Daten angelegt.
+              </p>
+              <div className="border-2 border-dashed border-red-300 rounded-lg p-4 text-center hover:border-red-500 transition-colors bg-white">
+                <Input
+                  type="file"
+                  accept=".json,.enc"
+                  onChange={(e) => {
+                    if (e.target.files[0]) {
+                      handleBackupImport(e.target.files[0]);
+                      e.target.value = ''; // Reset input
+                    }
+                  }}
+                  disabled={importingBackup}
+                  className="mb-2"
+                />
+                {importingBackup && (
+                  <div className="text-sm text-red-600 font-medium mt-2">
+                    Backup wird wiederhergestellt, bitte warten...
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="border-l-4 border-gray-400 bg-gray-50 p-4 rounded mt-4">
+              <h4 className="font-medium text-gray-800 mb-2 flex items-center gap-2">
+                <History className="h-4 w-4" />
+                Automatische Sicherheits-Backups (vor Wiederherstellung)
+              </h4>
+              <p className="text-sm text-gray-600 mb-3">
+                Vor jeder Wiederherstellung wird automatisch ein Backup der vorherigen Daten angelegt.
+                Die letzten {preRestoreBackups.length > 0 ? Math.max(preRestoreBackups.length, 5) : 5} Sicherheits-Backups bleiben erhalten.
+              </p>
+              {loadingPreRestoreBackups ? (
+                <div className="text-sm text-gray-500">Lade Sicherheits-Backups...</div>
+              ) : preRestoreBackups.length === 0 ? (
+                <div className="text-sm text-gray-500">Noch keine Sicherheits-Backups vorhanden.</div>
+              ) : (
+                <ul className="space-y-1">
+                  {preRestoreBackups.map((backup) => (
+                    <li key={backup.filename} className="flex items-center justify-between text-sm bg-white border rounded px-3 py-2">
+                      <span className="text-gray-700">
+                        {new Date(backup.created_at).toLocaleString('de-DE')}
+                        <span className="text-gray-400 ml-2">({Math.round(backup.size_bytes / 1024)} KB)</span>
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDownloadPreRestoreBackup(backup.filename)}
+                      >
+                        <Download className="h-3 w-3 mr-1" />
+                        Herunterladen
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
