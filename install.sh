@@ -94,7 +94,7 @@ check_project_structure() {
         exit 1
     fi
 
-    [ ! -f "backend/server.py" ] && print_error "backend/server.py fehlt!" && exit 1
+    [ ! -f "backend/main.py" ] && print_error "backend/main.py fehlt!" && exit 1
     [ ! -f "frontend/package.json" ] && print_error "frontend/package.json fehlt!" && exit 1
     [ ! -f "config/docker-compose.yml" ] && print_error "config/docker-compose.yml fehlt!" && exit 1
 
@@ -124,6 +124,18 @@ EOF
         cat > backend/.env << EOF
 MONGO_URL=mongodb://localhost:27017/iPadDatabase
 DB_NAME=iPadDatabase
+
+# SMTP-Zugangsdaten für automatische Backup-E-Mails (optional).
+# Können alternativ bequemer über die Admin-UI (Tab "Admin" > Backup-Sicherheit)
+# gepflegt werden - die dortige Konfiguration hat Vorrang vor diesen Werten.
+# Ohne SMTP_HOST/SMTP_USER (weder hier noch in der UI) bleibt der automatische
+# Backup-Versand inaktiv; manuelles Backup-Export/Import funktioniert trotzdem.
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASSWORD=
+SMTP_FROM=
+SMTP_USE_TLS=true
 EOF
         print_success "backend/.env erstellt"
     else
@@ -197,7 +209,7 @@ wait_for_services() {
 
     echo -n "Warte auf Backend"
     for i in {1..30}; do
-        if curl -s http://localhost:8001/health &> /dev/null; then
+        if curl -sf http://localhost:8001/docs &> /dev/null; then
             echo ""
             print_success "Backend ist bereit"
             break
@@ -224,44 +236,23 @@ wait_for_services() {
 init_database() {
     print_step "Initialisiere Datenbank..."
 
-    # Prüfe ob Admin-User bereits existiert
-    ADMIN_EXISTS=$(docker exec ipad_mongodb mongosh ipad_management --quiet --eval "db.users.countDocuments({username: 'admin'})")
+    # Prüfe ob Admin-User bereits existiert (korrekte Datenbank: iPadDatabase)
+    ADMIN_EXISTS=$(docker exec ipad_mongodb mongosh iPadDatabase --quiet --eval "db.users.countDocuments({role: 'admin'})")
 
     if [ "$ADMIN_EXISTS" -gt 0 ]; then
         print_success "Admin-User bereits vorhanden"
     else
         print_warning "Erstelle Admin-User..."
 
-        # Erstelle Admin-User über Backend-API
-        RESPONSE=$(curl -s -X POST http://localhost:8001/api/auth/register \
-            -H "Content-Type: application/json" \
-            -d '{
-                "username": "admin",
-                "email": "admin@ipad-system.local",
-                "password": "admin123",
-                "role": "admin"
-            }')
+        # Der einzige echte Setup-Endpunkt: legt admin/admin123 an, falls noch kein Admin existiert.
+        # Idempotent - kann gefahrlos mehrfach aufgerufen werden.
+        RESPONSE=$(curl -s -X POST http://localhost:8001/api/auth/setup)
 
-        if echo "$RESPONSE" | grep -q "id"; then
-            print_success "Admin-User erstellt"
+        if echo "$RESPONSE" | grep -q "message"; then
+            print_success "Admin-Setup ausgeführt (Login mit admin/admin123 möglich)"
         else
-            print_warning "Admin-User konnte nicht über API erstellt werden"
-            print_warning "Erstelle direkt in Datenbank..."
-
-            # Fallback: Direkt in Datenbank erstellen
-            docker exec ipad_mongodb mongosh ipad_management --eval "
-                db.users.insertOne({
-                    id: 'admin-$(date +%s)',
-                    username: 'admin',
-                    email: 'admin@ipad-system.local',
-                    hashed_password: '\$2b\$12\$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5aCPnZPxfNPxe',
-                    role: 'admin',
-                    is_active: true,
-                    created_at: new Date()
-                })
-            " &> /dev/null
-
-            print_success "Admin-User direkt in Datenbank erstellt"
+            print_warning "Admin-User konnte nicht über die API erstellt werden - Antwort: $RESPONSE"
+            print_warning "Beim ersten Öffnen der Login-Seite wird der Setup-Aufruf automatisch wiederholt."
         fi
     fi
 
@@ -304,9 +295,6 @@ print_final_info() {
     echo -e "  • Admins können Benutzer verwalten (Tab: Benutzer)"
     echo -e "  • Benutzer sehen nur ihre eigenen Daten"
     echo -e "  • Admins sehen alle Systemdaten"
-    echo ""
-    echo -e "${BLUE}Dokumentation:${NC}"
-    echo -e "  Vollständige Doku:       ${GREEN}ENTWICKLERDOKUMENTATION.md${NC}"
     echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
     echo ""

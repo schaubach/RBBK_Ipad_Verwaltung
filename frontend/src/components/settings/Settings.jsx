@@ -1,26 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import api, { SESSION_TIMEOUT } from '../../api';
+import React, { useState } from 'react';
+import api from '../../api';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from 'sonner';
-import { Upload, Download, Shield, Settings as SettingsIcon, User } from 'lucide-react';
+import { Upload, Download, User } from 'lucide-react';
 
 const Settings = () => {
-  const [cleaning, setCleaning] = useState(false);
-  const [exportingBackup, setExportingBackup] = useState(false);
-  const [importingBackup, setImportingBackup] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importToPool, setImportToPool] = useState(false);
-  const [globalSettings, setGlobalSettings] = useState({
-    ipad_typ: 'Apple iPad',
-    pencil: 'ohne Apple Pencil'
-  });
-  const [loadingSettings, setLoadingSettings] = useState(true);
-  const [savingSettings, setSavingSettings] = useState(false);
-  
+
   // Account management states
   const [changingPassword, setChangingPassword] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -28,100 +19,6 @@ const Settings = () => {
     new_password: '',
     confirm_password: ''
   });
-
-  // Load global settings on component mount
-  useEffect(() => {
-    const loadGlobalSettings = async () => {
-      try {
-        const response = await api.get('/settings/global');
-        setGlobalSettings(response.data);
-      } catch (error) {
-        console.error('Failed to load global settings:', error);
-        toast.error('Fehler beim Laden der globalen Einstellungen');
-      } finally {
-        setLoadingSettings(false);
-      }
-    };
-
-    loadGlobalSettings();
-  }, []);
-
-  const handleSaveGlobalSettings = async () => {
-    setSavingSettings(true);
-    try {
-      const response = await api.put('/settings/global', globalSettings);
-      toast.success(response.data.message);
-    } catch (error) {
-      console.error('Failed to save global settings:', error);
-      toast.error('Fehler beim Speichern der globalen Einstellungen');
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  const handleBackupExport = async () => {
-    setExportingBackup(true);
-    try {
-      const response = await api.get('/backup/export', {
-        responseType: 'blob'
-      });
-      
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'rbbk_ipad_verwaltung_backup.json';
-      if (contentDisposition) {
-        const matches = contentDisposition.match(/filename="(.+)"/);
-        if (matches) {
-          filename = matches[1];
-        }
-      }
-      
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
-      
-      toast.success('Komplettes System-Backup erfolgreich exportiert');
-    } catch (error) {
-      console.error('Failed to export backup:', error);
-      toast.error('Fehler beim Exportieren des Backups');
-    } finally {
-      setExportingBackup(false);
-    }
-  };
-
-  const handleBackupImport = async (file) => {
-    if (!file) return;
-    
-    // Safety check
-    if (!window.confirm("ACHTUNG: Das Einspielen eines Backups überschreibt ALLE aktuellen Daten im System. Möchten Sie wirklich fortfahren?")) {
-      return;
-    }
-    
-    setImportingBackup(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      toast.info('System-Backup wird wiederhergestellt...');
-      
-      const response = await api.post('/backup/import', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      
-      toast.success(response.data.message);
-      
-    } catch (error) {
-      console.error('Failed to import backup:', error);
-      toast.error(error.response?.data?.detail || 'Fehler beim Wiederherstellen des Backups');
-    } finally {
-      setImportingBackup(false);
-    }
-  };
 
   const handleInventoryExport = async () => {
     setExporting(true);
@@ -240,146 +137,8 @@ const Settings = () => {
     }
   };
 
-  const handleDataProtectionCleanup = async () => {
-    // Double-click protection
-    const now = Date.now();
-    if (!window._lastCleanupClick || (now - window._lastCleanupClick) > 3000) {
-      window._lastCleanupClick = now;
-      toast.info('Datenschutz-Bereinigung starten? WARNUNG: Alle Schüler- und Vertragsdaten älter als 5 Jahre werden gelöscht! Klicken Sie nochmal in 3 Sekunden um zu bestätigen.');
-      return;
-    }
-
-    setCleaning(true);
-    try {
-      const response = await api.post('/data-protection/cleanup-old-data');
-      toast.success(response.data.message);
-      if (response.data.details) {
-        response.data.details.forEach(detail => {
-          toast.info(detail);
-        });
-      }
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler bei der Datenschutz-Bereinigung');
-    } finally {
-      setCleaning(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
-      {/* Global Settings */}
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <SettingsIcon className="h-5 w-5" />
-            Globale Einstellungen
-          </CardTitle>
-          <CardDescription>
-            Standard-Werte für iPad-Felder
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loadingSettings ? (
-            <div className="text-center py-4">Lade Einstellungen...</div>
-          ) : (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="ipad_typ">iPad-Typ (Standard)</Label>
-                  <Input
-                    id="ipad_typ"
-                    value={globalSettings.ipad_typ}
-                    onChange={(e) => setGlobalSettings({...globalSettings, ipad_typ: e.target.value})}
-                    placeholder="z.B. Apple iPad"
-                    className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pencil">Pencil-Ausstattung (Standard)</Label>
-                  <Input
-                    id="pencil"
-                    value={globalSettings.pencil}
-                    onChange={(e) => setGlobalSettings({...globalSettings, pencil: e.target.value})}
-                    placeholder="z.B. ohne Apple Pencil"
-                    className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-              
-              <div className="pt-4 border-t">
-                <Button 
-                  onClick={handleSaveGlobalSettings}
-                  disabled={savingSettings}
-                  className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue transition-all duration-200"
-                >
-                  <SettingsIcon className="h-4 w-4 mr-2" />
-                  {savingSettings ? 'Speichert...' : 'Einstellungen speichern'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Data Backup */}
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Download className="h-5 w-5" />
-            Vollständiges System-Backup (JSON)
-          </CardTitle>
-          <CardDescription>
-            Komplettes Backup der gesamten Datenbank inkl. Benutzer und Zuordnungen (nur für Administratoren)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="border-l-4 border-amber-400 bg-amber-50 p-4 rounded">
-              <h4 className="font-medium text-amber-800 mb-2">System-Backup erstellen</h4>
-              <p className="text-sm text-amber-700 mb-4">
-                Exportiert alle Daten (Benutzer, Schüler, iPads, Verträge, Einstellungen) in eine JSON-Datei, 
-                die später zur vollständigen Wiederherstellung verwendet werden kann.
-              </p>
-              <Button 
-                onClick={handleBackupExport}
-                disabled={exportingBackup}
-                className="bg-amber-600 hover:bg-amber-700 text-white transition-all duration-200"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                {exportingBackup ? 'Erstellt Backup...' : 'Backup herunterladen (JSON)'}
-              </Button>
-            </div>
-
-            <div className="border-l-4 border-red-400 bg-red-50 p-4 rounded mt-4">
-              <h4 className="font-medium text-red-800 mb-2">System-Backup wiederherstellen</h4>
-              <p className="text-sm text-red-700 mb-4">
-                <strong>ACHTUNG:</strong> Das Einspielen eines Backups überschreibt <strong>ALLE</strong> aktuellen Daten im System.
-                Laden Sie hier eine zuvor erstellte .json Backup-Datei hoch.
-              </p>
-              <div className="border-2 border-dashed border-red-300 rounded-lg p-4 text-center hover:border-red-500 transition-colors bg-white">
-                <Input
-                  type="file"
-                  accept=".json"
-                  onChange={(e) => {
-                    if (e.target.files[0]) {
-                      handleBackupImport(e.target.files[0]);
-                      e.target.value = ''; // Reset input
-                    }
-                  }}
-                  disabled={importingBackup}
-                  className="mb-2"
-                />
-                {importingBackup && (
-                  <div className="text-sm text-red-600 font-medium mt-2">
-                    Backup wird wiederhergestellt, bitte warten...
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Excel Export */}
       <Card className="shadow-lg">
         <CardHeader>
@@ -565,44 +324,6 @@ const Settings = () => {
               >
                 {changingPassword ? 'Ändert Passwort...' : 'Passwort ändern'}
               </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Data Protection Settings */}
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            Datenschutz-Einstellungen
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
-              <h4 className="font-medium text-blue-800 mb-2">Automatisches Daten-Cleanup</h4>
-              <p className="text-sm text-blue-700 mb-4">
-                Löscht automatisch alle Schüler- und Vertragsdaten, die älter als 5 Jahre sind, 
-                um DSGVO-Compliance sicherzustellen.
-              </p>
-              <Button 
-                onClick={handleDataProtectionCleanup}
-                disabled={cleaning}
-                className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600"
-              >
-                <Shield className="h-4 w-4 mr-2" />
-                {cleaning ? 'Bereinigung läuft...' : 'Datenschutz-Bereinigung starten'}
-              </Button>
-            </div>
-            
-            <div className="border-l-4 border-gray-400 bg-gray-50 p-4 rounded">
-              <h4 className="font-medium text-gray-800 mb-2">System-Information</h4>
-              <div className="text-sm text-gray-700 space-y-1">
-                <div>Version: 1.0.0</div>
-                <div>Datenbank: iPadDatabase</div>
-                <div>Session-Timeout: {Math.round(SESSION_TIMEOUT / 60000)} Minuten</div>
-              </div>
             </div>
           </div>
         </CardContent>

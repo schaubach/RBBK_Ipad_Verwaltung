@@ -34,7 +34,9 @@ services:
     environment:
       - MONGO_URL=mongodb://mongodb:27017/iPadDatabase
       - DB_NAME=iPadDatabase
-      - JWT_SECRET=${JWT_SECRET}
+      # Container liest SECRET_KEY (core/config.py), der generierte Wert liegt aber unter dem
+      # Namen JWT_SECRET in config/.env - hier auf den vom Code erwarteten Namen mappen.
+      - SECRET_KEY=${JWT_SECRET}
     volumes:
       - ../backend:/app
       - backend_uploads:/app/uploads
@@ -46,7 +48,7 @@ services:
     expose:
       - "8001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/api/auth/setup"]
+      test: ["CMD", "curl", "-f", "-X", "POST", "http://localhost:8001/api/auth/setup"]
       interval: 30s
       timeout: 10s
       retries: 3

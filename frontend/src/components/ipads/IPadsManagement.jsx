@@ -10,8 +10,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
+import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { toast } from 'sonner';
-import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X } from 'lucide-react';
+import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Download, Users } from 'lucide-react';
 
 const IPadsManagement = ({ isAdmin = false }) => {
   const [ipads, setIPads] = useState([]);
@@ -23,6 +24,24 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const [itnrFilter, setItnrFilter] = useState('');
   const [snrFilter, setSnrFilter] = useState('');
   const [poolFilter, setPoolFilter] = useState('all'); // 'all' | 'own' | 'pool'
+  const [vornameFilter, setVornameFilter] = useState('');
+  const [nachnameFilter, setNachnameFilter] = useState('');
+  const [klasseFilter, setKlasseFilter] = useState('');
+  // 'all' | 'assigned' | 'free' - "zugeordnet" / "nicht zugeordnet" (bewusst NICHT aktiv/inaktiv benannt)
+  const [assignedFilter, setAssignedFilter] = useState('all');
+
+  // Active assignments (für Batch-Auflösen, Schüler-Filter und Export-Kontext)
+  const [assignments, setAssignments] = useState([]);
+  const [students, setStudents] = useState([]);
+
+  // Batch assign/dissolve states
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [bulkDissolving, setBulkDissolving] = useState(false);
+  const [bulkDissolveDialogOpen, setBulkDissolveDialogOpen] = useState(false);
+
+  // Export states
+  const [exporting, setExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
   // Autocomplete states (now dialog-based)
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
@@ -118,6 +137,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
       setAssignmentInfoDialogOpen(false);
       setAssignmentInfoStudent(null);
       loadIPads();
+      loadAssignments();
+      loadAvailableStudents();
     } catch (error) {
       toast.error('Fehler beim Auflösen der Zuordnung');
     }
@@ -214,9 +235,18 @@ const IPadsManagement = ({ isAdmin = false }) => {
       setReleaseDialogOpen(false);
       setIpadToRelease(null);
       loadIPads();
+      loadAssignments();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler beim Freigeben');
     }
+  };
+
+  // Active assignment + student for a given iPad (for Schüler-Filter, Batch-Auflösen, Export-Kontext)
+  const getIpadAssignment = (ipadId) => assignments.find(a => a.ipad_id === ipadId && a.is_active);
+  const getIpadStudent = (ipadId) => {
+    const assignment = getIpadAssignment(ipadId);
+    if (!assignment) return null;
+    return students.find(s => s.id === assignment.student_id) || null;
   };
 
   // Filtered and sorted iPads
@@ -226,7 +256,13 @@ const IPadsManagement = ({ isAdmin = false }) => {
     let poolMatch = true;
     if (poolFilter === 'own') poolMatch = !ipad.is_in_pool;
     else if (poolFilter === 'pool') poolMatch = ipad.is_in_pool === true;
-    return itnrMatch && snrMatch && poolMatch;
+    const assignedMatch = assignedFilter === 'all' ||
+      (assignedFilter === 'assigned' ? !!ipad.current_assignment_id : !ipad.current_assignment_id);
+    const student = (vornameFilter || nachnameFilter || klasseFilter) ? getIpadStudent(ipad.id) : null;
+    const vornMatch = !vornameFilter || student?.sus_vorn?.toLowerCase().includes(vornameFilter.toLowerCase());
+    const nachMatch = !nachnameFilter || student?.sus_nachn?.toLowerCase().includes(nachnameFilter.toLowerCase());
+    const klMatch = !klasseFilter || student?.sus_kl?.toLowerCase().includes(klasseFilter.toLowerCase());
+    return itnrMatch && snrMatch && poolMatch && assignedMatch && vornMatch && nachMatch && klMatch;
   }).sort((a, b) => {
     if (!sortField) return 0;
 
@@ -335,10 +371,30 @@ const IPadsManagement = ({ isAdmin = false }) => {
     }
   };
 
+  const loadAssignments = async () => {
+    try {
+      const response = await api.get('/assignments');
+      setAssignments(response.data || []);
+    } catch (error) {
+      console.error('Failed to load assignments:', error);
+    }
+  };
+
+  const loadStudents = async () => {
+    try {
+      const response = await api.get('/students');
+      setStudents(response.data || []);
+    } catch (error) {
+      console.error('Failed to load students:', error);
+    }
+  };
+
   useEffect(() => {
     loadIPads();
     loadAvailableStudents();
     loadGlobalSettings();
+    loadAssignments();
+    loadStudents();
   }, []);
 
   // Open create dialog with defaults from global settings
@@ -382,9 +438,146 @@ const IPadsManagement = ({ isAdmin = false }) => {
       // Reload both lists to update availability
       await loadIPads();
       await loadAvailableStudents();
+      await loadAssignments();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Zuordnung fehlgeschlagen');
     }
+  };
+
+  // Batch: ausgewählte freie iPads verfügbaren Schülern zuordnen (der Reihe nach)
+  const handleBulkAssign = async () => {
+    const targets = selectedIPads
+      .map(id => ipads.find(i => i.id === id))
+      .filter(i => i && !i.current_assignment_id);
+
+    if (targets.length === 0) {
+      toast.error('Keine freien iPads ausgewählt');
+      return;
+    }
+
+    setBulkAssigning(true);
+    let pool = [...availableStudents];
+    let successCount = 0;
+    let noStudentCount = 0;
+
+    for (const ipad of targets) {
+      if (pool.length === 0) {
+        noStudentCount++;
+        continue;
+      }
+      const student = pool.shift();
+      try {
+        await api.post('/assignments/manual', { ipad_id: ipad.id, student_id: student.id });
+        successCount++;
+      } catch (error) {
+        console.error(`Failed to assign student to iPad ${ipad.id}:`, error);
+      }
+    }
+
+    setBulkAssigning(false);
+    setSelectedIPads([]);
+
+    if (successCount > 0) {
+      toast.success(`${successCount} iPad(s) zugeordnet`);
+    }
+    if (noStudentCount > 0) {
+      toast.warning(`${noStudentCount} iPad(s) konnten nicht bedient werden (keine freien Schüler mehr)`);
+    }
+
+    await loadIPads();
+    await loadAvailableStudents();
+    await loadAssignments();
+  };
+
+  // Batch: aktive Zuordnungen der ausgewählten iPads auflösen
+  const handleBulkDissolve = async () => {
+    const assignmentsToDissolve = assignments.filter(
+      a => a.is_active && selectedIPads.includes(a.ipad_id)
+    );
+
+    if (assignmentsToDissolve.length === 0) {
+      toast.error('Keine Zuordnungen bei den ausgewählten iPads vorhanden');
+      return;
+    }
+
+    setBulkDissolving(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const assignment of assignmentsToDissolve) {
+      try {
+        await api.delete(`/assignments/${assignment.id}`);
+        successCount++;
+      } catch (error) {
+        errorCount++;
+        console.error(`Failed to dissolve assignment ${assignment.id}:`, error);
+      }
+    }
+
+    setBulkDissolving(false);
+    setSelectedIPads([]);
+
+    if (successCount > 0) {
+      toast.success(`${successCount} Zuordnung(en) aufgelöst`);
+    }
+    if (errorCount > 0) {
+      toast.error(`${errorCount} Zuordnung(en) konnten nicht aufgelöst werden`);
+    }
+
+    await loadIPads();
+    await loadAvailableStudents();
+    await loadAssignments();
+  };
+
+  const confirmBulkDissolve = async () => {
+    setBulkDissolveDialogOpen(false);
+    await handleBulkDissolve();
+  };
+
+  // Export: berücksichtigt aktive Filter (ITNr/Vorname/Nachname/Klasse) + Zuordnungs-Toggle
+  const handleExport = async (columns) => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (itnrFilter) params.append('itnr', itnrFilter);
+      if (vornameFilter) params.append('sus_vorn', vornameFilter);
+      if (nachnameFilter) params.append('sus_nachn', nachnameFilter);
+      if (klasseFilter) params.append('sus_kl', klasseFilter);
+      if (columns && columns.length > 0) params.append('columns', columns.join(','));
+
+      let url;
+      if (assignedFilter === 'assigned') {
+        url = `/assignments/export?${params.toString()}`;
+      } else {
+        params.append('group', assignedFilter === 'free' ? 'unassigned_ipads' : 'assigned_ipads');
+        url = `/exports/inventory?${params.toString()}`;
+      }
+
+      const response = await api.get(url, { responseType: 'blob' });
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = 'ipads_export.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(link);
+
+      toast.success('Export erfolgreich');
+    } catch (error) {
+      toast.error('Fehler beim Export');
+      console.error('Export error:', error);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleColumnsConfirmed = (columns) => {
+    setExportDialogOpen(false);
+    handleExport(columns);
   };
 
   const handleDeleteIPad = (ipad) => {
@@ -534,7 +727,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
         <CardContent>
           {/* Filter Section */}
           <div className="mb-4 p-4 bg-gray-50 rounded-lg space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
               <div>
                 <Label htmlFor="ipad-itnr-filter">ITNr filtern</Label>
                 <Input
@@ -551,6 +744,33 @@ const IPadsManagement = ({ isAdmin = false }) => {
                   placeholder="z.B. ABC123"
                   value={snrFilter}
                   onChange={(e) => setSnrFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="ipad-vorname-filter">Schüler-Vorname filtern</Label>
+                <Input
+                  id="ipad-vorname-filter"
+                  placeholder="z.B. Max"
+                  value={vornameFilter}
+                  onChange={(e) => setVornameFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="ipad-nachname-filter">Schüler-Nachname filtern</Label>
+                <Input
+                  id="ipad-nachname-filter"
+                  placeholder="z.B. Müller"
+                  value={nachnameFilter}
+                  onChange={(e) => setNachnameFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="ipad-klasse-filter">Klasse filtern</Label>
+                <Input
+                  id="ipad-klasse-filter"
+                  placeholder="z.B. 10a"
+                  value={klasseFilter}
+                  onChange={(e) => setKlasseFilter(e.target.value)}
                 />
               </div>
             </div>
@@ -585,18 +805,62 @@ const IPadsManagement = ({ isAdmin = false }) => {
               </Button>
             </div>
 
-            {(itnrFilter || snrFilter || poolFilter !== 'all') && (
+            {/* Zuordnungs-Toggle */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-sm font-medium mr-2">Zuordnung:</Label>
               <Button
-                onClick={() => {
-                  setItnrFilter('');
-                  setSnrFilter('');
-                  setPoolFilter('all');
-                }}
-                variant="outline"
+                size="sm"
+                variant={assignedFilter === 'all' ? 'default' : 'outline'}
+                onClick={() => setAssignedFilter('all')}
+                data-testid="assigned-filter-all"
               >
-                Filter zurücksetzen
+                Alle ({ipads.length})
               </Button>
-            )}
+              <Button
+                size="sm"
+                variant={assignedFilter === 'assigned' ? 'default' : 'outline'}
+                onClick={() => setAssignedFilter('assigned')}
+                data-testid="assigned-filter-assigned"
+              >
+                Zugeordnet ({ipads.filter(i => i.current_assignment_id).length})
+              </Button>
+              <Button
+                size="sm"
+                variant={assignedFilter === 'free' ? 'default' : 'outline'}
+                onClick={() => setAssignedFilter('free')}
+                data-testid="assigned-filter-free"
+              >
+                Nicht zugeordnet ({ipads.filter(i => !i.current_assignment_id).length})
+              </Button>
+            </div>
+
+            <div className="flex gap-2 flex-wrap">
+              {(itnrFilter || snrFilter || poolFilter !== 'all' || vornameFilter || nachnameFilter || klasseFilter || assignedFilter !== 'all') && (
+                <Button
+                  onClick={() => {
+                    setItnrFilter('');
+                    setSnrFilter('');
+                    setPoolFilter('all');
+                    setVornameFilter('');
+                    setNachnameFilter('');
+                    setKlasseFilter('');
+                    setAssignedFilter('all');
+                  }}
+                  variant="outline"
+                >
+                  Filter zurücksetzen
+                </Button>
+              )}
+              <Button
+                onClick={() => setExportDialogOpen(true)}
+                disabled={exporting}
+                variant="outline"
+                className="ml-auto"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {exporting ? 'Exportiere...' : 'Exportieren'}
+              </Button>
+            </div>
           </div>
 
           {/* Batch Actions */}
@@ -619,6 +883,26 @@ const IPadsManagement = ({ isAdmin = false }) => {
                   data-testid="bulk-assign-to-user-btn"
                 >
                   👤 {selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) an User zuweisen
+                </Button>
+              )}
+              {selectedIPads.some(id => !ipads.find(i => i.id === id)?.current_assignment_id) && (
+                <Button
+                  onClick={handleBulkAssign}
+                  disabled={bulkAssigning}
+                  className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
+                >
+                  <Users className="h-4 w-4 mr-2" />
+                  {bulkAssigning ? 'Ordne zu...' : `${selectedIPads.filter(id => !ipads.find(i => i.id === id)?.current_assignment_id).length} Schülern zuordnen`}
+                </Button>
+              )}
+              {selectedIPads.some(id => ipads.find(i => i.id === id)?.current_assignment_id) && (
+                <Button
+                  onClick={() => setBulkDissolveDialogOpen(true)}
+                  disabled={bulkDissolving}
+                  variant="outline"
+                >
+                  <X className="h-4 w-4 mr-2" />
+                  {bulkDissolving ? 'Löse auf...' : 'Zuordnung auflösen'}
                 </Button>
               )}
               <Button
@@ -716,7 +1000,6 @@ const IPadsManagement = ({ isAdmin = false }) => {
                         <Checkbox
                           checked={selectedIPads.includes(ipad.id)}
                           onCheckedChange={() => toggleIPadSelection(ipad.id)}
-                          disabled={ipad.current_assignment_id}
                         />
                       </TableCell>
                       <TableCell className="font-medium">
@@ -1217,6 +1500,34 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Batch Dissolve Confirmation Dialog */}
+      <AlertDialog open={bulkDissolveDialogOpen} onOpenChange={setBulkDissolveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Zuordnungen auflösen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich die aktiven Zuordnungen der ausgewählten iPads auflösen?
+              <br /><br />
+              Die betroffenen iPads werden wieder als verfügbar markiert. Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmBulkDissolve} className="bg-red-600 hover:bg-red-700">
+              Zuordnungen auflösen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Export-Spalten-Auswahl Dialog */}
+      <ExportColumnsDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        onConfirm={handleColumnsConfirmed}
+        title="Spalten für iPad-Export wählen"
+      />
     </div>
   );
 };

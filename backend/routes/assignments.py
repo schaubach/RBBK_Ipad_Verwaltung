@@ -46,8 +46,11 @@ async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
     all_students = await db.students.find(user_filter).to_list(length=None)
 
     # Filter: Nur Schüler OHNE aktive Zuordnungen (nicht 1, nicht 2, nicht 3 - gar keine!)
+    # und ohne "iPad verweigert"-Vermerk (die sollen nicht immer wieder automatisch bedacht werden).
     unassigned_students = []
     for student in all_students:
+        if student.get("ipad_refused"):
+            continue
         active_assignments = await db.assignments.count_documents({"student_id": student["id"], "is_active": True})
         if active_assignments == 0:
             unassigned_students.append(student)
@@ -169,7 +172,10 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
         await db.assignments.insert_one(assignment_dict)
 
         # Student update removed - no current_assignment_id field anymore (1:n relationship)
-        await db.students.update_one({"id": student["id"]}, {"$set": {"updated_at": now_iso}})
+        # Assigning an iPad clears a prior "verweigert" mark - the person now has a device.
+        await db.students.update_one(
+            {"id": student["id"]}, {"$set": {"updated_at": now_iso, "ipad_refused": False}}
+        )
 
         return {
             "message": f"iPad {ipad['itnr']} erfolgreich {student['sus_vorn']} {student['sus_nachn']} zugewiesen",

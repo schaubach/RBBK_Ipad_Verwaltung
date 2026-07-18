@@ -97,6 +97,7 @@ EXPORT_COLUMNS: List[str] = [
     "Erz2StrHNr",
     "Erz2PLZ",
     "Erz2Ort",
+    "iPad verweigert",
     # iPad
     "Pencil",
     "ITNr",
@@ -168,6 +169,7 @@ def _build_assignment_row(
         "Erz2StrHNr": student.get("erz2_str_hnr", "") if student else "",
         "Erz2PLZ": student.get("erz2_plz", "") if student else "",
         "Erz2Ort": student.get("erz2_ort", "") if student else "",
+        "iPad verweigert": "Ja" if (student and student.get("ipad_refused")) else "Nein",
         # iPad
         "Pencil": pencil,
         "ITNr": ipad.get("itnr", "") if ipad else "",
@@ -226,6 +228,7 @@ EXPORT_COLUMN_GROUPS = {
         "Erz2StrHNr",
         "Erz2PLZ",
         "Erz2Ort",
+        "iPad verweigert",
     ],
     "ipad": [
         "Pencil",
@@ -743,29 +746,80 @@ async def download_import_template(current_user: dict = Depends(get_current_user
 async def export_inventory(
     request: Request,
     columns: Optional[str] = None,
+    group: Optional[str] = None,
+    sus_vorn: Optional[str] = None,
+    sus_nachn: Optional[str] = None,
+    sus_kl: Optional[str] = None,
+    itnr: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
     """Export complete data backup: all students, all iPads, and all assignments (1:n support).
 
     Optional ``columns`` query parameter is a comma-separated list of column
     names from EXPORT_COLUMNS. Defaults to all columns when omitted.
+
+    Optional ``group`` query parameter narrows the result to a subset of the
+    row groups this endpoint normally combines (assigned pairs / students
+    without an iPad / iPads without a student / students who declined an
+    iPad). Used by the Schüler- and iPad-Ansicht toggle ("Alle" / "Nur
+    zugeordnete" / "Nur freie" / "Verweigert") to export exactly the rows
+    currently shown:
+      - "assigned_students": assigned rows + all students without an iPad
+        (including those marked "iPad verweigert") - the "Alle" bucket
+      - "assigned_ipads": assigned rows + iPads without a student
+      - "unassigned_students": students without an iPad, EXCLUDING those
+        marked "iPad verweigert" - the "Nur freie" bucket
+      - "unassigned_ipads": only iPads without a student
+      - "refused_students": only students marked "iPad verweigert" - the
+        "Verweigert" bucket
+      - omitted / anything else: all groups combined (default, unchanged)
+
+    Optional ``sus_vorn`` / ``sus_nachn`` / ``sus_kl`` / ``itnr`` filter the
+    underlying students / iPads (same regex semantics as
+    ``/assignments/export``), so the export matches the view's active filter.
     """
     selected_columns = _parse_columns_param(columns)
+    include_assigned = group in (None, "assigned_students", "assigned_ipads")
+    include_unassigned_students = group in (None, "assigned_students", "unassigned_students", "refused_students")
+    include_unassigned_ipads = group in (None, "assigned_ipads", "unassigned_ipads")
+
+    def _unassigned_student_matches_group(student: dict) -> bool:
+        """Within the "students without an iPad" set, further split by the
+        "iPad verweigert" flag depending on which bucket was requested."""
+        refused = bool(student.get("ipad_refused"))
+        if group == "unassigned_students":
+            return not refused
+        if group == "refused_students":
+            return refused
+        return True  # None / "assigned_students": show both
+
     try:
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
+
+        student_filter = user_filter.copy()
+        if sus_vorn:
+            student_filter["sus_vorn"] = {"$regex": sus_vorn, "$options": "i"}
+        if sus_nachn:
+            student_filter["sus_nachn"] = {"$regex": sus_nachn, "$options": "i"}
+        if sus_kl:
+            student_filter["sus_kl"] = {"$regex": sus_kl, "$options": "i"}
+
+        ipad_filter = user_filter.copy()
+        if itnr:
+            ipad_filter["itnr"] = {"$regex": itnr, "$options": "i"}
 
         # Get global settings
         settings = await db.global_settings.find_one({"type": "app_settings"})
         ipad_typ = settings.get("ipad_typ", "Apple iPad") if settings else "Apple iPad"
         pencil = settings.get("pencil", "ohne Apple Pencil") if settings else "ohne Apple Pencil"
 
-        # Get all students (filtered by user)
-        all_students = await db.students.find(user_filter).to_list(length=None)
+        # Get all students (filtered by user + optional name/class filter)
+        all_students = await db.students.find(student_filter).to_list(length=None)
         students_by_id = {s["id"]: s for s in all_students}
 
-        # Get all iPads (filtered by user)
-        all_ipads = await db.ipads.find(user_filter).to_list(length=None)
+        # Get all iPads (filtered by user + optional ITNr filter)
+        all_ipads = await db.ipads.find(ipad_filter).to_list(length=None)
         ipads_by_id = {i["id"]: i for i in all_ipads}
 
         # Get all active assignments (filtered by user)
@@ -785,6 +839,7 @@ async def export_inventory(
         export_data = []
 
         # 1. Process all assignments (creates rows for students WITH iPads - respects 1:n)
+        # Only rows where BOTH sides pass the active student/iPad filter are included.
         for assignment in all_assignments:
             student_id = assignment.get("student_id")
             ipad_id = assignment.get("ipad_id")
@@ -796,6 +851,9 @@ async def export_inventory(
                 students_with_assignments.add(student_id)
             if ipad:
                 ipads_with_assignments.add(ipad_id)
+
+            if not include_assigned or not student or not ipad:
+                continue
 
             export_data.append(
                 _build_assignment_row(
@@ -809,35 +867,37 @@ async def export_inventory(
                 )
             )
 
-        # 2. Add students WITHOUT any iPad assignment
-        for student_id, student in students_by_id.items():
-            if student_id not in students_with_assignments:
-                export_data.append(
-                    _build_assignment_row(
-                        student,
-                        None,
-                        None,
-                        contracts_by_id,
-                        ipad_typ_default=ipad_typ,
-                        pencil_default=pencil,
-                        selected_columns=selected_columns,
+        # 2. Add students WITHOUT any iPad assignment (split further by "iPad verweigert")
+        if include_unassigned_students:
+            for student_id, student in students_by_id.items():
+                if student_id not in students_with_assignments and _unassigned_student_matches_group(student):
+                    export_data.append(
+                        _build_assignment_row(
+                            student,
+                            None,
+                            None,
+                            contracts_by_id,
+                            ipad_typ_default=ipad_typ,
+                            pencil_default=pencil,
+                            selected_columns=selected_columns,
+                        )
                     )
-                )
 
         # 3. Add iPads WITHOUT any assignment
-        for ipad_id, ipad in ipads_by_id.items():
-            if ipad_id not in ipads_with_assignments:
-                export_data.append(
-                    _build_assignment_row(
-                        None,
-                        ipad,
-                        None,
-                        contracts_by_id,
-                        ipad_typ_default=ipad_typ,
-                        pencil_default=pencil,
-                        selected_columns=selected_columns,
+        if include_unassigned_ipads:
+            for ipad_id, ipad in ipads_by_id.items():
+                if ipad_id not in ipads_with_assignments:
+                    export_data.append(
+                        _build_assignment_row(
+                            None,
+                            ipad,
+                            None,
+                            contracts_by_id,
+                            ipad_typ_default=ipad_typ,
+                            pencil_default=pencil,
+                            selected_columns=selected_columns,
+                        )
                     )
-                )
 
         # Create DataFrame and export to Excel (canonical headers even on empty result)
         columns_for_df = selected_columns if selected_columns else EXPORT_COLUMNS
