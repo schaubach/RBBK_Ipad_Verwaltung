@@ -56,11 +56,6 @@ Entfernt alle Docker-Container, Volumes und optional die Konfigurationsdateien.
 - **Datenbank:** MongoDB
 - **Reverse Proxy:** Nginx
 
-## 📚 Dokumentation
-
-Die vollständige Dokumentation finden Sie in:
-- **[ENTWICKLERDOKUMENTATION.md](ENTWICKLERDOKUMENTATION.md)** - Komplette technische Dokumentation
-
 ## 🔧 Nützliche Befehle
 
 ```bash
@@ -84,10 +79,6 @@ docker compose logs -f frontend  # Nur Frontend-Logs
 - **Zuweisungen** zwischen iPads und Schülern
 - **Daten-Import** via Excel (iPads, Schüler, Zuweisungen)
 - **RBAC:** Benutzer sehen nur ihre eigenen Daten, Admins sehen alles
-
-## 📞 Support
-
-Bei Problemen konsultieren Sie die `ENTWICKLERDOKUMENTATION.md`.
 
 ## 📄 Lizenz
 

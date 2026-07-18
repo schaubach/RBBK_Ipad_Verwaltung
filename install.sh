@@ -296,9 +296,6 @@ print_final_info() {
     echo -e "  • Benutzer sehen nur ihre eigenen Daten"
     echo -e "  • Admins sehen alle Systemdaten"
     echo ""
-    echo -e "${BLUE}Dokumentation:${NC}"
-    echo -e "  Vollständige Doku:       ${GREEN}ENTWICKLERDOKUMENTATION.md${NC}"
-    echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════${NC}"
     echo ""
 }

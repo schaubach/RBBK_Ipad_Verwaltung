@@ -35,10 +35,6 @@ select = ["E", "F", "W", "B", "I", "UP", "S"]
 # S311  — random for non-crypto use
 ignore = ["E501", "E722", "B008", "B904", "UP006", "UP007", "UP035", "S101", "S104", "S105", "S106", "S110", "S113", "S311"]
 
-[lint.per-file-ignores]
-# Tests use plenty of patterns Ruff would otherwise flag
-"backend/tests/**/*.py" = ["S101", "S110", "S113", "E722", "F841", "B904", "E702"]
-
 [format]
 quote-style = "double"
 indent-style = "space"
