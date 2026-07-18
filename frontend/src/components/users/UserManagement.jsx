@@ -26,7 +26,6 @@ const UserManagement = () => {
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
-  const [newEmail, setNewEmail] = useState('');
   const [creating, setCreating] = useState(false);
 
   // Edit user form state
@@ -34,7 +33,6 @@ const UserManagement = () => {
   const [editPasswordConfirm, setEditPasswordConfirm] = useState('');
   const [editRole, setEditRole] = useState('user');
   const [editIsActive, setEditIsActive] = useState(true);
-  const [editEmail, setEditEmail] = useState('');
   const [updating, setUpdating] = useState(false);
 
   // Manual system backup (export/import)
@@ -56,16 +54,9 @@ const UserManagement = () => {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [sendingTestMail, setSendingTestMail] = useState(false);
 
-  // Backup responsible admin + backup encryption password
-  const [backupResponsible, setBackupResponsible] = useState({
-    responsible_admin_id: null,
-    responsible_admin_username: null,
-    password_configured: false,
-    is_current_user_responsible: false
-  });
-  const [loadingResponsible, setLoadingResponsible] = useState(true);
-  const [selectedResponsibleId, setSelectedResponsibleId] = useState('');
-  const [savingResponsible, setSavingResponsible] = useState(false);
+  // Central backup encryption password (any admin may set it)
+  const [backupEncryption, setBackupEncryption] = useState({ password_configured: false });
+  const [loadingBackupEncryption, setLoadingBackupEncryption] = useState(true);
   const [newBackupPassword, setNewBackupPassword] = useState('');
   const [newBackupPasswordConfirm, setNewBackupPasswordConfirm] = useState('');
   const [savingBackupPassword, setSavingBackupPassword] = useState(false);
@@ -154,27 +145,15 @@ const UserManagement = () => {
     }
   };
 
-  const prefillScheduleEmail = async () => {
+  const loadBackupEncryption = async () => {
+    setLoadingBackupEncryption(true);
     try {
-      const response = await api.get('/auth/me');
-      if (response.data.email) {
-        setBackupSchedule((prev) => (prev.recipient_email ? prev : { ...prev, recipient_email: response.data.email }));
-      }
+      const response = await api.get('/settings/backup-encryption');
+      setBackupEncryption(response.data);
     } catch (error) {
-      // Ignore - prefill is a convenience, not required
-    }
-  };
-
-  const loadBackupResponsible = async () => {
-    setLoadingResponsible(true);
-    try {
-      const response = await api.get('/admin/backup-responsible');
-      setBackupResponsible(response.data);
-      setSelectedResponsibleId(response.data.responsible_admin_id || '');
-    } catch (error) {
-      console.error('Failed to load backup responsible:', error);
+      console.error('Failed to load backup encryption status:', error);
     } finally {
-      setLoadingResponsible(false);
+      setLoadingBackupEncryption(false);
     }
   };
 
@@ -206,28 +185,10 @@ const UserManagement = () => {
     loadUsers();
     loadBackupSchedule();
     loadPreRestoreBackups();
-    prefillScheduleEmail();
-    loadBackupResponsible();
+    loadBackupEncryption();
     loadSmtpConfig();
     loadServerBackups();
   }, []);
-
-  const handleSetResponsible = async () => {
-    if (!selectedResponsibleId) {
-      toast.error('Bitte einen Admin auswählen');
-      return;
-    }
-    setSavingResponsible(true);
-    try {
-      const response = await api.put('/admin/backup-responsible', { admin_id: selectedResponsibleId });
-      toast.success(response.data.message);
-      await loadBackupResponsible();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler beim Festlegen des Backup-Verantwortlichen');
-    } finally {
-      setSavingResponsible(false);
-    }
-  };
 
   const handleSetBackupPassword = async () => {
     if (newBackupPassword.length < 8) {
@@ -240,11 +201,11 @@ const UserManagement = () => {
     }
     setSavingBackupPassword(true);
     try {
-      const response = await api.put('/admin/backup-password', { password: newBackupPassword });
+      const response = await api.put('/settings/backup-encryption', { password: newBackupPassword });
       toast.success(response.data.message);
       setNewBackupPassword('');
       setNewBackupPasswordConfirm('');
-      await loadBackupResponsible();
+      await loadBackupEncryption();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler beim Setzen des Backup-Passworts');
     } finally {
@@ -316,15 +277,13 @@ const UserManagement = () => {
       await api.post('/admin/users', {
         username: newUsername,
         password: newPassword,
-        role: newRole,
-        email: newEmail || undefined
+        role: newRole
       });
       toast.success(`Benutzer ${newUsername} erfolgreich erstellt!`);
       setShowCreateDialog(false);
       setNewUsername('');
       setNewPassword('');
       setNewRole('user');
-      setNewEmail('');
       await loadUsers();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler beim Erstellen des Benutzers');
@@ -353,8 +312,7 @@ const UserManagement = () => {
     try {
       const updateData = {
         role: editRole,
-        is_active: editIsActive,
-        email: editEmail || undefined
+        is_active: editIsActive
       };
 
       if (editPassword) {
@@ -592,7 +550,6 @@ const UserManagement = () => {
     setSelectedUser(user);
     setEditRole(user.role);
     setEditIsActive(user.is_active);
-    setEditEmail(user.email || '');
     setEditPassword('');
     setEditPasswordConfirm('');
     setShowEditDialog(true);
@@ -648,7 +605,6 @@ const UserManagement = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Benutzername</TableHead>
-                    <TableHead>E-Mail</TableHead>
                     <TableHead>Rolle</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Erstellt von</TableHead>
@@ -660,7 +616,6 @@ const UserManagement = () => {
                   {users.map((user) => (
                     <TableRow key={user.id}>
                       <TableCell className="font-medium">{user.username}</TableCell>
-                      <TableCell className="text-gray-600">{user.email || '—'}</TableCell>
                       <TableCell>
                         <Badge className={user.role === 'admin' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}>
                           {user.role === 'admin' ? 'Administrator' : 'Benutzer'}
@@ -746,7 +701,7 @@ const UserManagement = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {backupResponsible.password_configured ? (
+            {backupEncryption.password_configured ? (
               <div className="text-sm text-green-700 bg-green-50 border-l-4 border-green-400 p-2 rounded flex items-center gap-2">
                 <Lock className="h-4 w-4" /> Export/Import sind aktuell mit dem Backup-Passwort verschlüsselt (.json.enc).
               </div>
@@ -755,8 +710,8 @@ const UserManagement = () => {
                 <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>
                   <strong>Backup-Export ist gesperrt:</strong> Backups enthalten Schülerdaten und dürfen nur verschlüsselt
-                  exportiert/verschickt werden. Bitte im Bereich "Backup-Sicherheit" oben zuerst einen
-                  Backup-Verantwortlichen festlegen und ein Backup-Passwort setzen.
+                  exportiert/verschickt werden. Bitte im Bereich "Backup-Sicherheit" oben zuerst ein
+                  Backup-Passwort setzen.
                 </span>
               </div>
             )}
@@ -768,8 +723,8 @@ const UserManagement = () => {
               </p>
               <Button
                 onClick={handleBackupExport}
-                disabled={exportingBackup || !backupResponsible.password_configured}
-                title={!backupResponsible.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
+                disabled={exportingBackup || !backupEncryption.password_configured}
+                title={!backupEncryption.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
                 className="bg-amber-600 hover:bg-amber-700 text-white transition-all duration-200"
               >
                 <Download className="h-4 w-4 mr-2" />
@@ -844,11 +799,11 @@ const UserManagement = () => {
         </CardContent>
       </Card>
 
-      {/* Backup Security: responsible admin, encryption password, SMTP credentials */}
+      {/* Backup Security: central encryption password + SMTP credentials, any admin can manage both */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {backupResponsible.password_configured ? (
+            {backupEncryption.password_configured ? (
               <Lock className="h-5 w-5 text-green-600" />
             ) : (
               <Unlock className="h-5 w-5 text-gray-400" />
@@ -856,92 +811,55 @@ const UserManagement = () => {
             Backup-Sicherheit
           </CardTitle>
           <CardDescription>
-            Backup-Verantwortlicher, Verschlüsselungs-Passwort und SMTP-Zugangsdaten für automatische Backups
+            Zentrales Verschlüsselungs-Passwort und SMTP-Zugangsdaten für automatische Backups (von jedem Admin verwaltbar)
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loadingResponsible || loadingSmtp ? (
+          {loadingBackupEncryption || loadingSmtp ? (
             <div className="text-center py-4">Lade Konfiguration...</div>
           ) : (
             <div className="space-y-6">
-              <div className={`border-l-4 p-3 rounded text-sm ${backupResponsible.password_configured ? 'border-green-400 bg-green-50 text-green-800' : 'border-gray-300 bg-gray-50 text-gray-600'}`}>
-                {backupResponsible.password_configured ? (
-                  <>🔒 Alle Backups (manuell, E-Mail, Server) werden aktuell verschlüsselt. Verantwortlich: <strong>{backupResponsible.responsible_admin_username}</strong></>
+              <div className={`border-l-4 p-3 rounded text-sm ${backupEncryption.password_configured ? 'border-green-400 bg-green-50 text-green-800' : 'border-gray-300 bg-gray-50 text-gray-600'}`}>
+                {backupEncryption.password_configured ? (
+                  <>🔒 Alle Backups (manuell, E-Mail, Server) werden aktuell verschlüsselt.</>
                 ) : (
-                  <>🔓 Backups sind aktuell <strong>nicht</strong> verschlüsselt. Backup-Verantwortlichen festlegen und Passwort setzen, um das zu ändern.</>
+                  <>🔓 Backups sind aktuell <strong>nicht</strong> verschlüsselt. Backup-Passwort setzen, um das zu ändern.</>
                 )}
               </div>
 
-              {/* Responsible admin selection */}
-              <div className="space-y-2 max-w-lg">
-                <Label htmlFor="backup-responsible">Backup-Verantwortlicher (Admin)</Label>
-                <div className="flex gap-2">
-                  <select
-                    id="backup-responsible"
-                    value={selectedResponsibleId}
-                    onChange={(e) => setSelectedResponsibleId(e.target.value)}
-                    className="w-full p-2 border rounded-md"
-                  >
-                    <option value="">-- Admin auswählen --</option>
-                    {users.filter(u => u.role === 'admin').map(u => (
-                      <option key={u.id} value={u.id}>{u.username}</option>
-                    ))}
-                  </select>
-                  <Button
-                    onClick={handleSetResponsible}
-                    disabled={savingResponsible || selectedResponsibleId === backupResponsible.responsible_admin_id}
-                    variant="outline"
-                  >
-                    {savingResponsible ? 'Speichert...' : 'Festlegen'}
-                  </Button>
-                </div>
-                <p className="text-xs text-gray-500">
-                  Das Backup-Passwort dieser Person wird zum Verschlüsseln aller automatischen Backups verwendet.
-                  Ein Wechsel setzt ein bereits gesetztes Passwort zurück.
+              {/* Central backup password, settable by any admin */}
+              <div className="space-y-2 max-w-lg border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
+                <h4 className="font-medium text-blue-800 flex items-center gap-2">
+                  <KeyRound className="h-4 w-4" />
+                  Backup-Passwort {backupEncryption.password_configured ? 'ändern' : 'setzen'}
+                </h4>
+                <p className="text-xs text-blue-700 mb-2">
+                  Mindestens 8 Zeichen. Gilt zentral für alle automatischen und manuellen Backups und wird
+                  server-seitig verschlüsselt gespeichert, damit auch geplante Backups ohne manuelles Zutun
+                  verschlüsselt werden können. Jeder Admin kann es jederzeit ändern.
                 </p>
+                <Input
+                  type="password"
+                  value={newBackupPassword}
+                  onChange={(e) => setNewBackupPassword(e.target.value)}
+                  placeholder="Neues Backup-Passwort"
+                  minLength={8}
+                />
+                <Input
+                  type="password"
+                  value={newBackupPasswordConfirm}
+                  onChange={(e) => setNewBackupPasswordConfirm(e.target.value)}
+                  placeholder="Backup-Passwort bestätigen"
+                  minLength={8}
+                />
+                <Button
+                  onClick={handleSetBackupPassword}
+                  disabled={savingBackupPassword || !newBackupPassword}
+                  className="bg-gradient-to-r from-ipad-teal to-ipad-blue"
+                >
+                  {savingBackupPassword ? 'Speichert...' : 'Backup-Passwort speichern'}
+                </Button>
               </div>
-
-              {/* Self-service backup password */}
-              {backupResponsible.responsible_admin_id && (
-                backupResponsible.is_current_user_responsible ? (
-                  <div className="space-y-2 max-w-lg border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
-                    <h4 className="font-medium text-blue-800 flex items-center gap-2">
-                      <KeyRound className="h-4 w-4" />
-                      Ihr Backup-Passwort {backupResponsible.password_configured ? 'ändern' : 'setzen'}
-                    </h4>
-                    <p className="text-xs text-blue-700 mb-2">
-                      Unabhängig von Ihrem Login-Passwort. Mindestens 8 Zeichen. Wird server-seitig verschlüsselt gespeichert,
-                      damit automatische Backups auch ohne Ihr Zutun verschlüsselt werden können.
-                    </p>
-                    <Input
-                      type="password"
-                      value={newBackupPassword}
-                      onChange={(e) => setNewBackupPassword(e.target.value)}
-                      placeholder="Neues Backup-Passwort"
-                      minLength={8}
-                    />
-                    <Input
-                      type="password"
-                      value={newBackupPasswordConfirm}
-                      onChange={(e) => setNewBackupPasswordConfirm(e.target.value)}
-                      placeholder="Backup-Passwort bestätigen"
-                      minLength={8}
-                    />
-                    <Button
-                      onClick={handleSetBackupPassword}
-                      disabled={savingBackupPassword || !newBackupPassword}
-                      className="bg-gradient-to-r from-ipad-teal to-ipad-blue"
-                    >
-                      {savingBackupPassword ? 'Speichert...' : 'Backup-Passwort speichern'}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded max-w-lg">
-                    Nur <strong>{backupResponsible.responsible_admin_username}</strong> kann das Backup-Passwort setzen.
-                    Status: {backupResponsible.password_configured ? '✅ Passwort ist gesetzt' : '❌ Noch kein Passwort gesetzt'}
-                  </div>
-                )
-              )}
 
               {/* SMTP credentials */}
               <div className="space-y-3 max-w-lg border-l-4 border-purple-400 bg-purple-50 p-4 rounded">
@@ -1091,7 +1009,7 @@ const UserManagement = () => {
                 </div>
               )}
 
-              {!backupResponsible.password_configured && (
+              {!backupEncryption.password_configured && (
                 <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2">
                   <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />
                   <span>
@@ -1112,8 +1030,8 @@ const UserManagement = () => {
                 </Button>
                 <Button
                   onClick={handleSendTestMail}
-                  disabled={sendingTestMail || !backupResponsible.password_configured}
-                  title={!backupResponsible.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
+                  disabled={sendingTestMail || !backupEncryption.password_configured}
+                  title={!backupEncryption.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
                   variant="outline"
                 >
                   <Send className="h-4 w-4 mr-2" />
@@ -1122,7 +1040,7 @@ const UserManagement = () => {
               </div>
               <p className="text-xs text-gray-500">
                 Für den Versand müssen zusätzlich SMTP-Zugangsdaten hinterlegt sein (siehe Karte "Backup-Sicherheit" oben).
-                {backupResponsible.password_configured && (
+                {backupEncryption.password_configured && (
                   <span className="text-green-700"> Backups werden aktuell verschlüsselt versendet.</span>
                 )}
               </p>
@@ -1146,8 +1064,8 @@ const UserManagement = () => {
             </div>
             <Button
               onClick={handleRunServerBackupNow}
-              disabled={runningServerBackupNow || !backupResponsible.password_configured}
-              title={!backupResponsible.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
+              disabled={runningServerBackupNow || !backupEncryption.password_configured}
+              title={!backupEncryption.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
               variant="outline"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
@@ -1156,7 +1074,7 @@ const UserManagement = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {!backupResponsible.password_configured && (
+          {!backupEncryption.password_configured && (
             <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2 mb-4">
               <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />
               <span>
@@ -1240,16 +1158,6 @@ const UserManagement = () => {
                     <option value="admin">Administrator</option>
                   </select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="new-email">E-Mail-Adresse (optional)</Label>
-                  <Input
-                    id="new-email"
-                    type="email"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="z.B. für automatische Backup-Mails"
-                  />
-                </div>
                 <div className="flex gap-2 justify-end">
                   <Button
                     type="button"
@@ -1259,7 +1167,6 @@ const UserManagement = () => {
                       setNewUsername('');
                       setNewPassword('');
                       setNewRole('user');
-                      setNewEmail('');
                     }}
                   >
                     Abbrechen
@@ -1329,16 +1236,6 @@ const UserManagement = () => {
                     <option value="user">Benutzer</option>
                     <option value="admin">Administrator</option>
                   </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-email">E-Mail-Adresse (optional)</Label>
-                  <Input
-                    id="edit-email"
-                    type="email"
-                    value={editEmail}
-                    onChange={(e) => setEditEmail(e.target.value)}
-                    placeholder="z.B. für automatische Backup-Mails"
-                  />
                 </div>
                 <div className="flex items-center space-x-2">
                   <input

@@ -180,6 +180,5 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         "id": current_user["id"],
         "username": current_user["username"],
         "role": current_user.get("role", "user"),
-        "email": current_user.get("email"),
         "is_active": current_user.get("is_active", True),
     }

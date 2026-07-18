@@ -1,5 +1,5 @@
 """Backup routes (/api/backup/*, /api/settings/backup-schedule, /api/settings/smtp-config,
-/api/admin/backup-responsible, /api/admin/backup-password).
+/api/settings/backup-encryption).
 
 Auto-extracted from monolithic server.py during refactor (Session 12), later extended with
 backup encryption, SMTP-config-in-DB, pre-restore safety backups and daily server-side
@@ -111,8 +111,8 @@ async def restore_backup_payload(backup_data: dict):
 
 
 async def get_active_backup_password() -> Optional[str]:
-    """Return the currently configured backup encryption password (unwrapped), or None if unset."""
-    settings = await db.global_settings.find_one({"type": "backup_responsible"})
+    """Return the currently configured (central) backup encryption password, unwrapped, or None if unset."""
+    settings = await db.global_settings.find_one({"type": "backup_encryption"})
     if not settings or not settings.get("wrapped_password"):
         return None
     return unwrap_secret(settings["wrapped_password"])
@@ -126,8 +126,7 @@ async def build_backup_export_bytes() -> tuple:
     if not password:
         raise ValueError(
             "Kein Backup-Passwort konfiguriert. Da Backups Schülerdaten enthalten, ist ein Backup-Passwort "
-            "erforderlich (siehe Admin-Tab > Backup-Sicherheit: Backup-Verantwortlichen festlegen und "
-            "Backup-Passwort setzen)."
+            "erforderlich (siehe Admin-Tab > Backup-Sicherheit: Backup-Passwort setzen)."
         )
     backup_data = await build_backup_payload()
     json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
@@ -304,81 +303,32 @@ async def download_pre_restore_backup(filename: str, current_user: dict = Depend
     )
 
 
-# --- Backup responsible admin + backup encryption password ---
+# --- Central backup encryption password (any admin may view status / set it, same pattern as
+# the SMTP configuration below) ---
 
-@api_router.get("/admin/backup-responsible")
-async def get_backup_responsible(current_user: dict = Depends(get_current_user)):
-    """Get the admin responsible for the backup encryption password (admin only)."""
+@api_router.get("/settings/backup-encryption")
+async def get_backup_encryption_settings(current_user: dict = Depends(get_current_user)):
+    """Get the backup encryption status (admin only). Never returns the actual password."""
     require_admin(current_user)
-    settings = await db.global_settings.find_one({"type": "backup_responsible"})
-    responsible_admin_id = settings.get("responsible_admin_id") if settings else None
-    responsible_username = None
-    if responsible_admin_id:
-        responsible_user = await db.users.find_one({"id": responsible_admin_id})
-        responsible_username = responsible_user["username"] if responsible_user else None
-    return {
-        "responsible_admin_id": responsible_admin_id,
-        "responsible_admin_username": responsible_username,
-        "password_configured": bool(settings and settings.get("wrapped_password")),
-        "is_current_user_responsible": responsible_admin_id == current_user["id"],
-    }
-
-
-class BackupResponsibleUpdate(BaseModel):
-    admin_id: str
-
-
-@api_router.put("/admin/backup-responsible")
-async def set_backup_responsible(payload: BackupResponsibleUpdate, current_user: dict = Depends(get_current_user)):
-    """Assign which admin is responsible for the backup encryption password (admin only).
-    Reassigning clears any previously stored password - the new responsible admin must set their own."""
-    require_admin(current_user)
-    target_user = await db.users.find_one({"id": payload.admin_id})
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Benutzer nicht gefunden")
-    if target_user.get("role") != "admin":
-        raise HTTPException(status_code=400, detail="Nur Administratoren können Backup-Verantwortliche sein")
-
-    existing = await db.global_settings.find_one({"type": "backup_responsible"})
-    previous_admin_id = existing.get("responsible_admin_id") if existing else None
-
-    update_data = {
-        "responsible_admin_id": payload.admin_id,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    if previous_admin_id != payload.admin_id:
-        # Handover to a different admin: the old password is meaningless to them, reset it.
-        update_data["wrapped_password"] = None
-
-    await db.global_settings.update_one({"type": "backup_responsible"}, {"$set": update_data}, upsert=True)
-    return {
-        "message": f"{target_user['username']} ist jetzt für das Backup-Passwort verantwortlich.",
-        "responsible_admin_id": payload.admin_id,
-        "password_reset": previous_admin_id != payload.admin_id,
-    }
+    settings = await db.global_settings.find_one({"type": "backup_encryption"})
+    return {"password_configured": bool(settings and settings.get("wrapped_password"))}
 
 
 class BackupPasswordUpdate(BaseModel):
     password: str
 
 
-@api_router.put("/admin/backup-password")
-async def set_backup_password(payload: BackupPasswordUpdate, current_user: dict = Depends(get_current_user)):
-    """Set/update the backup encryption password (only the designated responsible admin may do this)."""
+@api_router.put("/settings/backup-encryption")
+async def set_backup_encryption_password(payload: BackupPasswordUpdate, current_user: dict = Depends(get_current_user)):
+    """Set/update the central backup encryption password (any admin may do this)."""
     require_admin(current_user)
     if len(payload.password) < 8:
         raise HTTPException(status_code=400, detail="Das Backup-Passwort muss mindestens 8 Zeichen lang sein")
 
-    settings = await db.global_settings.find_one({"type": "backup_responsible"})
-    responsible_admin_id = settings.get("responsible_admin_id") if settings else None
-    if not responsible_admin_id:
-        raise HTTPException(status_code=400, detail="Bitte zuerst einen Backup-Verantwortlichen festlegen")
-    if responsible_admin_id != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Nur der Backup-Verantwortliche kann dieses Passwort setzen")
-
     await db.global_settings.update_one(
-        {"type": "backup_responsible"},
+        {"type": "backup_encryption"},
         {"$set": {"wrapped_password": wrap_secret(payload.password), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
     )
     return {"message": "Backup-Passwort erfolgreich gesetzt. Zukünftige Backups werden damit verschlüsselt."}
 
