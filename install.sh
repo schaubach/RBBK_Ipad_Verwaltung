@@ -94,7 +94,7 @@ check_project_structure() {
         exit 1
     fi
 
-    [ ! -f "backend/server.py" ] && print_error "backend/server.py fehlt!" && exit 1
+    [ ! -f "backend/main.py" ] && print_error "backend/main.py fehlt!" && exit 1
     [ ! -f "frontend/package.json" ] && print_error "frontend/package.json fehlt!" && exit 1
     [ ! -f "config/docker-compose.yml" ] && print_error "config/docker-compose.yml fehlt!" && exit 1
 

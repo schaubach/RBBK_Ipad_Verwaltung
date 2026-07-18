@@ -381,7 +381,7 @@ sudo bash install.sh  # falls Docker sudo benötigt
 **Voraussetzungen:**
 - Docker und Docker Compose installiert
 - `config/docker-compose.yml` vorhanden
-- `backend/server.py` vorhanden
+- `backend/main.py` vorhanden
 - `frontend/package.json` vorhanden
 
 ### 6.2 uninstall.sh - Deinstallation
@@ -421,7 +421,7 @@ sudo bash deploy-smart.sh
 **Deployment-Optionen:**
 ```
 1) Nur Frontend (App.js, CSS, etc.)       → 2-3 Min
-2) Nur Backend (server.py, etc.)          → 1-2 Min
+2) Nur Backend (main.py, routes/, etc.)   → 1-2 Min
 3) Beides (Frontend + Backend)            → 3-4 Min
 4) Full Build (package.json/requirements) → 5-7 Min
 ```
@@ -476,7 +476,10 @@ bash check-system.sh
 │
 ├── backend/
 │   ├── .env                    # Backend-Konfiguration (lokal)
-│   ├── server.py               # FastAPI Hauptanwendung
+│   ├── main.py                 # FastAPI Entry-Point (bindet routes/ ein)
+│   ├── core/                   # Gemeinsame Infrastruktur (Config, Security, Router, Crypto)
+│   ├── models/                 # Pydantic-Modelle (User, iPad, Student, ...)
+│   ├── routes/                 # Endpunkte, ein Modul pro Domäne (auth, ipads, backup, ...)
 │   ├── contract_generator.py   # PDF-Vertragsgenerierung
 │   ├── requirements.txt        # Python Dependencies
 │   ├── Dockerfile              # Backend Container
