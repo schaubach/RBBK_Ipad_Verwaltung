@@ -13,6 +13,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { toast } from 'sonner';
 import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Download, Users } from 'lucide-react';
+import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
 
 const IPadsManagement = ({ isAdmin = false }) => {
   const [ipads, setIPads] = useState([]);
@@ -459,6 +460,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
     let pool = [...availableStudents];
     let successCount = 0;
     let noStudentCount = 0;
+    let rateLimitedCount = 0;
+    let otherErrorCount = 0;
 
     for (const ipad of targets) {
       if (pool.length === 0) {
@@ -467,11 +470,20 @@ const IPadsManagement = ({ isAdmin = false }) => {
       }
       const student = pool.shift();
       try {
-        await api.post('/assignments/manual', { ipad_id: ipad.id, student_id: student.id });
+        await withRateLimitRetry(() =>
+          api.post('/assignments/manual', { ipad_id: ipad.id, student_id: student.id })
+        );
         successCount++;
       } catch (error) {
+        if (isRateLimitError(error)) {
+          rateLimitedCount++;
+        } else {
+          otherErrorCount++;
+        }
         console.error(`Failed to assign student to iPad ${ipad.id}:`, error);
       }
+      // Pace requests so a large batch doesn't trip the server's Rate-Limiting (nginx: 30 Anfragen/s).
+      await sleep(BATCH_REQUEST_DELAY_MS);
     }
 
     setBulkAssigning(false);
@@ -482,6 +494,12 @@ const IPadsManagement = ({ isAdmin = false }) => {
     }
     if (noStudentCount > 0) {
       toast.warning(`${noStudentCount} iPad(s) konnten nicht bedient werden (keine freien Schüler mehr)`);
+    }
+    if (rateLimitedCount > 0) {
+      toast.error(`${rateLimitedCount} Zuordnung(en) wegen Server-Auslastung fehlgeschlagen - bitte in kleineren Gruppen erneut versuchen`);
+    }
+    if (otherErrorCount > 0) {
+      toast.error(`${otherErrorCount} Zuordnung(en) fehlgeschlagen`);
     }
 
     await loadIPads();
@@ -502,16 +520,22 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
     setBulkDissolving(true);
     let successCount = 0;
-    let errorCount = 0;
+    let rateLimitedCount = 0;
+    let otherErrorCount = 0;
 
     for (const assignment of assignmentsToDissolve) {
       try {
-        await api.delete(`/assignments/${assignment.id}`);
+        await withRateLimitRetry(() => api.delete(`/assignments/${assignment.id}`));
         successCount++;
       } catch (error) {
-        errorCount++;
+        if (isRateLimitError(error)) {
+          rateLimitedCount++;
+        } else {
+          otherErrorCount++;
+        }
         console.error(`Failed to dissolve assignment ${assignment.id}:`, error);
       }
+      await sleep(BATCH_REQUEST_DELAY_MS);
     }
 
     setBulkDissolving(false);
@@ -520,8 +544,11 @@ const IPadsManagement = ({ isAdmin = false }) => {
     if (successCount > 0) {
       toast.success(`${successCount} Zuordnung(en) aufgelöst`);
     }
-    if (errorCount > 0) {
-      toast.error(`${errorCount} Zuordnung(en) konnten nicht aufgelöst werden`);
+    if (rateLimitedCount > 0) {
+      toast.error(`${rateLimitedCount} Auflösung(en) wegen Server-Auslastung fehlgeschlagen - bitte in kleineren Gruppen erneut versuchen`);
+    }
+    if (otherErrorCount > 0) {
+      toast.error(`${otherErrorCount} Zuordnung(en) konnten nicht aufgelöst werden`);
     }
 
     await loadIPads();

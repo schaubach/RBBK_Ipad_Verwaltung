@@ -533,6 +533,10 @@ async def send_backup_now(payload: SendBackupNowRequest, current_user: dict = De
         return {"message": f"Backup wurde erfolgreich an {recipient} gesendet{suffix}."}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        # SMTP config/auth problems (missing config, wrong password, Gmail app-password requirement, ...) -
+        # a client-side configuration error, not a server bug.
+        raise HTTPException(status_code=400, detail=f"Fehler beim Senden der Backup-E-Mail: {str(e)}")
     except Exception as e:
         logger.error(f"Manual backup email failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Fehler beim Senden der Backup-E-Mail: {str(e)}")
