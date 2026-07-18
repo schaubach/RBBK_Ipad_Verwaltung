@@ -457,7 +457,19 @@ def send_backup_email(recipient_email: str, content_bytes: bytes, filename: str,
                         "als SMTP-Passwort hinterlegen."
                     ) from e
                 raise RuntimeError(f"SMTP-Anmeldung fehlgeschlagen: {error_text}") from e
-        server.sendmail(config["from_addr"], [recipient_email], msg.as_string())
+        try:
+            server.sendmail(config["from_addr"], [recipient_email], msg.as_string())
+        except smtplib.SMTPResponseException as e:
+            error_text = str(e)
+            if "5.3.4" in error_text or "message size" in error_text.lower():
+                size_mb = len(content_bytes) / (1024 * 1024)
+                raise RuntimeError(
+                    f"Der Mailserver hat das Backup abgelehnt, weil es zu groß ist (Anhang ca. {size_mb:.1f} MB, "
+                    "durch die E-Mail-Kodierung real noch etwas größer). Viele Anbieter (u.a. Gmail) begrenzen "
+                    "Anhänge auf ca. 25 MB. Bitte stattdessen die Karte \"Server-Backups (MongoDB)\" nutzen, um "
+                    "das Backup direkt herunterzuladen, statt es per E-Mail zu verschicken."
+                ) from e
+            raise RuntimeError(f"Versand fehlgeschlagen: {error_text}") from e
 
 
 @api_router.get("/settings/backup-schedule")
@@ -533,6 +545,10 @@ async def send_backup_now(payload: SendBackupNowRequest, current_user: dict = De
         return {"message": f"Backup wurde erfolgreich an {recipient} gesendet{suffix}."}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        # SMTP config/auth problems (missing config, wrong password, Gmail app-password requirement, ...) -
+        # a client-side configuration error, not a server bug.
+        raise HTTPException(status_code=400, detail=f"Fehler beim Senden der Backup-E-Mail: {str(e)}")
     except Exception as e:
         logger.error(f"Manual backup email failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Fehler beim Senden der Backup-E-Mail: {str(e)}")
