@@ -10,8 +10,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
+import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { toast } from 'sonner';
-import { Users, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Edit } from 'lucide-react';
+import { Users, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Edit, Download, Tablet, AlertTriangle } from 'lucide-react';
 
 const StudentsManagement = () => {
   const [students, setStudents] = useState([]);
@@ -29,6 +30,12 @@ const StudentsManagement = () => {
   const [studentVornameFilter, setStudentVornameFilter] = useState('');
   const [studentNachnameFilter, setStudentNachnameFilter] = useState('');
   const [studentKlasseFilter, setStudentKlasseFilter] = useState('');
+  const [studentItnrFilter, setStudentItnrFilter] = useState('');
+  // 'all' | 'assigned' | 'free' - "zugeordnet" / "nicht zugeordnet" (bewusst NICHT aktiv/inaktiv benannt)
+  const [assignedFilter, setAssignedFilter] = useState('all');
+
+  // Active assignments (for Vertragswarnung, IT-Nr-Filter und Batch-Auflösen)
+  const [assignments, setAssignments] = useState([]);
 
   // Sort states
   const [sortField, setSortField] = useState(null);
@@ -36,6 +43,15 @@ const StudentsManagement = () => {
 
   // Batch delete states
   const [selectedStudents, setSelectedStudents] = useState([]);
+
+  // Batch assign/dissolve states
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [bulkDissolving, setBulkDissolving] = useState(false);
+  const [bulkDissolveDialogOpen, setBulkDissolveDialogOpen] = useState(false);
+
+  // Export states
+  const [exporting, setExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
   // Delete dialog states
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -101,10 +117,19 @@ const StudentsManagement = () => {
         loadStudentIPads(ipadListStudent);
       }
       loadStudents();
+      loadAvailableIPads();
+      loadAssignments();
     } catch (error) {
       toast.error('Fehler beim Auflösen der Zuordnung');
     }
   };
+
+  // Active assignments per student (for Vertragswarnung, IT-Nr-Filter, Batch-Auflösen)
+  const getStudentAssignments = (studentId) =>
+    assignments.filter(a => a.student_id === studentId && a.is_active);
+
+  const getStudentWarningAssignments = (studentId) =>
+    getStudentAssignments(studentId).filter(a => a.contract_warning && !a.warning_dismissed);
 
   // Filtered and sorted students
   const filteredStudents = students.filter(student => {
@@ -114,8 +139,12 @@ const StudentsManagement = () => {
       student.sus_nachn?.toLowerCase().includes(studentNachnameFilter.toLowerCase());
     const klMatch = !studentKlasseFilter ||
       student.sus_kl?.toLowerCase().includes(studentKlasseFilter.toLowerCase());
+    const itnrMatch = !studentItnrFilter ||
+      getStudentAssignments(student.id).some(a => a.itnr?.toLowerCase().includes(studentItnrFilter.toLowerCase()));
+    const assignedMatch = assignedFilter === 'all' ||
+      (assignedFilter === 'assigned' ? (student.assignment_count > 0) : !(student.assignment_count > 0));
 
-    return vornMatch && nachMatch && klMatch;
+    return vornMatch && nachMatch && klMatch && itnrMatch && assignedMatch;
   }).sort((a, b) => {
     if (!sortField) return 0;
 
@@ -253,10 +282,42 @@ const StudentsManagement = () => {
     }
   };
 
+  const loadAssignments = async () => {
+    try {
+      const response = await api.get('/assignments');
+      setAssignments(response.data || []);
+    } catch (error) {
+      console.error('Failed to load assignments:', error);
+    }
+  };
+
   useEffect(() => {
     loadStudents();
     loadAvailableIPads();
+    loadAssignments();
   }, []);
+
+  const handleDismissWarning = async (student) => {
+    const warningAssignments = getStudentWarningAssignments(student.id);
+    if (warningAssignments.length === 0) return;
+
+    // Double-click protection for warning dismissal
+    const now = Date.now();
+    if (!student._lastWarningClick || (now - student._lastWarningClick) > 2000) {
+      student._lastWarningClick = now;
+      toast.info(`Vertragswarnung für ${student.sus_vorn} ${student.sus_nachn} entfernen? Klicken Sie nochmal in 2 Sekunden um zu bestätigen.`);
+      return;
+    }
+
+    try {
+      await Promise.all(warningAssignments.map(a => api.post(`/assignments/${a.id}/dismiss-warning`)));
+      toast.success('Vertragswarnung entfernt');
+      await loadAssignments();
+    } catch (error) {
+      toast.error('Fehler beim Entfernen der Warnung');
+      console.error('Warning dismissal error:', error);
+    }
+  };
 
   const handleDeleteStudent = (student) => {
     setStudentToDelete(student);
@@ -283,6 +344,7 @@ const StudentsManagement = () => {
       // Reload students list AND available iPads (freigegebene iPads!)
       await loadStudents();
       await loadAvailableIPads();
+      await loadAssignments();
 
     } catch (error) {
       console.error('Delete student error:', error);
@@ -360,11 +422,149 @@ const StudentsManagement = () => {
       // Reload both lists to update availability
       await loadStudents();
       await loadAvailableIPads();
+      await loadAssignments();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Zuordnung fehlgeschlagen');
     }
   };
 
+  // Batch: iPads einem oder mehreren ausgewählten Schülern zuordnen
+  // (belegt verfügbare iPads der Reihe nach, bis MAX_IPADS_PER_STUDENT=3 erreicht ist oder keine mehr frei sind)
+  const handleBulkAssign = async () => {
+    const targets = selectedStudents
+      .map(id => students.find(s => s.id === id))
+      .filter(s => s && (s.assignment_count || 0) < 3);
+
+    if (targets.length === 0) {
+      toast.error('Keine auswählbaren Schüler (Limit von 3 iPads bereits erreicht)');
+      return;
+    }
+
+    setBulkAssigning(true);
+    let pool = [...availableIPads];
+    let successCount = 0;
+    let noIpadCount = 0;
+
+    for (const student of targets) {
+      if (pool.length === 0) {
+        noIpadCount++;
+        continue;
+      }
+      const ipad = pool.shift();
+      try {
+        await api.post('/assignments/manual', { student_id: student.id, ipad_id: ipad.id });
+        successCount++;
+      } catch (error) {
+        console.error(`Failed to assign iPad to student ${student.id}:`, error);
+      }
+    }
+
+    setBulkAssigning(false);
+    setSelectedStudents([]);
+
+    if (successCount > 0) {
+      toast.success(`${successCount} iPad(s) zugeordnet`);
+    }
+    if (noIpadCount > 0) {
+      toast.warning(`${noIpadCount} Schüler konnten nicht bedient werden (keine freien iPads mehr)`);
+    }
+
+    await loadStudents();
+    await loadAvailableIPads();
+    await loadAssignments();
+  };
+
+  // Batch: alle aktiven Zuordnungen der ausgewählten Schüler auflösen
+  // (deckt u.a. klassenweise Auflösung ab: Klasse filtern -> alle auswählen -> auflösen)
+  const handleBulkDissolve = async () => {
+    const assignmentsToDissolve = assignments.filter(
+      a => a.is_active && selectedStudents.includes(a.student_id)
+    );
+
+    if (assignmentsToDissolve.length === 0) {
+      toast.error('Keine Zuordnungen bei den ausgewählten Schülern vorhanden');
+      return;
+    }
+
+    setBulkDissolving(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const assignment of assignmentsToDissolve) {
+      try {
+        await api.delete(`/assignments/${assignment.id}`);
+        successCount++;
+      } catch (error) {
+        errorCount++;
+        console.error(`Failed to dissolve assignment ${assignment.id}:`, error);
+      }
+    }
+
+    setBulkDissolving(false);
+    setSelectedStudents([]);
+
+    if (successCount > 0) {
+      toast.success(`${successCount} Zuordnung(en) aufgelöst`);
+    }
+    if (errorCount > 0) {
+      toast.error(`${errorCount} Zuordnung(en) konnten nicht aufgelöst werden`);
+    }
+
+    await loadStudents();
+    await loadAvailableIPads();
+    await loadAssignments();
+  };
+
+  const confirmBulkDissolve = async () => {
+    setBulkDissolveDialogOpen(false);
+    await handleBulkDissolve();
+  };
+
+  // Export: berücksichtigt aktive Filter (Vorname/Nachname/Klasse/ITNr) + Zuordnungs-Toggle
+  const handleExport = async (columns) => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (studentVornameFilter) params.append('sus_vorn', studentVornameFilter);
+      if (studentNachnameFilter) params.append('sus_nachn', studentNachnameFilter);
+      if (studentKlasseFilter) params.append('sus_kl', studentKlasseFilter);
+      if (studentItnrFilter) params.append('itnr', studentItnrFilter);
+      if (columns && columns.length > 0) params.append('columns', columns.join(','));
+
+      let url;
+      if (assignedFilter === 'assigned') {
+        url = `/assignments/export?${params.toString()}`;
+      } else {
+        params.append('group', assignedFilter === 'free' ? 'unassigned_students' : 'assigned_students');
+        url = `/exports/inventory?${params.toString()}`;
+      }
+
+      const response = await api.get(url, { responseType: 'blob' });
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = 'schueler_export.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(link);
+
+      toast.success('Export erfolgreich');
+    } catch (error) {
+      toast.error('Fehler beim Export');
+      console.error('Export error:', error);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleColumnsConfirmed = (columns) => {
+    setExportDialogOpen(false);
+    handleExport(columns);
+  };
 
   return (
 
@@ -385,7 +585,7 @@ const StudentsManagement = () => {
         <CardContent>
           {/* Filter Section */}
           <div className="mb-4 p-4 bg-gray-50 rounded-lg space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <Label htmlFor="student-vorname-filter">Vorname filtern</Label>
                 <Input
@@ -413,28 +613,93 @@ const StudentsManagement = () => {
                   onChange={(e) => setStudentKlasseFilter(e.target.value)}
                 />
               </div>
+              <div>
+                <Label htmlFor="student-itnr-filter">IT-Nr filtern</Label>
+                <Input
+                  id="student-itnr-filter"
+                  placeholder="z.B. IT-001"
+                  value={studentItnrFilter}
+                  onChange={(e) => setStudentItnrFilter(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Zuordnungs-Toggle */}
+            <div className="flex flex-wrap items-center gap-2">
+              <Label className="text-sm font-medium mr-2">Anzeigen:</Label>
+              <Button
+                size="sm"
+                variant={assignedFilter === 'all' ? 'default' : 'outline'}
+                onClick={() => setAssignedFilter('all')}
+                data-testid="assigned-filter-all"
+              >
+                Alle ({students.length})
+              </Button>
+              <Button
+                size="sm"
+                variant={assignedFilter === 'assigned' ? 'default' : 'outline'}
+                onClick={() => setAssignedFilter('assigned')}
+                data-testid="assigned-filter-assigned"
+              >
+                Zugeordnet ({students.filter(s => s.assignment_count > 0).length})
+              </Button>
+              <Button
+                size="sm"
+                variant={assignedFilter === 'free' ? 'default' : 'outline'}
+                onClick={() => setAssignedFilter('free')}
+                data-testid="assigned-filter-free"
+              >
+                Nicht zugeordnet ({students.filter(s => !(s.assignment_count > 0)).length})
+              </Button>
             </div>
 
             {/* Action Buttons */}
             <div className="flex gap-2 flex-wrap">
-              {(studentVornameFilter || studentNachnameFilter || studentKlasseFilter) && (
+              {(studentVornameFilter || studentNachnameFilter || studentKlasseFilter || studentItnrFilter || assignedFilter !== 'all') && (
                 <Button
                   onClick={() => {
                     setStudentVornameFilter('');
                     setStudentNachnameFilter('');
                     setStudentKlasseFilter('');
+                    setStudentItnrFilter('');
+                    setAssignedFilter('all');
                   }}
                   variant="outline"
                 >
                   Filter zurücksetzen
                 </Button>
               )}
+              <Button
+                onClick={() => setExportDialogOpen(true)}
+                disabled={exporting}
+                variant="outline"
+                className="ml-auto"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {exporting ? 'Exportiere...' : 'Exportieren'}
+              </Button>
             </div>
           </div>
 
-          {/* Batch Delete Button */}
+          {/* Batch Action Buttons */}
           {selectedStudents.length > 0 && (
-            <div className="mb-4">
+            <div className="mb-4 flex flex-wrap gap-2">
+              <Button
+                onClick={handleBulkAssign}
+                disabled={bulkAssigning}
+                className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
+              >
+                <Tablet className="h-4 w-4 mr-2" />
+                {bulkAssigning ? 'Ordne zu...' : `${selectedStudents.length} iPads zuordnen`}
+              </Button>
+              <Button
+                onClick={() => setBulkDissolveDialogOpen(true)}
+                disabled={bulkDissolving}
+                variant="outline"
+              >
+                <X className="h-4 w-4 mr-2" />
+                {bulkDissolving ? 'Löse auf...' : 'Zuordnung auflösen'}
+              </Button>
               <Button
                 onClick={openBatchDeleteDialog}
                 variant="destructive"
@@ -519,12 +784,21 @@ const StudentsManagement = () => {
                         />
                       </TableCell>
                       <TableCell className="font-medium">
-                        <button
-                          onClick={() => setSelectedStudentId(student.id)}
-                          className="text-blue-600 hover:text-blue-800 hover:underline text-left"
-                        >
-                          {student.sus_vorn} {student.sus_nachn}
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {getStudentWarningAssignments(student.id).length > 0 && (
+                            <AlertTriangle
+                              className="h-4 w-4 text-orange-500 cursor-pointer hover:text-orange-700 flex-shrink-0"
+                              title="Vertragsvalidierung fehlgeschlagen - Doppelklick zum Entfernen"
+                              onClick={() => handleDismissWarning(student)}
+                            />
+                          )}
+                          <button
+                            onClick={() => setSelectedStudentId(student.id)}
+                            className="text-blue-600 hover:text-blue-800 hover:underline text-left"
+                          >
+                            {student.sus_vorn} {student.sus_nachn}
+                          </button>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <button
@@ -729,6 +1003,34 @@ const StudentsManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Batch Dissolve Confirmation Dialog */}
+      <AlertDialog open={bulkDissolveDialogOpen} onOpenChange={setBulkDissolveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Zuordnungen auflösen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Möchten Sie wirklich alle aktiven iPad-Zuordnungen der <strong>{selectedStudents.length} ausgewählten Schüler</strong> auflösen?
+              <br /><br />
+              Die betroffenen iPads werden wieder als verfügbar markiert. Diese Aktion kann nicht rückgängig gemacht werden.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmBulkDissolve} className="bg-red-600 hover:bg-red-700">
+              Zuordnungen auflösen
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Export-Spalten-Auswahl Dialog */}
+      <ExportColumnsDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
+        onConfirm={handleColumnsConfirmed}
+        title="Spalten für Schüler-Export wählen"
+      />
 
       {/* iPad Search Dialog */}
       <AlertDialog open={searchDialogOpen} onOpenChange={setSearchDialogOpen}>

@@ -10,7 +10,6 @@ import Login from './components/auth/Login';
 import IPadDetailViewer from './components/ipads/IPadDetailViewer';
 import IPadsManagement from './components/ipads/IPadsManagement';
 import StudentsManagement from './components/students/StudentsManagement';
-import AssignmentsManagement from './components/assignments/AssignmentsManagement';
 import ContractsManagement from './components/contracts/ContractsManagement';
 import Settings from './components/settings/Settings';
 import SessionTimer from './components/shared/SessionTimer';
@@ -65,7 +64,7 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
 
       <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-6' : 'grid-cols-5'} mb-8`}>
+          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'} mb-8`}>
             <TabsTrigger value="students" className="flex items-center gap-2">
               <Users className="h-4 w-4" />
               Schüler
@@ -73,10 +72,6 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
             <TabsTrigger value="ipads" className="flex items-center gap-2">
               <Tablet className="h-4 w-4" />
               iPads
-            </TabsTrigger>
-            <TabsTrigger value="assignments" className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Zuordnungen
             </TabsTrigger>
             <TabsTrigger value="contracts" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
@@ -100,10 +95,6 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
 
           <TabsContent value="ipads">
             <IPadsManagement isAdmin={isAdmin} />
-          </TabsContent>
-
-          <TabsContent value="assignments">
-            <AssignmentsManagement />
           </TabsContent>
 
           <TabsContent value="contracts">
