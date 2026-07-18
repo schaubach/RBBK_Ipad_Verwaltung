@@ -529,7 +529,7 @@ class TestExportColumns:
         assert "columns" in data and "groups" in data
         cols = data["columns"]
         assert isinstance(cols, list)
-        assert len(cols) == 29, f"Expected 29 unified columns, got {len(cols)}: {cols}"
+        assert len(cols) == 30, f"Expected 30 unified columns, got {len(cols)}: {cols}"
         # Spot-check key columns
         for must_have in ("ITNr", "Modell", "Status", "Vertrag vorhanden", "Vertrag validiert"):
             assert must_have in cols, f"Missing column: {must_have}"
@@ -561,7 +561,7 @@ class TestExportColumns:
         )
         assert r.status_code == 200, r.text
         df = pd.read_excel(io.BytesIO(r.content))
-        assert len(df.columns) == 29, f"Fallback should yield all 29 cols, got {len(df.columns)}"
+        assert len(df.columns) == 30, f"Fallback should yield all 30 cols, got {len(df.columns)}"
 
     def test_inventory_export_ignores_unknown_columns_silently(self, admin_client):
         r = admin_client.get(
@@ -617,7 +617,7 @@ class TestExportColumns:
             admin_client.post(f"{API}/students/batch-delete", json={"student_ids": [sid]})
             admin_client.delete(f"{API}/ipads/{iid}")
 
-    def test_all_three_exports_have_29_columns_by_default(self, admin_client):
+    def test_all_three_exports_have_30_columns_by_default(self, admin_client):
         """Unified column count check across all 3 exports. Inline seeding to avoid fixture-order issues."""
         # Seed a fresh assignment inline (class fixture state is unreliable here)
         st = admin_client.post(
@@ -649,18 +649,18 @@ class TestExportColumns:
             # 1. inventory
             r = admin_client.get(f"{API}/exports/inventory")
             df1 = pd.read_excel(io.BytesIO(r.content))
-            assert len(df1.columns) == 29, f"inventory: {len(df1.columns)} cols"
+            assert len(df1.columns) == 30, f"inventory: {len(df1.columns)} cols"
             # 2. assignments/export
             r = admin_client.get(f"{API}/assignments/export")
             df2 = pd.read_excel(io.BytesIO(r.content))
-            assert len(df2.columns) == 29, f"assignments/export: {len(df2.columns)} cols"
+            assert len(df2.columns) == 30, f"assignments/export: {len(df2.columns)} cols"
             # 3. assignments/export-selected
             r = admin_client.post(
                 f"{API}/assignments/export-selected",
                 json={"assignment_ids": [aid]},
             )
             df3 = pd.read_excel(io.BytesIO(r.content))
-            assert len(df3.columns) == 29, f"export-selected: {len(df3.columns)} cols"
+            assert len(df3.columns) == 30, f"export-selected: {len(df3.columns)} cols"
             # All three share identical columns
             assert list(df1.columns) == list(df2.columns) == list(df3.columns)
         finally:
@@ -673,13 +673,13 @@ class TestExportColumns:
 # -------------------- 11b. FIX B: EMPTY-RESULT EXPORTS EMIT CANONICAL HEADERS --------------------
 class TestEmptyExportHeaders:
     """Session 20 FIX B: empty result sets must still emit canonical headers
-    (default = all 29, or the subset passed via ?columns=)."""
+    (default = all 30, or the subset passed via ?columns=)."""
 
-    def test_assignments_export_empty_emits_29_headers(self, admin_client):
+    def test_assignments_export_empty_emits_30_headers(self, admin_client):
         r = admin_client.get(f"{API}/assignments/export", params={"sus_kl": "NonExistingClass_XYZ_123"})
         assert r.status_code == 200, r.text
         df = pd.read_excel(io.BytesIO(r.content))
-        assert len(df.columns) == 29, f"Empty export should have 29 headers, got {len(df.columns)}: {list(df.columns)}"
+        assert len(df.columns) == 30, f"Empty export should have 30 headers, got {len(df.columns)}: {list(df.columns)}"
         assert len(df) == 0, f"Should be 0 rows, got {len(df)}"
         for must in ("ITNr", "Modell", "Vertrag vorhanden", "Vertrag validiert"):
             assert must in df.columns
@@ -695,9 +695,9 @@ class TestEmptyExportHeaders:
         assert list(df.columns) == ["Sname", "ITNr", "Modell"], f"Got: {list(df.columns)}"
         assert len(df) == 0
 
-    def test_export_selected_empty_emits_29_headers(self, admin_client):
+    def test_export_selected_empty_emits_30_headers(self, admin_client):
         # /export-selected validates IDs first → returns 404 if NONE are found, which is
-        # a valid product decision. If accepted (200), it MUST emit 29 canonical headers.
+        # a valid product decision. If accepted (200), it MUST emit 30 canonical headers.
         r = admin_client.post(
             f"{API}/assignments/export-selected",
             json={"assignment_ids": ["non-existent-id-xyz-123"]},
@@ -705,7 +705,7 @@ class TestEmptyExportHeaders:
         assert r.status_code in (200, 404), r.text
         if r.status_code == 200:
             df = pd.read_excel(io.BytesIO(r.content))
-            assert len(df.columns) == 29, f"Expected 29 cols, got {len(df.columns)}"
+            assert len(df.columns) == 30, f"Expected 30 cols, got {len(df.columns)}"
             assert len(df) == 0
 
 

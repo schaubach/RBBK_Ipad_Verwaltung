@@ -285,6 +285,36 @@ async def update_student(
     }
 
 
+@api_router.put("/students/{student_id}/ipad-refused")
+async def set_student_ipad_refused(
+    student_id: str, request: dict, current_user: dict = Depends(get_current_user)
+):
+    """Mark/unmark that this person generally declines being given an iPad.
+
+    Independent of any concrete assignment - used to distinguish "nicht zugeordnet"
+    (nobody has offered/handled this yet) from "zugeordnet, aber verweigert" (offered,
+    declined). Only meaningful while the person has no active assignment; assigning an
+    iPad to them (manual or auto) automatically clears this flag again.
+    """
+    await validate_resource_ownership("student", student_id, current_user)
+
+    refused = bool(request.get("refused", False))
+
+    student = await db.students.find_one({"id": student_id})
+    if not student:
+        raise HTTPException(status_code=404, detail="Schüler nicht gefunden")
+
+    await db.students.update_one(
+        {"id": student_id},
+        {"$set": {"ipad_refused": refused, "updated_at": datetime.now(UTC).isoformat()}},
+    )
+
+    return {
+        "message": "iPad-Verweigerung vermerkt" if refused else "iPad-Verweigerung aufgehoben",
+        "ipad_refused": refused,
+    }
+
+
 @api_router.delete("/students/{student_id}")
 async def delete_student(student_id: str, current_user: dict = Depends(get_current_user)):
     """Delete a student and handle related data"""

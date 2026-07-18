@@ -6,7 +6,7 @@ import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from 'sonner';
-import { User, FileText, Download, X, Tablet, Pencil, Save, XCircle } from 'lucide-react';
+import { User, FileText, Download, X, Tablet, Pencil, Save, XCircle, ShieldOff } from 'lucide-react';
 
 const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
   const [studentData, setStudentData] = useState(null);
@@ -14,25 +14,40 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editedStudent, setEditedStudent] = useState({});
+  const [togglingRefused, setTogglingRefused] = useState(false);
+
+  const loadStudentDetails = async () => {
+    try {
+      const response = await api.get(`/students/${studentId}`);
+      setStudentData(response.data);
+      setEditedStudent(response.data.student);
+    } catch (error) {
+      toast.error('Fehler beim Laden der Schülerdetails');
+      console.error('Student details error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadStudentDetails = async () => {
-      try {
-        const response = await api.get(`/students/${studentId}`);
-        setStudentData(response.data);
-        setEditedStudent(response.data.student);
-      } catch (error) {
-        toast.error('Fehler beim Laden der Schülerdetails');
-        console.error('Student details error:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     if (studentId) {
       loadStudentDetails();
     }
   }, [studentId]);
+
+  const handleToggleRefused = async (refused) => {
+    setTogglingRefused(true);
+    try {
+      await api.put(`/students/${studentId}/ipad-refused`, { refused });
+      toast.success(refused ? 'Als "iPad verweigert" markiert' : 'Verweigerung aufgehoben');
+      await loadStudentDetails();
+      if (onUpdate) onUpdate();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Aktualisieren');
+    } finally {
+      setTogglingRefused(false);
+    }
+  };
 
   const handleInputChange = (field, value) => {
     setEditedStudent(prev => ({ ...prev, [field]: value }));
@@ -358,6 +373,53 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
                     </div>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* iPad-Status: nur relevant, solange keine aktive Zuordnung besteht */}
+          {!current_assignment && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ShieldOff className="h-5 w-5" />
+                  iPad-Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {student.ipad_refused ? (
+                  <div className="bg-orange-50 border border-orange-200 p-4 rounded-lg flex items-center justify-between gap-4 flex-wrap">
+                    <div>
+                      <Badge className="bg-orange-100 text-orange-800">Verweigert</Badge>
+                      <p className="text-sm text-gray-600 mt-2">
+                        Diese Person hat ein iPad abgelehnt. Wird deshalb nicht mehr als "nicht zugeordnet"
+                        geführt und bei der automatischen Zuordnung übersprungen.
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleToggleRefused(false)}
+                      disabled={togglingRefused}
+                    >
+                      {togglingRefused ? 'Wird aufgehoben...' : 'Verweigerung aufheben'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <p className="text-sm text-gray-600">
+                      Kein iPad zugeordnet. Falls diese Person ein iPad ablehnt, kann das hier vermerkt werden.
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleToggleRefused(true)}
+                      disabled={togglingRefused}
+                    >
+                      {togglingRefused ? 'Wird markiert...' : 'Als "iPad verweigert" markieren'}
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

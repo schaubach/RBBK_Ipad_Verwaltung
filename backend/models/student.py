@@ -28,6 +28,7 @@ class Student(BaseModel):
     erz2_str_hnr: Optional[str] = None
     erz2_plz: Optional[str] = None
     erz2_ort: Optional[str] = None
+    ipad_refused: bool = False
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

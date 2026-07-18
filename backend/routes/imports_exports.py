@@ -97,6 +97,7 @@ EXPORT_COLUMNS: List[str] = [
     "Erz2StrHNr",
     "Erz2PLZ",
     "Erz2Ort",
+    "iPad verweigert",
     # iPad
     "Pencil",
     "ITNr",
@@ -168,6 +169,7 @@ def _build_assignment_row(
         "Erz2StrHNr": student.get("erz2_str_hnr", "") if student else "",
         "Erz2PLZ": student.get("erz2_plz", "") if student else "",
         "Erz2Ort": student.get("erz2_ort", "") if student else "",
+        "iPad verweigert": "Ja" if (student and student.get("ipad_refused")) else "Nein",
         # iPad
         "Pencil": pencil,
         "ITNr": ipad.get("itnr", "") if ipad else "",
@@ -226,6 +228,7 @@ EXPORT_COLUMN_GROUPS = {
         "Erz2StrHNr",
         "Erz2PLZ",
         "Erz2Ort",
+        "iPad verweigert",
     ],
     "ipad": [
         "Pencil",
@@ -756,15 +759,20 @@ async def export_inventory(
     names from EXPORT_COLUMNS. Defaults to all columns when omitted.
 
     Optional ``group`` query parameter narrows the result to a subset of the
-    three row groups this endpoint normally combines (assigned pairs /
-    students without an iPad / iPads without a student). Used by the
-    Schüler- and iPad-Ansicht toggle ("Alle" / "Nur zugeordnete" / "Nur
-    freie") to export exactly the rows currently shown:
-      - "assigned_students": assigned rows + students without an iPad
+    row groups this endpoint normally combines (assigned pairs / students
+    without an iPad / iPads without a student / students who declined an
+    iPad). Used by the Schüler- and iPad-Ansicht toggle ("Alle" / "Nur
+    zugeordnete" / "Nur freie" / "Verweigert") to export exactly the rows
+    currently shown:
+      - "assigned_students": assigned rows + all students without an iPad
+        (including those marked "iPad verweigert") - the "Alle" bucket
       - "assigned_ipads": assigned rows + iPads without a student
-      - "unassigned_students": only students without an iPad
+      - "unassigned_students": students without an iPad, EXCLUDING those
+        marked "iPad verweigert" - the "Nur freie" bucket
       - "unassigned_ipads": only iPads without a student
-      - omitted / anything else: all three groups combined (default, unchanged)
+      - "refused_students": only students marked "iPad verweigert" - the
+        "Verweigert" bucket
+      - omitted / anything else: all groups combined (default, unchanged)
 
     Optional ``sus_vorn`` / ``sus_nachn`` / ``sus_kl`` / ``itnr`` filter the
     underlying students / iPads (same regex semantics as
@@ -772,8 +780,19 @@ async def export_inventory(
     """
     selected_columns = _parse_columns_param(columns)
     include_assigned = group in (None, "assigned_students", "assigned_ipads")
-    include_unassigned_students = group in (None, "assigned_students", "unassigned_students")
+    include_unassigned_students = group in (None, "assigned_students", "unassigned_students", "refused_students")
     include_unassigned_ipads = group in (None, "assigned_ipads", "unassigned_ipads")
+
+    def _unassigned_student_matches_group(student: dict) -> bool:
+        """Within the "students without an iPad" set, further split by the
+        "iPad verweigert" flag depending on which bucket was requested."""
+        refused = bool(student.get("ipad_refused"))
+        if group == "unassigned_students":
+            return not refused
+        if group == "refused_students":
+            return refused
+        return True  # None / "assigned_students": show both
+
     try:
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
@@ -848,10 +867,10 @@ async def export_inventory(
                 )
             )
 
-        # 2. Add students WITHOUT any iPad assignment
+        # 2. Add students WITHOUT any iPad assignment (split further by "iPad verweigert")
         if include_unassigned_students:
             for student_id, student in students_by_id.items():
-                if student_id not in students_with_assignments:
+                if student_id not in students_with_assignments and _unassigned_student_matches_group(student):
                     export_data.append(
                         _build_assignment_row(
                             student,

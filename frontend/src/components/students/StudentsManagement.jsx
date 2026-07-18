@@ -141,8 +141,10 @@ const StudentsManagement = () => {
       student.sus_kl?.toLowerCase().includes(studentKlasseFilter.toLowerCase());
     const itnrMatch = !studentItnrFilter ||
       getStudentAssignments(student.id).some(a => a.itnr?.toLowerCase().includes(studentItnrFilter.toLowerCase()));
-    const assignedMatch = assignedFilter === 'all' ||
-      (assignedFilter === 'assigned' ? (student.assignment_count > 0) : !(student.assignment_count > 0));
+    let assignedMatch = true;
+    if (assignedFilter === 'assigned') assignedMatch = student.assignment_count > 0;
+    else if (assignedFilter === 'free') assignedMatch = !(student.assignment_count > 0) && !student.ipad_refused;
+    else if (assignedFilter === 'refused') assignedMatch = !!student.ipad_refused;
 
     return vornMatch && nachMatch && klMatch && itnrMatch && assignedMatch;
   }).sort((a, b) => {
@@ -535,7 +537,8 @@ const StudentsManagement = () => {
       if (assignedFilter === 'assigned') {
         url = `/assignments/export?${params.toString()}`;
       } else {
-        params.append('group', assignedFilter === 'free' ? 'unassigned_students' : 'assigned_students');
+        const groupByFilter = { free: 'unassigned_students', refused: 'refused_students', all: 'assigned_students' };
+        params.append('group', groupByFilter[assignedFilter] || 'assigned_students');
         url = `/exports/inventory?${params.toString()}`;
       }
 
@@ -649,7 +652,16 @@ const StudentsManagement = () => {
                 onClick={() => setAssignedFilter('free')}
                 data-testid="assigned-filter-free"
               >
-                Nicht zugeordnet ({students.filter(s => !(s.assignment_count > 0)).length})
+                Nicht zugeordnet ({students.filter(s => !(s.assignment_count > 0) && !s.ipad_refused).length})
+              </Button>
+              <Button
+                size="sm"
+                variant={assignedFilter === 'refused' ? 'default' : 'outline'}
+                onClick={() => setAssignedFilter('refused')}
+                className={assignedFilter === 'refused' ? 'bg-orange-600 hover:bg-orange-700' : ''}
+                data-testid="assigned-filter-refused"
+              >
+                Verweigert ({students.filter(s => s.ipad_refused).length})
               </Button>
             </div>
 
@@ -812,11 +824,15 @@ const StudentsManagement = () => {
                         <Badge
                           className={`${(student.assignment_count && student.assignment_count > 0)
                             ? 'bg-green-100 text-green-800 cursor-pointer hover:bg-green-200'
-                            : 'bg-gray-100 text-gray-800'} transition-colors`}
+                            : student.ipad_refused
+                              ? 'bg-orange-100 text-orange-800'
+                              : 'bg-gray-100 text-gray-800'} transition-colors`}
                           onClick={() => student.assignment_count > 0 && loadStudentIPads(student)}
                           title={student.assignment_count > 0 ? 'Klicken um zugewiesene iPads anzuzeigen' : ''}
                         >
-                          {student.assignment_count > 0 ? `${student.assignment_count} iPad(s)` : 'Ohne iPad'}
+                          {student.assignment_count > 0
+                            ? `${student.assignment_count} iPad(s)`
+                            : student.ipad_refused ? 'Verweigert' : 'Ohne iPad'}
                         </Badge>
                       </TableCell>
                       <TableCell>
