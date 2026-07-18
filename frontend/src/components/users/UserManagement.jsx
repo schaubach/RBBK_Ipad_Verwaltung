@@ -8,7 +8,7 @@ import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Alert, AlertDescription } from '../ui/alert';
 import { toast } from 'sonner';
-import { Users, Trash2, Shield, Edit, Plus, AlertTriangle, Download, Mail, Send, History, Lock, Unlock, Server, KeyRound, RefreshCw } from 'lucide-react';
+import { Users, Trash2, Shield, Edit, Plus, AlertTriangle, Download, Mail, Send, History, Lock, Unlock, Server, KeyRound, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
@@ -73,6 +73,14 @@ const UserManagement = () => {
   const [serverBackups, setServerBackups] = useState([]);
   const [loadingServerBackups, setLoadingServerBackups] = useState(false);
   const [runningServerBackupNow, setRunningServerBackupNow] = useState(false);
+
+  // Global settings (iPad defaults)
+  const [globalSettings, setGlobalSettings] = useState({ ipad_typ: 'Apple iPad', pencil: 'ohne Apple Pencil' });
+  const [loadingGlobalSettings, setLoadingGlobalSettings] = useState(true);
+  const [savingGlobalSettings, setSavingGlobalSettings] = useState(false);
+
+  // Data protection cleanup
+  const [cleaning, setCleaning] = useState(false);
 
   const handleCleanupOrphanedData = async () => {
     const confirmed = window.confirm(
@@ -181,6 +189,19 @@ const UserManagement = () => {
     }
   };
 
+  const loadGlobalSettings = async () => {
+    setLoadingGlobalSettings(true);
+    try {
+      const response = await api.get('/settings/global');
+      setGlobalSettings(response.data);
+    } catch (error) {
+      console.error('Failed to load global settings:', error);
+      toast.error('Fehler beim Laden der globalen Einstellungen');
+    } finally {
+      setLoadingGlobalSettings(false);
+    }
+  };
+
   useEffect(() => {
     loadUsers();
     loadBackupSchedule();
@@ -188,7 +209,41 @@ const UserManagement = () => {
     loadBackupEncryption();
     loadSmtpConfig();
     loadServerBackups();
+    loadGlobalSettings();
   }, []);
+
+  const handleSaveGlobalSettings = async () => {
+    setSavingGlobalSettings(true);
+    try {
+      const response = await api.put('/settings/global', globalSettings);
+      toast.success(response.data.message);
+    } catch (error) {
+      console.error('Failed to save global settings:', error);
+      toast.error('Fehler beim Speichern der globalen Einstellungen');
+    } finally {
+      setSavingGlobalSettings(false);
+    }
+  };
+
+  const handleDataProtectionCleanup = async () => {
+    // Double-click protection
+    const now = Date.now();
+    if (!window._lastCleanupClick || (now - window._lastCleanupClick) > 3000) {
+      window._lastCleanupClick = now;
+      toast.info('Datenschutz-Bereinigung starten? WARNUNG: Alle Schüler- und Vertragsdaten älter als 5 Jahre werden gelöscht! Klicken Sie nochmal in 3 Sekunden um zu bestätigen.');
+      return;
+    }
+
+    setCleaning(true);
+    try {
+      const response = await api.post('/data-protection/cleanup-old-data');
+      toast.success(response.data.message);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler bei der Datenschutz-Bereinigung');
+    } finally {
+      setCleaning(false);
+    }
+  };
 
   const handleSetBackupPassword = async () => {
     if (newBackupPassword.length < 8) {
@@ -688,6 +743,60 @@ const UserManagement = () => {
         </CardContent>
       </Card>
 
+      {/* Global Settings */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <SettingsIcon className="h-5 w-5" />
+            Globale Einstellungen
+          </CardTitle>
+          <CardDescription>
+            Standard-Werte für iPad-Felder
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingGlobalSettings ? (
+            <div className="text-center py-4">Lade Einstellungen...</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="ipad_typ">iPad-Typ (Standard)</Label>
+                  <Input
+                    id="ipad_typ"
+                    value={globalSettings.ipad_typ}
+                    onChange={(e) => setGlobalSettings({...globalSettings, ipad_typ: e.target.value})}
+                    placeholder="z.B. Apple iPad"
+                    className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pencil">Pencil-Ausstattung (Standard)</Label>
+                  <Input
+                    id="pencil"
+                    value={globalSettings.pencil}
+                    onChange={(e) => setGlobalSettings({...globalSettings, pencil: e.target.value})}
+                    placeholder="z.B. ohne Apple Pencil"
+                    className="transition-all duration-200 focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t">
+                <Button
+                  onClick={handleSaveGlobalSettings}
+                  disabled={savingGlobalSettings}
+                  className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue transition-all duration-200"
+                >
+                  <SettingsIcon className="h-4 w-4 mr-2" />
+                  {savingGlobalSettings ? 'Speichert...' : 'Einstellungen speichern'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Manual System Backup */}
       <Card className="shadow-lg">
         <CardHeader>
@@ -1108,6 +1217,33 @@ const UserManagement = () => {
               ))}
             </ul>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Data Protection Settings */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Datenschutz-Einstellungen
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
+            <h4 className="font-medium text-blue-800 mb-2">Automatisches Daten-Cleanup</h4>
+            <p className="text-sm text-blue-700 mb-4">
+              Löscht automatisch alle Schüler- und Vertragsdaten, die älter als 5 Jahre sind,
+              um DSGVO-Compliance sicherzustellen.
+            </p>
+            <Button
+              onClick={handleDataProtectionCleanup}
+              disabled={cleaning}
+              className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600"
+            >
+              <Shield className="h-4 w-4 mr-2" />
+              {cleaning ? 'Bereinigung läuft...' : 'Datenschutz-Bereinigung starten'}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
