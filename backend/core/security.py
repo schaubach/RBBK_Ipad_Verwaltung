@@ -30,6 +30,17 @@ def create_access_token(data: dict, user_id: str, expires_delta: Optional[timede
     return jwt.encode(to_encode, SECRET_KEY, algorithm="HS256")
 
 
+# Endpoints that must stay reachable for a user whose password change is still pending -
+# otherwise they could never clear the flag (or even log out). Everything else is blocked
+# server-side until they change their password; previously this was only enforced by the
+# frontend's Login.jsx dialog, so a temporary password could be used against the API directly.
+_FORCE_PASSWORD_CHANGE_ALLOWED_PATHS = {
+    "/api/auth/change-password-forced",
+    "/api/auth/logout",
+    "/api/auth/me",
+}
+
+
 async def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
@@ -63,6 +74,10 @@ async def get_current_user(
             raise HTTPException(status_code=401, detail="User not found")
         if not user.get("is_active", True):
             raise HTTPException(status_code=401, detail="User account is deactivated")
+        if user.get("force_password_change") and request.url.path not in _FORCE_PASSWORD_CHANGE_ALLOWED_PATHS:
+            raise HTTPException(
+                status_code=403, detail="Passwort muss zuerst geändert werden (PUT /auth/change-password-forced)."
+            )
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")

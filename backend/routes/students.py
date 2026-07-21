@@ -3,6 +3,7 @@
 Auto-extracted from monolithic server.py during refactor (Session 12).
 """
 
+import re
 from datetime import UTC, datetime
 from typing import List, Optional
 
@@ -47,24 +48,17 @@ async def create_student(student_data: dict, current_user: dict = Depends(get_cu
                 detail=f"Schüler {student_data['sus_vorn']} {student_data['sus_nachn']} existiert bereits",
             )
 
-        # Create Student object
+        # Create Student object. Field names must match models.student.Student exactly -
+        # Pydantic silently discards unknown kwargs (extra="ignore" by default), so a
+        # mismatch here doesn't error, it just quietly drops the data on the floor.
         student = Student(
             user_id=current_user["id"],
             sus_vorn=student_data["sus_vorn"],
             sus_nachn=student_data["sus_nachn"],
             sus_kl=student_data.get("sus_kl", ""),
             sus_geb=student_data.get("sus_geb", ""),
-            sus_str=student_data.get("sus_str", ""),
+            sus_str_hnr=student_data.get("sus_str", ""),
             sus_ort=student_data.get("sus_ort", ""),
-            sus_tel=student_data.get("sus_tel", ""),
-            sor1_vorn=student_data.get("sor1_vorn", ""),
-            sor1_nachn=student_data.get("sor1_nachn", ""),
-            sor1_tel=student_data.get("sor1_tel", ""),
-            sor1_mail=student_data.get("sor1_mail", ""),
-            sor2_vorn=student_data.get("sor2_vorn", ""),
-            sor2_nachn=student_data.get("sor2_nachn", ""),
-            sor2_tel=student_data.get("sor2_tel", ""),
-            sor2_mail=student_data.get("sor2_mail", ""),
         )
 
         student_dict = prepare_for_mongo(student.dict())
@@ -151,7 +145,12 @@ async def get_student_details(request: Request, student_id: str, current_user: d
         {
             "$or": [
                 {"student_id": student_id},
-                {"student_name": {"$regex": f"{student['sus_vorn']} {student['sus_nachn']}", "$options": "i"}},
+                {
+                    "student_name": {
+                        "$regex": f"{re.escape(student['sus_vorn'])} {re.escape(student['sus_nachn'])}",
+                        "$options": "i",
+                    }
+                },
                 {"assignment_id": {"$in": [a["id"] for a in assignment_history]}},
             ]
         },
@@ -211,6 +210,7 @@ async def update_student(
     student_id: str, request: StudentUpdateRequest, current_user: dict = Depends(get_current_user)
 ):
     """Update student information"""
+    await validate_resource_ownership("student", student_id, current_user)
     student = await db.students.find_one({"id": student_id})
     if not student:
         raise HTTPException(status_code=404, detail="Schüler nicht gefunden")
@@ -303,6 +303,15 @@ async def set_student_ipad_refused(
     student = await db.students.find_one({"id": student_id})
     if not student:
         raise HTTPException(status_code=404, detail="Schüler nicht gefunden")
+
+    if refused:
+        active_assignment = await db.assignments.find_one({"student_id": student_id, "is_active": True})
+        if active_assignment:
+            raise HTTPException(
+                status_code=400,
+                detail="Diese Person hat bereits ein zugeordnetes iPad - Zuordnung zuerst auflösen, "
+                "bevor eine Verweigerung vermerkt werden kann.",
+            )
 
     await db.students.update_one(
         {"id": student_id},
@@ -412,11 +421,11 @@ async def batch_delete_students(filter_params: dict, current_user: dict = Depend
         # If not "all", apply specific filters
         if not filter_params.get("all", False):
             if filter_params.get("sus_vorn"):
-                student_filter["sus_vorn"] = {"$regex": filter_params["sus_vorn"], "$options": "i"}
+                student_filter["sus_vorn"] = {"$regex": re.escape(filter_params["sus_vorn"]), "$options": "i"}
             if filter_params.get("sus_nachn"):
-                student_filter["sus_nachn"] = {"$regex": filter_params["sus_nachn"], "$options": "i"}
+                student_filter["sus_nachn"] = {"$regex": re.escape(filter_params["sus_nachn"]), "$options": "i"}
             if filter_params.get("sus_kl"):
-                student_filter["sus_kl"] = {"$regex": filter_params["sus_kl"], "$options": "i"}
+                student_filter["sus_kl"] = {"$regex": re.escape(filter_params["sus_kl"]), "$options": "i"}
 
         # Get all matching students
         students = await db.students.find(student_filter).to_list(length=None)

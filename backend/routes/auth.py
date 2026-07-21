@@ -3,7 +3,7 @@
 Auto-extracted from monolithic server.py during refactor (Session 12).
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from core.config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -137,7 +137,11 @@ async def login(request: Request, user_data: UserLogin):
     if not user.get("is_active", True):
         raise HTTPException(status_code=401, detail="User account is deactivated")
 
-    access_token = create_access_token(data={"sub": user_data.username}, user_id=user["id"])
+    access_token = create_access_token(
+        data={"sub": user_data.username},
+        user_id=user["id"],
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
 
     # Create response with HttpOnly cookie
     response = JSONResponse(
