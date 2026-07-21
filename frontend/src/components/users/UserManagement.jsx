@@ -18,6 +18,7 @@ const UserManagement = () => {
   const [showResetPasswordDialog, setShowResetPasswordDialog] = useState(false);
   const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false);
   const [deleteStep, setDeleteStep] = useState(1);
+  const [deletingUser, setDeletingUser] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [tempPasswordData, setTempPasswordData] = useState(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -528,6 +529,7 @@ const UserManagement = () => {
       return;
     }
 
+    setDeletingUser(true);
     try {
       const response = await api.delete(`/admin/users/${selectedUser.id}/complete`);
       const resources = response.data.deleted_resources || {};
@@ -543,6 +545,8 @@ const UserManagement = () => {
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler beim Löschen des Benutzers');
       console.error('Complete user deletion error:', error);
+    } finally {
+      setDeletingUser(false);
     }
   };
 
@@ -1529,15 +1533,16 @@ const UserManagement = () => {
                     <Button
                       variant="outline"
                       onClick={() => setDeleteStep(1)}
+                      disabled={deletingUser}
                     >
                       Zurück
                     </Button>
                     <Button
                       onClick={handleDeleteStep2Confirm}
-                      disabled={deleteConfirmText !== selectedUser.username}
+                      disabled={deleteConfirmText !== selectedUser.username || deletingUser}
                       className="bg-red-700 hover:bg-red-800 text-white disabled:bg-gray-400"
                     >
-                      ENDGÜLTIG LÖSCHEN
+                      {deletingUser ? 'Wird gelöscht...' : 'ENDGÜLTIG LÖSCHEN'}
                     </Button>
                   </div>
                 </>

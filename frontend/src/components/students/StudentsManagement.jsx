@@ -212,12 +212,14 @@ const StudentsManagement = () => {
 
     for (const studentId of selectedStudents) {
       try {
-        await api.delete(`/students/${studentId}`);
+        await withRateLimitRetry(() => api.delete(`/students/${studentId}`));
         successCount++;
       } catch (error) {
         errorCount++;
         console.error(`Failed to delete student ${studentId}:`, error);
       }
+      // Pace requests so a large batch doesn't trip the server's Rate-Limiting (nginx: 30 Anfragen/s).
+      await sleep(BATCH_REQUEST_DELAY_MS);
     }
 
     setDeleting(false);
@@ -300,6 +302,16 @@ const StudentsManagement = () => {
     loadAssignments();
   }, []);
 
+  // Drop selections that fall out of view when a filter changes, so batch
+  // actions never silently apply to students that are no longer visible.
+  useEffect(() => {
+    setSelectedStudents(prev => {
+      const filteredIds = new Set(filteredStudents.map(s => s.id));
+      const next = prev.filter(id => filteredIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [studentVornameFilter, studentNachnameFilter, studentKlasseFilter, studentItnrFilter, assignedFilter]);
+
   const handleDismissWarning = async (student) => {
     const warningAssignments = getStudentWarningAssignments(student.id);
     if (warningAssignments.length === 0) return;
@@ -355,57 +367,6 @@ const StudentsManagement = () => {
     } finally {
       setDeleteDialogOpen(false);
       setStudentToDelete(null);
-    }
-  };
-
-  const handleBatchDeleteStudents = async (deleteAll = false) => {
-    const count = deleteAll ? students.length : filteredStudents.length;
-    const type = deleteAll ? "ALLE" : "gefilterte";
-
-    // Build confirmation message
-    const message = `⚠️ WARNUNG: Sie sind dabei ${count} ${type} Schüler zu löschen!\n\nFür jeden Schüler wird gelöscht:\n- Alle Zuordnungen\n- Alle Verträge\n- Komplette Historie\n- iPads werden freigegeben\n\nDies kann NICHT rückgängig gemacht werden!\n\nMöchten Sie fortfahren?`;
-
-    if (!window.confirm(message)) {
-      return;
-    }
-
-    // Second confirmation
-    const secondConfirm = window.confirm(`🚨 LETZTE BESTÄTIGUNG\n\n${count} Schüler werden PERMANENT gelöscht!\n\nWirklich fortfahren?`);
-
-    if (!secondConfirm) {
-      return;
-    }
-
-    try {
-      setDeleting(true);
-      toast.info(`Lösche ${count} Schüler...`);
-
-      // Build filter parameters
-      const filterParams = {};
-
-      if (deleteAll) {
-        filterParams.all = true;
-      } else {
-        // Apply current filters
-        if (studentVornameFilter) filterParams.sus_vorn = studentVornameFilter;
-        if (studentNachnameFilter) filterParams.sus_nachn = studentNachnameFilter;
-        if (studentKlasseFilter) filterParams.sus_kl = studentKlasseFilter;
-      }
-
-      // Call batch delete endpoint
-      const response = await api.post('/students/batch-delete', filterParams);
-
-      toast.success(`✅ ${response.data.deleted_count} Schüler gelöscht, ${response.data.freed_ipads} iPads freigegeben!`);
-
-      // Reload data AND available iPads (freigegebene iPads!)
-      await loadStudents();
-      await loadAvailableIPads();
-
-    } catch (error) {
-      console.error('Batch delete students error:', error);
-      toast.error(error.response?.data?.detail || 'Fehler beim Löschen der Schüler');
-    } finally {
-      setDeleting(false);
     }
   };
 
@@ -814,6 +775,13 @@ const StudentsManagement = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {filteredStudents.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-gray-500">
+                        Keine Schüler entsprechen den aktuellen Filtern.
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {filteredStudents.map((student) => (
                     <TableRow key={student.id} className="hover:bg-gray-50">
                       <TableCell>

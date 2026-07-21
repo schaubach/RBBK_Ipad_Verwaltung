@@ -4,6 +4,7 @@ Auto-extracted from monolithic server.py during refactor (Session 12).
 """
 
 import io
+import re
 from datetime import UTC, datetime
 from typing import List, Optional
 
@@ -55,27 +56,30 @@ async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
         if active_assignments == 0:
             unassigned_students.append(student)
 
-    # Get available iPads for this user (not currently assigned, status = 'ok')
-    ipad_filter = {**user_filter, "current_assignment_id": None, "status": "ok"}
-
     assigned_count = 0
     details = []
 
     for student in unassigned_students:
         now_iso = datetime.now(UTC).isoformat()
+        student_owner_id = student["user_id"]
 
         # We need an assignment ID first so we can assign atomically
         assignment = Assignment(
-            user_id=current_user["id"],
+            user_id=student_owner_id,
             student_id=student["id"],
             ipad_id="temp",
             itnr="temp",
             student_name=f"{student['sus_vorn']} {student['sus_nachn']}",
         )
 
-        # Atomically find and claim an available iPad
+        # Atomically find and claim an available iPad OWNED BY THE SAME USER as the student.
+        # Scoped per-student (not a single shared filter) so that when an admin triggers this
+        # across all tenants, two different teachers' inventories never get cross-wired - the
+        # resulting assignment.user_id (= student_owner_id) must always match the claimed iPad's
+        # existing owner, or the assignment becomes invisible/undeletable to its real owner.
         ipad = await db.ipads.find_one_and_update(
-            ipad_filter, {"$set": {"current_assignment_id": assignment.id, "updated_at": now_iso}}
+            {"user_id": student_owner_id, "current_assignment_id": None, "status": "ok"},
+            {"$set": {"current_assignment_id": assignment.id, "updated_at": now_iso}},
         )
 
         if not ipad:
@@ -136,9 +140,12 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
         was_in_pool = ipad.get("is_in_pool", False)
         now_iso = datetime.now(UTC).isoformat()
 
-        # Create assignment (without contract)
+        # Create assignment (without contract). user_id follows the STUDENT's owner, not the
+        # acting user - otherwise an admin assigning on someone else's behalf would create an
+        # assignment invisible to (and undeletable by) the actual owner (get_user_filter /
+        # validate_resource_ownership both scope on assignment.user_id).
         assignment = Assignment(
-            user_id=current_user["id"],
+            user_id=student["user_id"],
             student_id=student["id"],
             ipad_id=ipad["id"],
             itnr=ipad["itnr"],
@@ -151,7 +158,9 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
 
         if was_in_pool:
             update_doc["$set"]["is_in_pool"] = False
-            update_doc["$set"]["user_id"] = current_user["id"]
+            # Ownership goes to the student's owner (not the acting admin) - same reasoning as
+            # the assignment's user_id above.
+            update_doc["$set"]["user_id"] = student["user_id"]
             update_doc["$push"] = {"pool_history": {"action": "claimed", "by": current_user["id"], "at": now_iso}}
             query = {"id": request.ipad_id, "is_in_pool": True, "current_assignment_id": None}
         else:
@@ -264,6 +273,7 @@ async def get_assignments(request: Request, current_user: dict = Depends(get_cur
 
 @api_router.post("/assignments/{assignment_id}/dismiss-warning")
 async def dismiss_contract_warning(assignment_id: str, current_user: dict = Depends(get_current_user)):
+    await validate_resource_ownership("assignment", assignment_id, current_user)
     result = await db.assignments.update_one({"id": assignment_id}, {"$set": {"warning_dismissed": True}})
 
     if result.matched_count == 0:
@@ -469,18 +479,18 @@ async def batch_dissolve_assignments(filter_params: dict, current_user: dict = D
             has_student_filter = False
 
             if filter_params.get("sus_vorn"):
-                student_filter["sus_vorn"] = {"$regex": filter_params["sus_vorn"], "$options": "i"}
+                student_filter["sus_vorn"] = {"$regex": re.escape(filter_params["sus_vorn"]), "$options": "i"}
                 has_student_filter = True
             if filter_params.get("sus_nachn"):
-                student_filter["sus_nachn"] = {"$regex": filter_params["sus_nachn"], "$options": "i"}
+                student_filter["sus_nachn"] = {"$regex": re.escape(filter_params["sus_nachn"]), "$options": "i"}
                 has_student_filter = True
             if filter_params.get("sus_kl"):
-                student_filter["sus_kl"] = {"$regex": filter_params["sus_kl"], "$options": "i"}
+                student_filter["sus_kl"] = {"$regex": re.escape(filter_params["sus_kl"]), "$options": "i"}
                 has_student_filter = True
 
             # Apply iPad filter if provided
             if filter_params.get("itnr"):
-                assignment_filter["itnr"] = {"$regex": filter_params["itnr"], "$options": "i"}
+                assignment_filter["itnr"] = {"$regex": re.escape(filter_params["itnr"]), "$options": "i"}
 
             # If student filters exist, get matching student IDs
             if has_student_filter:
@@ -529,10 +539,10 @@ async def batch_dissolve_assignments(filter_params: dict, current_user: dict = D
                     {"$set": {"current_assignment_id": None, "updated_at": datetime.now(UTC).isoformat()}},
                 )
 
-                # Update student
+                # Update student timestamp - no current_assignment_id field on Student (1:n relationship)
                 await db.students.update_one(
                     {"id": assignment["student_id"]},
-                    {"$set": {"current_assignment_id": None, "updated_at": datetime.now(UTC).isoformat()}},
+                    {"$set": {"updated_at": datetime.now(UTC).isoformat()}},
                 )
 
                 dissolved_count += 1
@@ -569,17 +579,17 @@ async def get_filtered_assignments(
         # Build filter query for students (with user filter!)
         student_filter = user_filter.copy()
         if sus_vorn:
-            student_filter["sus_vorn"] = {"$regex": sus_vorn, "$options": "i"}
+            student_filter["sus_vorn"] = {"$regex": re.escape(sus_vorn), "$options": "i"}
         if sus_nachn:
-            student_filter["sus_nachn"] = {"$regex": sus_nachn, "$options": "i"}
+            student_filter["sus_nachn"] = {"$regex": re.escape(sus_nachn), "$options": "i"}
         if sus_kl:
-            student_filter["sus_kl"] = {"$regex": sus_kl, "$options": "i"}
+            student_filter["sus_kl"] = {"$regex": re.escape(sus_kl), "$options": "i"}
 
         # Build filter query for assignments (IT-Nummer) with user filter!
         assignment_filter = user_filter.copy()
         assignment_filter["is_active"] = True
         if itnr:
-            assignment_filter["itnr"] = {"$regex": itnr, "$options": "i"}
+            assignment_filter["itnr"] = {"$regex": re.escape(itnr), "$options": "i"}
 
         if sus_vorn or sus_nachn or sus_kl:
             # Get matching students (filtered by user_id!)
