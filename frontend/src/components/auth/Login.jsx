@@ -16,6 +16,7 @@ const Login = ({ onLogin }) => {
   const [tempToken, setTempToken] = useState(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showDefaultCredsHint, setShowDefaultCredsHint] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -87,6 +88,7 @@ const Login = ({ onLogin }) => {
     try {
       const response = await api.post('/auth/setup');
       if (response.data.message.includes('Admin user created')) {
+        setShowDefaultCredsHint(true);
         toast.success('Setup completed! Please login with admin/admin123');
       }
     } catch (error) {
@@ -205,13 +207,16 @@ const Login = ({ onLogin }) => {
               {loading ? 'Anmeldung läuft...' : 'Anmelden'}
             </Button>
           </form>
-          <div className="mt-6 text-center">
-            <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
-              <div className="font-medium text-gray-700 mb-1">Standard-Anmeldedaten:</div>
-              <div>Benutzername: <span className="font-mono bg-gray-200 px-1 rounded">admin</span></div>
-              <div>Passwort: <span className="font-mono bg-gray-200 px-1 rounded">admin123</span></div>
+          {showDefaultCredsHint && (
+            <div className="mt-6 text-center">
+              <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded-lg">
+                <div className="font-medium text-gray-700 mb-1">Admin-Konto wurde gerade erstellt:</div>
+                <div>Benutzername: <span className="font-mono bg-gray-200 px-1 rounded">admin</span></div>
+                <div>Passwort: <span className="font-mono bg-gray-200 px-1 rounded">admin123</span></div>
+                <div className="mt-1 text-xs">Bitte gleich nach dem ersten Login ändern.</div>
+              </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -4,6 +4,7 @@ Auto-extracted from monolithic server.py during refactor (Session 12).
 """
 
 import io
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -55,17 +56,17 @@ async def generate_contracts(
             # Build filter query for students (with user filter!)
             student_filter = user_filter.copy()
             if sus_vorn:
-                student_filter["sus_vorn"] = {"$regex": sus_vorn, "$options": "i"}
+                student_filter["sus_vorn"] = {"$regex": re.escape(sus_vorn), "$options": "i"}
             if sus_nachn:
-                student_filter["sus_nachn"] = {"$regex": sus_nachn, "$options": "i"}
+                student_filter["sus_nachn"] = {"$regex": re.escape(sus_nachn), "$options": "i"}
             if sus_kl:
-                student_filter["sus_kl"] = {"$regex": sus_kl, "$options": "i"}
+                student_filter["sus_kl"] = {"$regex": re.escape(sus_kl), "$options": "i"}
 
             # Build filter query for assignments (IT-Nummer) with user filter!
             assignment_filter = user_filter.copy()
             assignment_filter["is_active"] = True
             if itnr:
-                assignment_filter["itnr"] = {"$regex": itnr, "$options": "i"}
+                assignment_filter["itnr"] = {"$regex": re.escape(itnr), "$options": "i"}
 
             if sus_vorn or sus_nachn or sus_kl:
                 # Get matching students (filtered by user_id!)

@@ -328,12 +328,14 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
     for (const ipadId of selectedIPads) {
       try {
-        await api.delete(`/ipads/${ipadId}`);
+        await withRateLimitRetry(() => api.delete(`/ipads/${ipadId}`));
         successCount++;
       } catch (error) {
         errorCount++;
         console.error(`Failed to delete iPad ${ipadId}:`, error);
       }
+      // Pace requests so a large batch doesn't trip the server's Rate-Limiting (nginx: 30 Anfragen/s).
+      await sleep(BATCH_REQUEST_DELAY_MS);
     }
 
     setDeleting(false);
@@ -397,6 +399,16 @@ const IPadsManagement = ({ isAdmin = false }) => {
     loadAssignments();
     loadStudents();
   }, []);
+
+  // Drop selections that fall out of view when a filter changes, so batch
+  // actions never silently apply to iPads that are no longer visible.
+  useEffect(() => {
+    setSelectedIPads(prev => {
+      const filteredIds = new Set(filteredIPads.map(i => i.id));
+      const next = prev.filter(id => filteredIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [itnrFilter, snrFilter, poolFilter, vornameFilter, nachnameFilter, klasseFilter, assignedFilter]);
 
   // Open create dialog with defaults from global settings
   const openCreateDialog = () => {
@@ -1018,6 +1030,13 @@ const IPadsManagement = ({ isAdmin = false }) => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                  {filteredIPads.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                        Keine iPads entsprechen den aktuellen Filtern.
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {filteredIPads.map((ipad) => (
                     <TableRow
                       key={ipad.id}

@@ -316,8 +316,9 @@ async def update_ipad_status(ipad_id: str, payload: IPadStatusUpdate, current_us
     if status_value not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
 
-    # Get the iPad first
-    ipad = await db.ipads.find_one({"id": ipad_id})
+    # Get the iPad first - admin sees all, user sees own + pool
+    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    ipad = await db.ipads.find_one({"id": ipad_id, **ipad_filter})
     if not ipad:
         raise HTTPException(status_code=404, detail="iPad not found")
 
@@ -344,7 +345,8 @@ class IPadUpdateRequest(BaseModel):
 @api_router.put("/ipads/{ipad_id}")
 async def update_ipad(ipad_id: str, request: IPadUpdateRequest, current_user: dict = Depends(get_current_user)):
     """Update iPad information"""
-    ipad = await db.ipads.find_one({"id": ipad_id})
+    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    ipad = await db.ipads.find_one({"id": ipad_id, **ipad_filter})
     if not ipad:
         raise HTTPException(status_code=404, detail="iPad not found")
 
@@ -433,8 +435,9 @@ async def migrate_ipad_status(current_user: dict = Depends(get_current_user)):
 # iPad history and details
 @api_router.get("/ipads/{ipad_id}/history")
 async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_current_user)):
-    # Get iPad
-    ipad = await db.ipads.find_one({"id": ipad_id})
+    # Get iPad - admin sees all, user sees own + pool
+    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    ipad = await db.ipads.find_one({"id": ipad_id, **ipad_filter})
     if not ipad:
         raise HTTPException(status_code=404, detail="iPad not found")
 

@@ -5,6 +5,7 @@ Auto-extracted from monolithic server.py during refactor (Session 12).
 
 import io
 import os
+import re
 from datetime import UTC, datetime
 from typing import List
 
@@ -146,8 +147,8 @@ async def upload_multiple_contracts(
                         match_filter = {
                             **user_filter,
                             "is_active": True,
-                            "student.sus_vorn": {"$regex": f"^{vorname_file}$", "$options": "i"},
-                            "student.sus_nachn": {"$regex": f"^{nachname_file}$", "$options": "i"},
+                            "student.sus_vorn": {"$regex": f"^{re.escape(vorname_file)}$", "$options": "i"},
+                            "student.sus_nachn": {"$regex": f"^{re.escape(nachname_file)}$", "$options": "i"},
                         }
 
                         pipeline = [
@@ -419,6 +420,7 @@ async def assign_contract_to_assignment(
 
 @api_router.get("/contracts/{contract_id}")
 async def get_contract(contract_id: str, current_user: dict = Depends(get_current_user)):
+    await validate_resource_ownership("contract", contract_id, current_user)
     contract = await db.contracts.find_one({"id": contract_id})
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -437,6 +439,7 @@ async def get_contract(contract_id: str, current_user: dict = Depends(get_curren
 @api_router.get("/contracts/{contract_id}/download")
 @limiter.limit("30/minute")
 async def download_contract(request: Request, contract_id: str, current_user: dict = Depends(get_current_user)):
+    await validate_resource_ownership("contract", contract_id, current_user)
     contract = await db.contracts.find_one({"id": contract_id})
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -450,6 +453,7 @@ async def download_contract(request: Request, contract_id: str, current_user: di
 
 @api_router.delete("/contracts/{contract_id}")
 async def delete_contract(contract_id: str, current_user: dict = Depends(get_current_user)):
+    await validate_resource_ownership("contract", contract_id, current_user)
     contract = await db.contracts.find_one({"id": contract_id})
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -473,6 +477,7 @@ async def delete_contract(contract_id: str, current_user: dict = Depends(get_cur
 @api_router.post("/contracts/{contract_id}/unassign")
 async def unassign_contract(contract_id: str, current_user: dict = Depends(get_current_user)):
     """Remove the assignment from a contract (keeps the contract but removes the link)"""
+    await validate_resource_ownership("contract", contract_id, current_user)
     contract = await db.contracts.find_one({"id": contract_id})
     if not contract:
         raise HTTPException(status_code=404, detail="Contract not found")
@@ -510,10 +515,11 @@ async def batch_delete_contracts(request: BatchDeleteContractsRequest, current_u
 
     deleted_count = 0
     errors = []
+    user_filter = await get_user_filter(current_user)
 
     for contract_id in request.contract_ids:
         try:
-            contract = await db.contracts.find_one({"id": contract_id})
+            contract = await db.contracts.find_one({"id": contract_id, **user_filter})
             if not contract:
                 errors.append({"contract_id": contract_id, "error": "Not found"})
                 continue

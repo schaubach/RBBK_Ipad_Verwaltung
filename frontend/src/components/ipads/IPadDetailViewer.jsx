@@ -297,8 +297,8 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
                   <div><strong>Status:</strong>
                     <Badge className={`ml-2 ${
                       ipad.status === 'ok' ? 'bg-green-100 text-green-800' :
-                      ipad.status === 'defekt' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
+                      ipad.status === 'defekt' ? 'bg-red-100 text-red-800' :
+                      'bg-purple-100 text-purple-800'
                     }`}>
                       {ipad.status === 'ok' ? 'OK' : ipad.status === 'defekt' ? 'Defekt' : 'Gestohlen'}
                     </Badge>
