@@ -59,6 +59,7 @@ services:
     container_name: ipad_mongodb
     volumes:
       - mongodb_data:/data/db
+      - mongodb_configdb:/data/configdb
     restart: unless-stopped
     networks:
       - ipad_network
@@ -84,6 +85,8 @@ networks:
 
 volumes:
   mongodb_data:
+    driver: local
+  mongodb_configdb:
     driver: local
   backend_uploads:
     driver: local
