@@ -78,11 +78,11 @@ CONTAINERS=$(docker ps -a --filter "name=ipad" --format "{{.Names}}" 2>/dev/null
 VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null | tr '\n' ' ')
 IMAGES=$(docker images --filter "reference=config-*" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null | tr '\n' ' ')
 
-# Das offizielle mongo-Image deklariert intern zwei Volumes (/data/db UND /data/configdb),
-# aber docker-compose.yml mapped nur /data/db auf das benannte Volume "mongodb_data".
-# Fuer /data/configdb legt Docker deshalb ein anonymes Volume (Zufalls-Hash als Name) an,
-# das der name=config_ Filter oben nicht erfasst. Vor dem Entfernen der Container einsammeln,
-# solange sich das Volume noch eindeutig ueber seinen Container zuordnen laesst.
+# docker-compose.yml mapped inzwischen auch /data/configdb auf ein benanntes Volume,
+# aber bei Installationen von vor diesem Fix legt Docker dafuer noch ein anonymes
+# Volume (Zufalls-Hash als Name) an, das der name=config_ Filter oben nicht erfasst.
+# Sicherheitsnetz: vor dem Entfernen der Container einsammeln, solange sich das
+# Volume noch eindeutig ueber seinen Container zuordnen laesst.
 ANON_VOLUMES=$(docker ps -a --filter "name=ipad" --format "{{.Names}}" 2>/dev/null | \
     xargs -r -I{} docker inspect {} --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}' 2>/dev/null | \
     grep -v '^config_' | sort -u | tr '\n' ' ')
