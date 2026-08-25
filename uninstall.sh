@@ -78,6 +78,15 @@ CONTAINERS=$(docker ps -a --filter "name=ipad" --format "{{.Names}}" 2>/dev/null
 VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null | tr '\n' ' ')
 IMAGES=$(docker images --filter "reference=config-*" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null | tr '\n' ' ')
 
+# Das offizielle mongo-Image deklariert intern zwei Volumes (/data/db UND /data/configdb),
+# aber docker-compose.yml mapped nur /data/db auf das benannte Volume "mongodb_data".
+# Fuer /data/configdb legt Docker deshalb ein anonymes Volume (Zufalls-Hash als Name) an,
+# das der name=config_ Filter oben nicht erfasst. Vor dem Entfernen der Container einsammeln,
+# solange sich das Volume noch eindeutig ueber seinen Container zuordnen laesst.
+ANON_VOLUMES=$(docker ps -a --filter "name=ipad" --format "{{.Names}}" 2>/dev/null | \
+    xargs -r -I{} docker inspect {} --format '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}' 2>/dev/null | \
+    grep -v '^config_' | sort -u | tr '\n' ' ')
+
 if [ -n "$CONTAINERS" ]; then
     echo "   Gefundene Container: $CONTAINERS"
 else
@@ -88,6 +97,10 @@ if [ -n "$VOLUMES" ]; then
     echo "   Gefundene Volumes: $VOLUMES"
 else
     echo "   Keine Volumes gefunden"
+fi
+
+if [ -n "$ANON_VOLUMES" ]; then
+    echo "   Gefundene anonyme Volumes (z.B. Mongo /data/configdb): $ANON_VOLUMES"
 fi
 
 if [ -n "$IMAGES" ]; then
@@ -117,12 +130,13 @@ else
     print_success "Keine Container zu löschen"
 fi
 
-# Lösche alle Volumes
+# Lösche alle Volumes (benannte Projekt-Volumes + zuvor erfasste anonyme Volumes, z.B. Mongo /data/configdb)
 print_step "Lösche alle Volumes..."
 ALL_VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null)
-if [ -n "$ALL_VOLUMES" ]; then
-    echo "$ALL_VOLUMES" | xargs docker volume rm -f 2>/dev/null || true
-    print_success "Volumes gelöscht: $ALL_VOLUMES"
+COMBINED_VOLUMES=$(printf '%s\n%s\n' "$ALL_VOLUMES" "$ANON_VOLUMES" | tr ' ' '\n' | sed '/^$/d' | sort -u)
+if [ -n "$COMBINED_VOLUMES" ]; then
+    echo "$COMBINED_VOLUMES" | xargs docker volume rm -f 2>/dev/null || true
+    print_success "Volumes gelöscht: $(echo "$COMBINED_VOLUMES" | tr '\n' ' ')"
 else
     print_success "Keine Volumes zu löschen"
 fi
@@ -133,9 +147,14 @@ read -p "Möchten Sie auch die Docker-Images löschen? (j/n): " delete_images
 
 if [ "$delete_images" = "j" ] || [ "$delete_images" = "J" ]; then
     print_step "Lösche Docker-Images..."
+    # Selbst gebaute Images (config-backend, config-frontend, ...) plus die von
+    # docker-compose.yml direkt referenzierten Basis-Images (werden nicht gebaut,
+    # sondern von Docker Hub gezogen, daher matcht der config-* Filter sie nicht).
     ALL_IMAGES=$(docker images --filter "reference=config-*" --format "{{.Repository}}:{{.Tag}}" 2>/dev/null)
-    if [ -n "$ALL_IMAGES" ]; then
-        echo "$ALL_IMAGES" | xargs docker rmi -f 2>/dev/null || true
+    BASE_IMAGES="nginx:alpine mongo:6"
+    COMBINED_IMAGES=$(printf '%s\n%s\n' "$ALL_IMAGES" "$BASE_IMAGES" | tr ' ' '\n' | sed '/^$/d' | sort -u)
+    if [ -n "$COMBINED_IMAGES" ]; then
+        echo "$COMBINED_IMAGES" | xargs docker rmi -f 2>/dev/null || true
         print_success "Images gelöscht"
     else
         print_success "Keine Images zu löschen"
@@ -170,7 +189,9 @@ fi
 echo ""
 print_step "Führe finalen Check durch..."
 REMAINING_CONTAINERS=$(docker ps -a --filter "name=ipad" --format "{{.Names}}" 2>/dev/null)
-REMAINING_VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null)
+REMAINING_NAMED_VOLUMES=$(docker volume ls --filter "name=config_" --format "{{.Name}}" 2>/dev/null)
+REMAINING_ANON_VOLUMES=$(for v in $ANON_VOLUMES; do docker volume inspect "$v" >/dev/null 2>&1 && echo "$v"; done)
+REMAINING_VOLUMES=$(printf '%s\n%s\n' "$REMAINING_NAMED_VOLUMES" "$REMAINING_ANON_VOLUMES" | sed '/^$/d')
 
 if [ -z "$REMAINING_CONTAINERS" ] && [ -z "$REMAINING_VOLUMES" ]; then
     print_success "Alle Ressourcen erfolgreich entfernt!"
