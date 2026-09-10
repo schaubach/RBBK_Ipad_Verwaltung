@@ -250,7 +250,9 @@ async def release_ipad_to_pool(ipad_id: str, request: Request, current_user: dic
 async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_user)):
     """
     Delete an iPad permanently from the database.
-    Only allowed if iPad is not currently assigned.
+    If the iPad is currently assigned, the active assignment is dissolved
+    automatically as part of the deletion (student keeps their contract on
+    file, just no longer linked to this now-gone iPad/assignment).
     Admin can delete any iPad including pool iPads.
     """
     # Get iPad - admin sees all, user sees own + pool
@@ -264,13 +266,15 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
     if not is_admin(current_user) and ipad.get("is_in_pool") and ipad.get("user_id") != current_user["id"]:
         raise HTTPException(status_code=403, detail="Pool-iPads können nur vom Importeur oder Admin gelöscht werden")
 
-    # Check if iPad is currently assigned
-    if ipad.get("current_assignment_id"):
-        raise HTTPException(status_code=400, detail="iPad ist aktuell zugewiesen. Bitte zuerst die Zuordnung auflösen.")
+    had_active_assignment = bool(ipad.get("current_assignment_id"))
 
-    # Update contracts: entferne ipad_id Referenz
+    # Update contracts: entferne ipad_id und assignment_id Referenz (student_id bleibt,
+    # Vertrag ist weiterhin ueber den Schueler auffindbar - gleiche Logik wie beim
+    # regulaeren Aufloesen einer Zuordnung, nur zusaetzlich ipad_id entfernt, da das
+    # iPad selbst gleich mitgeloescht wird)
     await db.contracts.update_many(
-        {"ipad_id": ipad_id}, {"$set": {"ipad_id": None, "updated_at": datetime.now(UTC).isoformat()}}
+        {"ipad_id": ipad_id},
+        {"$set": {"ipad_id": None, "assignment_id": None, "updated_at": datetime.now(UTC).isoformat()}},
     )
 
     # Delete orphaned contracts (no ipad_id, no student_id, no assignment_id)
@@ -284,16 +288,18 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
         }
     )
 
-    # Delete all assignments history for this iPad
+    # Delete all assignments history for this iPad (includes the active one, if any)
     assignments_result = await db.assignments.delete_many({"ipad_id": ipad_id})
 
     # Delete the iPad
     await db.ipads.delete_one({"id": ipad_id})
 
     return {
-        "message": f"iPad {ipad['itnr']} erfolgreich gelöscht",
+        "message": f"iPad {ipad['itnr']} erfolgreich gelöscht"
+        + (" (aktive Zuordnung wurde aufgelöst)" if had_active_assignment else ""),
         "deleted_assignments": assignments_result.deleted_count,
         "deleted_contracts": contracts_deleted.deleted_count,
+        "dissolved_active_assignment": had_active_assignment,
     }
 
 
