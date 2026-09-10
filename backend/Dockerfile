@@ -1,6 +1,10 @@
 # Backend Dockerfile für FastAPI (optimiert mit Multi-Stage Build)
 # Build-Stage: Hier werden Python-Pakete kompiliert
-FROM python:3.11-slim-bullseye as builder
+# bookworm statt bullseye: bullseye ist aus dem regulaeren Debian-Support gefallen,
+# wodurch das signierte Release-File des Security-Repos irgendwann sein
+# "Valid-Until"-Datum ueberschreitet und apt-get update mit "Release file ... is
+# expired" fehlschlaegt.
+FROM python:3.11-slim-bookworm as builder
 
 WORKDIR /app
 
@@ -19,7 +23,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Runtime-Stage: Kleineres finales Image ohne Build-Tools
-FROM python:3.11-slim-bullseye
+FROM python:3.11-slim-bookworm
 
 WORKDIR /app
 
