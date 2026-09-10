@@ -344,6 +344,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
     if (successCount > 0) {
       toast.success(`${successCount} iPad(s) erfolgreich gelöscht`);
       loadIPads();
+      loadAvailableStudents();
+      loadAssignments();
     }
     if (errorCount > 0) {
       toast.error(`${errorCount} iPad(s) konnten nicht gelöscht werden`);
@@ -639,6 +641,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
       await loadIPads();
       await loadAvailableStudents();
+      await loadAssignments();
 
     } catch (error) {
       console.error('Delete iPad error:', error);
@@ -714,6 +717,11 @@ const IPadsManagement = ({ isAdmin = false }) => {
     ipad.status === 'ok' && !ipad.current_assignment_id
   ).length;
   const poolAvailableCount = poolIPads.filter(i => i.status === 'ok' && !i.current_assignment_id).length;
+
+  // For the delete-confirmation dialogs: warn when the deletion will also dissolve an active assignment.
+  const selectedAssignedCount = selectedIPads.filter(
+    id => ipads.find(i => i.id === id)?.current_assignment_id
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -1310,7 +1318,15 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 <li>Alle Zuordnungs-Historie</li>
                 <li>Alle zugehörigen Verträge</li>
               </ul>
-              <br />
+              {ipadToDelete?.current_assignment_id && (
+                <>
+                  <br />
+                  <span className="text-amber-700 font-medium">
+                    ⚠ Dieses iPad ist aktuell zugeordnet. Die Zuordnung wird beim Löschen automatisch aufgelöst.
+                  </span>
+                </>
+              )}
+              <br /><br />
               Diese Aktion kann nicht rückgängig gemacht werden.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1337,7 +1353,15 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 <li>Alle Zuordnungs-Historien</li>
                 <li>Alle zugehörigen Verträge</li>
               </ul>
-              <br />
+              {selectedAssignedCount > 0 && (
+                <>
+                  <br />
+                  <span className="text-amber-700 font-medium">
+                    ⚠ {selectedAssignedCount} der ausgewählten iPads {selectedAssignedCount === 1 ? 'ist' : 'sind'} aktuell zugeordnet. Die Zuordnung{selectedAssignedCount === 1 ? ' wird' : 'en werden'} beim Löschen automatisch aufgelöst.
+                  </span>
+                </>
+              )}
+              <br /><br />
               Diese Aktion kann nicht rückgängig gemacht werden.
             </AlertDialogDescription>
           </AlertDialogHeader>
