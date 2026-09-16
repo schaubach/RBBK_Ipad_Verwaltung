@@ -172,7 +172,7 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
                     <Label htmlFor="sus_geb">Geburtsdatum</Label>
                     <Input
                       id="sus_geb"
-                      type="date"
+                      placeholder="TT.MM.JJJJ"
                       value={editedStudent.sus_geb || ''}
                       onChange={(e) => handleInputChange('sus_geb', e.target.value)}
                       data-testid="student-geb-input"
@@ -212,7 +212,7 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
                   <div><strong>Nachname:</strong> {student.sus_nachn || 'N/A'}</div>
                   <div><strong>Schulname:</strong> {student.sname || 'N/A'}</div>
                   <div><strong>Klasse:</strong> {student.sus_kl || 'N/A'}</div>
-                  <div><strong>Geburtsdatum:</strong> {student.sus_geb ? new Date(student.sus_geb).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'N/A'}</div>
+                  <div><strong>Geburtsdatum:</strong> {student.sus_geb || 'N/A'}</div>
                   <div><strong>Adresse:</strong> {student.sus_str_hnr || 'N/A'}</div>
                   <div><strong>PLZ:</strong> {student.sus_plz || 'N/A'}</div>
                   <div><strong>Ort:</strong> {student.sus_ort || 'N/A'}</div>
