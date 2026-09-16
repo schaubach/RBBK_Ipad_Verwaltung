@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { Tablet, FileText, Download, X, User, Pencil, Save, XCircle } from 'lucide-react';
 
-const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
+const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
   const [ipadData, setIPadData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
@@ -145,7 +145,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
               )}
             </h2>
             <div className="flex gap-2 flex-wrap">
-              {!editMode && ipad.is_in_pool && (
+              {!editMode && isAdmin && ipad.is_in_pool && (
                 <Button
                   onClick={handleClaim}
                   className="bg-violet-600 hover:bg-violet-700 text-white"
@@ -154,7 +154,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
                   📥 Übernehmen
                 </Button>
               )}
-              {!editMode && !ipad.is_in_pool && (
+              {!editMode && isAdmin && !ipad.is_in_pool && (
                 <Button
                   onClick={handleRelease}
                   variant="outline"
@@ -382,7 +382,8 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate }) => {
                       'imported_to_pool': '📥 In Pool importiert',
                       'claimed': '🤝 Aus Pool übernommen',
                       'released': '📤 In Pool freigegeben',
-                      'assigned_by_admin': '👤 Vom Admin zugewiesen'
+                      'assigned_by_admin': '👤 Vom Admin zugewiesen',
+                      'created_and_assigned_by_admin': '🆕 Erstellt & zugewiesen (Admin)'
                     }[entry.action] || entry.action;
                     const date = entry.at ? new Date(entry.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A';
                     return (

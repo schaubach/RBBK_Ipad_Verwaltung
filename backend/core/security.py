@@ -96,6 +96,16 @@ def require_admin(user: dict):
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
+async def require_admin_user(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency for routes that are admin-only in their entirety (unlike routes where only
+    part of the behavior is admin-gated, e.g. create_ipad's is_in_pool flag - those keep an
+    inline require_admin/is_admin check instead). Declaring this as the route's user dependency
+    makes admin-only-ness visible in the function signature and enforced before the body runs,
+    instead of relying on every handler remembering to call require_admin() as its first line."""
+    require_admin(current_user)
+    return current_user
+
+
 async def get_user_filter(user: dict) -> dict:
     """MongoDB filter scoping queries to the user's resources (admin = unfiltered)."""
     if is_admin(user):
@@ -103,15 +113,18 @@ async def get_user_filter(user: dict) -> dict:
     return {"user_id": user["id"]}
 
 
-async def get_ipad_filter_with_pool(user: dict) -> dict:
-    """iPad filter that includes pool items visible to all users."""
+async def get_ipad_filter(user: dict) -> dict:
+    """iPad filter: admins see everything (incl. pool); regular users see only their
+    own non-pool iPads. Pool iPads keep the importer's user_id, so this explicitly
+    excludes is_in_pool rather than reusing get_user_filter, otherwise a user who
+    once imported into the pool would still see their own old pool iPads."""
     if is_admin(user):
         return {}
-    return {"$or": [{"user_id": user["id"]}, {"is_in_pool": True}]}
+    return {"user_id": user["id"], "is_in_pool": {"$ne": True}}
 
 
 async def validate_resource_ownership(resource_type: str, resource_id: str, user: dict):
-    """Ensure user owns the resource (pool iPads bypass ownership)."""
+    """Ensure user owns the resource (admin bypasses; pool iPads are admin-only, see get_ipad_filter)."""
     if is_admin(user):
         return True
 
@@ -128,9 +141,6 @@ async def validate_resource_ownership(resource_type: str, resource_id: str, user
     resource = await collection.find_one({"id": resource_id})
     if not resource:
         raise HTTPException(status_code=404, detail=f"{resource_type.capitalize()} not found")
-
-    if resource_type == "ipad" and resource.get("is_in_pool"):
-        return True
 
     if resource.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Access denied to this resource")

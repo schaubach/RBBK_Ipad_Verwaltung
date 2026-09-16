@@ -6,8 +6,9 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { toast } from 'sonner';
 import { Upload, Download, User } from 'lucide-react';
+import { downloadBlob, filenameFromContentDisposition } from '../../utils/download';
 
-const Settings = () => {
+const Settings = ({ isAdmin = false }) => {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importToPool, setImportToPool] = useState(false);
@@ -26,28 +27,13 @@ const Settings = () => {
       const response = await api.get('/exports/inventory', {
         responseType: 'blob'
       });
-      
-      // Create download link
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      
-      // Extract filename from response headers or create default
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'bestandsliste_export.xlsx';
-      if (contentDisposition) {
-        const matches = contentDisposition.match(/filename="(.+)"/);
-        if (matches) {
-          filename = matches[1];
-        }
-      }
-      
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
-      
+
+      const filename = filenameFromContentDisposition(
+        response.headers['content-disposition'],
+        'bestandsliste_export.xlsx'
+      );
+      downloadBlob(new Blob([response.data]), filename);
+
       toast.success('Datensicherung erfolgreich exportiert');
     } catch (error) {
       console.error('Failed to export inventory:', error);
@@ -89,10 +75,14 @@ const Settings = () => {
         const skipped = [];
         if (response.data.ipads_skipped > 0) skipped.push(`${response.data.ipads_skipped} iPads übersprungen`);
         if (response.data.students_skipped > 0) skipped.push(`${response.data.students_skipped} Schüler übersprungen`);
-        
+
         toast.info(`Übersprungen: ${skipped.join(', ')}`);
       }
-      
+
+      // Non-admin uploads may contain iPad columns that were silently ignored server-side -
+      // already reported as part of response.data.message above (toast.success), so no
+      // separate toast here to avoid showing the same fact twice.
+
       // Show errors if any
       if (response.data.errors && response.data.errors.length > 0) {
         response.data.errors.forEach(error => {
@@ -179,14 +169,25 @@ const Settings = () => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
-            Daten-Import
+            {isAdmin ? 'Daten-Import' : 'Schüler-Import'}
           </CardTitle>
           <CardDescription>
-            Schüler, iPads oder vollständige Datensicherungen importieren
+            {isAdmin
+              ? 'Schüler, iPads oder vollständige Datensicherungen importieren'
+              : 'Schüler*innen aus einer Excel-Datei importieren'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
+            {!isAdmin && (
+              <div className="border-l-4 border-amber-400 bg-amber-50 p-4 rounded">
+                <p className="text-sm text-amber-800">
+                  ℹ️ Sie können hierüber ausschließlich <strong>Schüler*innen</strong> importieren.
+                  Das Importieren von iPads (inkl. Pool-Import) ist Administrator*innen vorbehalten -
+                  etwaige ITNr/iPad-Spalten in Ihrer Datei werden beim Import ignoriert.
+                </p>
+              </div>
+            )}
             {/* Template Download */}
             <div className="border-l-4 border-purple-400 bg-purple-50 p-4 rounded">
               <h4 className="font-medium text-purple-800 mb-2">Import-Vorlage herunterladen</h4>
@@ -197,14 +198,7 @@ const Settings = () => {
                 onClick={async () => {
                   try {
                     const response = await api.get('/imports/template', { responseType: 'blob' });
-                    const url = window.URL.createObjectURL(new Blob([response.data]));
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.setAttribute('download', 'import_vorlage.xlsx');
-                    document.body.appendChild(link);
-                    link.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(link);
+                    downloadBlob(new Blob([response.data]), 'import_vorlage.xlsx');
                     toast.success('Vorlage heruntergeladen');
                   } catch (error) {
                     toast.error('Fehler beim Herunterladen der Vorlage');
@@ -220,33 +214,44 @@ const Settings = () => {
 
             <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
               <h4 className="font-medium text-blue-800 mb-2">Excel-Datei importieren</h4>
-              <p className="text-sm text-blue-700 mb-4">
-                <strong>Flexibler Import:</strong> Sie können verschiedene Datentypen mit einer Datei importieren:
-              </p>
-              <ul className="text-sm text-blue-700 mb-4 list-disc list-inside space-y-1">
-                <li><strong>Nur Schüler:</strong> Excel mit Schüler-Spalten (SuSVorn, SuSNachn, etc.)</li>
-                <li><strong>Nur iPads:</strong> Excel mit iPad-Spalten (ITNr, SNr, Status, etc.)</li>
-                <li><strong>Komplett:</strong> Schüler + iPads + Zuordnungen in einer Datei</li>
-                <li><strong>1:n Zuordnung:</strong> Schüler mit 2 oder 3 iPads erscheinen mehrfach (eine Zeile pro iPad)</li>
-              </ul>
+              {isAdmin ? (
+                <>
+                  <p className="text-sm text-blue-700 mb-4">
+                    <strong>Flexibler Import:</strong> Sie können verschiedene Datentypen mit einer Datei importieren:
+                  </p>
+                  <ul className="text-sm text-blue-700 mb-4 list-disc list-inside space-y-1">
+                    <li><strong>Nur Schüler:</strong> Excel mit Schüler-Spalten (SuSVorn, SuSNachn, etc.)</li>
+                    <li><strong>Nur iPads:</strong> Excel mit iPad-Spalten (ITNr, SNr, Status, etc.)</li>
+                    <li><strong>Komplett:</strong> Schüler + iPads + Zuordnungen in einer Datei</li>
+                    <li><strong>1:n Zuordnung:</strong> Schüler mit 2 oder 3 iPads erscheinen mehrfach (eine Zeile pro iPad)</li>
+                  </ul>
+                </>
+              ) : (
+                <p className="text-sm text-blue-700 mb-4">
+                  Excel-Datei mit Schüler-Spalten (SuSVorn, SuSNachn, etc.) hochladen. Enthaltene Zeilen mit
+                  mehreren iPads pro Schüler (1:n) werden unterstützt (eine Zeile pro iPad-Zuordnung).
+                </p>
+              )}
               <p className="text-sm text-blue-600 mb-4">
-                Bereits vorhandene Einträge werden automatisch übersprungen. 
+                Bereits vorhandene Einträge werden automatisch übersprungen.
                 Status-Werte: <code className="bg-blue-100 px-1 rounded">ok</code>, <code className="bg-blue-100 px-1 rounded">defekt</code>, <code className="bg-blue-100 px-1 rounded">gestohlen</code> (Standard: ok)
               </p>
               <div className="border-2 border-dashed border-blue-300 rounded-lg p-4 text-center hover:border-blue-500 transition-colors bg-white">
-                <div className="flex items-center justify-center gap-2 mb-3 p-2 bg-violet-50 rounded-md border border-violet-200">
-                  <input
-                    type="checkbox"
-                    id="import-to-pool"
-                    checked={importToPool}
-                    onChange={(e) => setImportToPool(e.target.checked)}
-                    className="w-4 h-4 cursor-pointer"
-                    data-testid="import-to-pool-checkbox"
-                  />
-                  <label htmlFor="import-to-pool" className="text-sm cursor-pointer text-violet-800">
-                    🌐 Diese iPads in den gemeinsamen Pool importieren (für alle Nutzer sichtbar)
-                  </label>
-                </div>
+                {isAdmin && (
+                  <div className="flex items-center justify-center gap-2 mb-3 p-2 bg-violet-50 rounded-md border border-violet-200">
+                    <input
+                      type="checkbox"
+                      id="import-to-pool"
+                      checked={importToPool}
+                      onChange={(e) => setImportToPool(e.target.checked)}
+                      className="w-4 h-4 cursor-pointer"
+                      data-testid="import-to-pool-checkbox"
+                    />
+                    <label htmlFor="import-to-pool" className="text-sm cursor-pointer text-violet-800">
+                      🌐 Diese iPads in den gemeinsamen Pool importieren (für alle Nutzer sichtbar)
+                    </label>
+                  </div>
+                )}
                 <Input
                   type="file"
                   accept=".xlsx,.xls"
@@ -264,9 +269,9 @@ const Settings = () => {
             </div>
             
             <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded">
-              <strong>Unterstützte Spalten:</strong> Sname, SuSNachn, SuSVorn, SuSKl, SuSStrHNr, SuSPLZ, SuSOrt, SuSGeb, 
-              Erz1Nachn, Erz1Vorn, Erz1StrHNr, Erz1PLZ, Erz1Ort, Erz2Nachn, Erz2Vorn, Erz2StrHNr, Erz2PLZ, Erz2Ort, 
-              ITNr, SNr, Typ, Pencil, <strong>Status</strong>, AnschJahr, AusleiheDatum
+              <strong>Unterstützte Spalten:</strong> Sname, SuSNachn, SuSVorn, SuSKl, SuSStrHNr, SuSPLZ, SuSOrt, SuSGeb,
+              Erz1Nachn, Erz1Vorn, Erz1StrHNr, Erz1PLZ, Erz1Ort, Erz2Nachn, Erz2Vorn, Erz2StrHNr, Erz2PLZ, Erz2Ort
+              {isAdmin && <> , ITNr, SNr, Typ, Pencil, <strong>Status</strong>, AnschJahr, AusleiheDatum</>}
             </div>
           </div>
         </CardContent>

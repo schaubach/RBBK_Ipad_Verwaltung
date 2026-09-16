@@ -19,8 +19,9 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_user_filter,
+    is_admin,
 )
-from core.validators import is_contract_validated, validate_uploaded_file
+from core.validators import is_contract_validated, read_excel_upload, safe_str, validate_uploaded_file
 from fastapi import Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from models.assignment import (
@@ -271,8 +272,14 @@ async def import_inventory(
     Compatible with both old (1:1) and new (1:n) export formats.
 
     Pool import (import_to_pool=true): Only iPads will be imported into the shared pool.
-    Student/assignment rows are ignored. iPads must have globally unique ITNr.
+    Student/assignment rows are ignored. iPads must have globally unique ITNr. Admin-only.
+
+    Non-admin users may only import students - any ITNr/iPad columns in their file are
+    ignored (counted in ipad_rows_ignored), general iPad import is admin-only.
     """
+    if import_to_pool and not is_admin(current_user):
+        raise HTTPException(status_code=403, detail="Nur Admins dürfen iPads in den Pool importieren")
+
     try:
         # Load global settings for default values
         global_settings = await db.global_settings.find_one({"type": "app_settings"})
@@ -289,13 +296,7 @@ async def import_inventory(
         validate_uploaded_file(contents, file.filename, max_size_mb=10, allowed_types=[".xlsx", ".xls"])
 
         # Try to read with different engines for .xls/.xlsx support
-        try:
-            if file.filename.lower().endswith(".xlsx"):
-                df = pd.read_excel(io.BytesIO(contents), engine="openpyxl")
-            else:
-                df = pd.read_excel(io.BytesIO(contents), engine="xlrd")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Error reading Excel file: {str(e)}")
+        df = read_excel_upload(contents, file.filename)
 
         # No strict column validation - we handle all cases:
         # 1. Only iPad data (ITNr present, no student data)
@@ -311,15 +312,9 @@ async def import_inventory(
         assignments_created = 0
         assignments_skipped_limit = 0
         rows_skipped_empty = 0
+        ipad_rows_ignored = 0  # non-admin uploads: ITNr columns present but ignored
         error_count = 0
         errors = []
-
-        # Helper function to safely convert values and handle NaN
-        def safe_str(value):
-            if pd.isna(value) or value is None:
-                return ""
-            str_val = str(value).strip()
-            return "" if str_val == "nan" else str_val
 
         # Cache for students to avoid repeated lookups (key: (vorn, nachn))
         student_cache = {}
@@ -339,6 +334,13 @@ async def import_inventory(
                 if not has_ipad_data and not has_student_data:
                     rows_skipped_empty += 1
                     continue
+
+                # General iPad import is admin-only - non-admins may only import students,
+                # so any iPad columns in their file are ignored (row still processed for
+                # its student data, if present).
+                if has_ipad_data and not is_admin(current_user):
+                    ipad_rows_ignored += 1
+                    has_ipad_data = False
 
                 ipad_id = None
                 student_id = None
@@ -570,6 +572,8 @@ async def import_inventory(
             parts.append(f"{assignments_skipped_limit} Zuordnungen übersprungen (Limit {MAX_IPADS_PER_STUDENT})")
         if rows_skipped_empty > 0:
             parts.append(f"{rows_skipped_empty} leere Zeilen übersprungen")
+        if ipad_rows_ignored > 0:
+            parts.append(f"{ipad_rows_ignored} iPad-Zeilen ignoriert (nur Admins dürfen iPads importieren)")
         if error_count > 0:
             parts.append(f"{error_count} Fehler")
 
@@ -588,6 +592,7 @@ async def import_inventory(
             "assignments_created": assignments_created,
             "assignments_skipped_limit": assignments_skipped_limit,
             "rows_skipped_empty": rows_skipped_empty,
+            "ipad_rows_ignored": ipad_rows_ignored,
             "max_ipads_per_student": MAX_IPADS_PER_STUDENT,
             "error_count": error_count,
             "errors": errors[:20] if errors else [],

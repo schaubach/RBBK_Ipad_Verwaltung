@@ -3,6 +3,7 @@
 Auto-extracted from monolithic server.py during refactor (Session 12).
 """
 
+from collections import Counter
 from datetime import UTC, datetime
 from typing import List, Optional
 
@@ -14,20 +15,45 @@ from core.mongo import parse_from_mongo, prepare_for_mongo
 from core.router import api_router
 from core.security import (
     get_current_user,
-    get_ipad_filter_with_pool,
-    get_user_filter,
+    get_ipad_filter,
     is_admin,
-    require_admin,
+    require_admin_user,
 )
-from fastapi import Depends, HTTPException
+from core.validators import read_excel_upload, safe_str, validate_uploaded_file
+from fastapi import Depends, File, Form, HTTPException, UploadFile
 from models.assignment import (
     Assignment,
 )
 from models.ipad import iPad
 from pydantic import BaseModel
+from pymongo import ReturnDocument
 from starlette.requests import Request
 
 # iPad management endpoints
+
+
+async def _claim_pool_ipad_for_user(
+    ipad_id: str, new_owner_id: str, action: str, by_user_id: str, target_user_id: Optional[str] = None
+) -> Optional[dict]:
+    """Atomically move an iPad out of the pool into new_owner_id's inventory.
+
+    Only succeeds if the iPad is still in the pool (guards against a double-claim
+    race). Returns the pre-update document on success, or None if it was no longer
+    available. `action`/`target_user_id` control the pool_history entry so callers
+    can distinguish a self-claim ("claimed") from an admin-directed one
+    ("assigned_by_admin").
+    """
+    now_iso = datetime.now(UTC).isoformat()
+    history_entry = {"action": action, "by": by_user_id, "at": now_iso}
+    if target_user_id:
+        history_entry["target"] = target_user_id
+    return await db.ipads.find_one_and_update(
+        {"id": ipad_id, "is_in_pool": True},
+        {
+            "$set": {"is_in_pool": False, "user_id": new_owner_id, "updated_at": now_iso},
+            "$push": {"pool_history": history_entry},
+        },
+    )
 
 
 @api_router.post("/ipads", response_model=iPad)
@@ -39,6 +65,9 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_
             raise HTTPException(status_code=400, detail="ITNr und SNr sind erforderlich")
 
         is_in_pool = bool(ipad_data.get("is_in_pool", False))
+
+        if is_in_pool and not is_admin(current_user):
+            raise HTTPException(status_code=403, detail="Nur Admins dürfen iPads direkt in den Pool anlegen")
 
         # Pool: global uniqueness check; non-pool: per-user uniqueness
         if is_in_pool:
@@ -87,26 +116,17 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_
 @api_router.get("/ipads", response_model=List[iPad])
 @limiter.limit("60/minute")
 async def get_ipads(request: Request, current_user: dict = Depends(get_current_user)):
-    # Apply filter including pool iPads
-    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    # Admin: everything incl. pool. Regular user: own non-pool iPads only.
+    ipad_filter = await get_ipad_filter(current_user)
     ipads = await db.ipads.find(ipad_filter).to_list(length=None)
     return [iPad(**parse_from_mongo(ipad)) for ipad in ipads]
 
 
 @api_router.post("/ipads/{ipad_id}/claim")
 @limiter.limit("60/minute")
-async def claim_ipad_from_pool(ipad_id: str, request: Request, current_user: dict = Depends(get_current_user)):
-    """Claim an iPad from the shared pool into own inventory (atomic operation)."""
-    now_iso = datetime.now(UTC).isoformat()
-
-    # Atomic claim: only succeeds if iPad is still in pool
-    result = await db.ipads.find_one_and_update(
-        {"id": ipad_id, "is_in_pool": True},
-        {
-            "$set": {"is_in_pool": False, "user_id": current_user["id"], "updated_at": now_iso},
-            "$push": {"pool_history": {"action": "claimed", "by": current_user["id"], "at": now_iso}},
-        },
-    )
+async def claim_ipad_from_pool(ipad_id: str, request: Request, current_user: dict = Depends(require_admin_user)):
+    """Claim an iPad from the shared pool into own inventory (atomic operation). Admin-only."""
+    result = await _claim_pool_ipad_for_user(ipad_id, current_user["id"], "claimed", current_user["id"])
 
     if not result:
         # Either iPad doesn't exist or was already claimed by someone else
@@ -130,11 +150,9 @@ class AdminAssignToUserRequest(BaseModel):
 @api_router.post("/admin/ipads/assign-to-user")
 @limiter.limit("30/minute")
 async def admin_assign_ipads_to_user(
-    payload: AdminAssignToUserRequest, request: Request, current_user: dict = Depends(get_current_user)
+    payload: AdminAssignToUserRequest, request: Request, current_user: dict = Depends(require_admin_user)
 ):
     """Admin-only: Assign one or more pool iPads to a specific user."""
-    require_admin(current_user)
-
     if not payload.ipad_ids:
         raise HTTPException(status_code=400, detail="Keine iPads ausgewählt")
 
@@ -143,25 +161,12 @@ async def admin_assign_ipads_to_user(
     if not target_user:
         raise HTTPException(status_code=404, detail="Ziel-Benutzer nicht gefunden")
 
-    now_iso = datetime.now(UTC).isoformat()
     success = []
     failed = []
 
     for ipad_id in payload.ipad_ids:
-        # Atomic: only succeeds if iPad is still in pool
-        result = await db.ipads.find_one_and_update(
-            {"id": ipad_id, "is_in_pool": True},
-            {
-                "$set": {"is_in_pool": False, "user_id": payload.target_user_id, "updated_at": now_iso},
-                "$push": {
-                    "pool_history": {
-                        "action": "assigned_by_admin",
-                        "by": current_user["id"],
-                        "target": payload.target_user_id,
-                        "at": now_iso,
-                    }
-                },
-            },
+        result = await _claim_pool_ipad_for_user(
+            ipad_id, payload.target_user_id, "assigned_by_admin", current_user["id"], payload.target_user_id
         )
         if result:
             success.append(result.get("itnr"))
@@ -176,25 +181,175 @@ async def admin_assign_ipads_to_user(
     }
 
 
+@api_router.post("/admin/ipads/batch-assign-import")
+@limiter.limit("10/minute")
+async def batch_assign_import(
+    request: Request,
+    file: UploadFile = File(...),
+    target_user_id: str = Form(...),
+    current_user: dict = Depends(require_admin_user),
+):
+    """
+    Admin-only: Upload a list of ITNr/SNr and assign each iPad to target_user_id.
+
+    Per row (matched globally by ITNr, atomically so concurrent runs can't create
+    duplicate ITNr records for a brand-new device):
+    - Not found: a new iPad is created and directly assigned to the target user.
+    - Found, in pool: the iPad is atomically claimed out of the pool and assigned.
+    - Found, not in pool: left untouched (already owned by someone) - the current
+      owner is reported so the admin can see who already has it.
+    """
+    target_user = await db.users.find_one({"id": target_user_id})
+    if not target_user:
+        raise HTTPException(status_code=404, detail="Ziel-Benutzer nicht gefunden")
+    target_username = target_user.get("username")
+
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="Nur Excel-Dateien (.xlsx, .xls) sind erlaubt")
+
+    contents = await file.read()
+    validate_uploaded_file(contents, file.filename, max_size_mb=10, allowed_types=[".xlsx", ".xls"])
+    df = read_excel_upload(contents, file.filename)
+
+    global_settings = await db.global_settings.find_one({"type": "app_settings"})
+    default_ipad_typ = global_settings.get("ipad_typ", "Apple iPad") if global_settings else "Apple iPad"
+    default_pencil = global_settings.get("pencil", "ohne Apple Pencil") if global_settings else "ohne Apple Pencil"
+
+    # Pre-load usernames so "already assigned to X" can be reported without N+1 queries.
+    user_map = {u["id"]: u.get("username", "?") async for u in db.users.find({}, {"id": 1, "username": 1})}
+    user_map[target_user_id] = target_username
+
+    rows_out = []
+
+    for index, row in df.iterrows():
+        row_number = index + 2  # account for header row
+        now_iso = datetime.now(UTC).isoformat()
+        itnr = safe_str(row.get("ITNr", ""))
+        snr = safe_str(row.get("SNr", ""))
+
+        if not itnr:
+            rows_out.append(
+                {
+                    "row": row_number,
+                    "itnr": itnr,
+                    "snr": snr,
+                    "outcome": "invalid_row",
+                    "assigned_to": None,
+                    "note": "ITNr fehlt",
+                    "at": now_iso,
+                }
+            )
+            continue
+
+        # Atomic upsert: if no document with this itnr exists yet, create it in the
+        # same operation that checks for it, closing the race where two concurrent
+        # requests both see "not found" for a brand-new itnr and both insert.
+        # return_document=BEFORE lets us tell "we just created it" (None) apart from
+        # "it already existed" (the pre-update document) with a single round-trip.
+        new_ipad = iPad(
+            user_id=target_user_id,
+            itnr=itnr,
+            snr=snr,
+            typ=default_ipad_typ,
+            pencil=default_pencil,
+            status="ok",
+            is_in_pool=False,
+            pool_history=[
+                {"action": "created_and_assigned_by_admin", "by": current_user["id"], "target": target_user_id, "at": now_iso}
+            ],
+        )
+        existing = await db.ipads.find_one_and_update(
+            {"itnr": itnr},
+            {"$setOnInsert": prepare_for_mongo(new_ipad.dict())},
+            upsert=True,
+            return_document=ReturnDocument.BEFORE,
+        )
+
+        if existing is None:
+            rows_out.append(
+                {
+                    "row": row_number,
+                    "itnr": itnr,
+                    "snr": snr,
+                    "outcome": "created",
+                    "assigned_to": target_username,
+                    "note": None,
+                    "at": now_iso,
+                }
+            )
+        elif existing.get("is_in_pool"):
+            result = await _claim_pool_ipad_for_user(
+                existing["id"], target_user_id, "assigned_by_admin", current_user["id"], target_user_id
+            )
+            if result:
+                rows_out.append(
+                    {
+                        "row": row_number,
+                        "itnr": itnr,
+                        "snr": snr,
+                        "outcome": "from_pool",
+                        "assigned_to": target_username,
+                        "note": None,
+                        "at": now_iso,
+                    }
+                )
+            else:
+                rows_out.append(
+                    {
+                        "row": row_number,
+                        "itnr": itnr,
+                        "snr": snr,
+                        "outcome": "error",
+                        "assigned_to": None,
+                        "note": "iPad wurde zwischenzeitlich bereits vergeben",
+                        "at": now_iso,
+                    }
+                )
+        else:
+            owner_username = user_map.get(existing.get("user_id"), "Unbekannt")
+            rows_out.append(
+                {
+                    "row": row_number,
+                    "itnr": itnr,
+                    "snr": snr,
+                    "outcome": "already_assigned",
+                    "assigned_to": owner_username,
+                    "note": f"Bereits zugeordnet zu {owner_username}",
+                    "at": now_iso,
+                }
+            )
+
+    counts = Counter(r["outcome"] for r in rows_out)
+
+    return {
+        "message": (
+            f"{counts['from_pool']} aus Pool zugeordnet, {counts['created']} neu erstellt & zugeordnet, "
+            f"{counts['already_assigned']} bereits vorhanden (unverändert)"
+        ),
+        "target_username": target_username,
+        "summary": {
+            "from_pool_count": counts["from_pool"],
+            "created_count": counts["created"],
+            "already_assigned_count": counts["already_assigned"],
+            "invalid_rows": counts["invalid_row"],
+            "error_count": counts["error"],
+        },
+        "rows": rows_out,
+    }
+
+
 @api_router.post("/ipads/bulk-claim")
 @limiter.limit("30/minute")
-async def bulk_claim_ipads(payload: BulkClaimRequest, request: Request, current_user: dict = Depends(get_current_user)):
-    """Claim multiple iPads from the pool. Reports success and failure counts."""
+async def bulk_claim_ipads(payload: BulkClaimRequest, request: Request, current_user: dict = Depends(require_admin_user)):
+    """Claim multiple iPads from the pool. Reports success and failure counts. Admin-only."""
     if not payload.ipad_ids:
         raise HTTPException(status_code=400, detail="Keine iPads ausgewählt")
 
-    now_iso = datetime.now(UTC).isoformat()
     success = []
     failed = []
 
     for ipad_id in payload.ipad_ids:
-        result = await db.ipads.find_one_and_update(
-            {"id": ipad_id, "is_in_pool": True},
-            {
-                "$set": {"is_in_pool": False, "user_id": current_user["id"], "updated_at": now_iso},
-                "$push": {"pool_history": {"action": "claimed", "by": current_user["id"], "at": now_iso}},
-            },
-        )
+        result = await _claim_pool_ipad_for_user(ipad_id, current_user["id"], "claimed", current_user["id"])
         if result:
             success.append(result.get("itnr"))
         else:
@@ -205,11 +360,9 @@ async def bulk_claim_ipads(payload: BulkClaimRequest, request: Request, current_
 
 @api_router.post("/ipads/{ipad_id}/release-to-pool")
 @limiter.limit("60/minute")
-async def release_ipad_to_pool(ipad_id: str, request: Request, current_user: dict = Depends(get_current_user)):
-    """Release an own iPad to the shared pool. Auto-dissolves active assignment."""
-    # Validate ownership (admin can release any iPad)
-    user_filter = await get_user_filter(current_user)
-    ipad = await db.ipads.find_one({"id": ipad_id, **user_filter})
+async def release_ipad_to_pool(ipad_id: str, request: Request, current_user: dict = Depends(require_admin_user)):
+    """Release an iPad to the shared pool. Auto-dissolves active assignment. Admin-only."""
+    ipad = await db.ipads.find_one({"id": ipad_id})
     if not ipad:
         raise HTTPException(status_code=404, detail="iPad nicht gefunden oder kein Zugriff")
 
@@ -255,16 +408,12 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
     file, just no longer linked to this now-gone iPad/assignment).
     Admin can delete any iPad including pool iPads.
     """
-    # Get iPad - admin sees all, user sees own + pool
-    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    # Admin: any iPad. Regular user: own non-pool iPads only.
+    ipad_filter = await get_ipad_filter(current_user)
     ipad = await db.ipads.find_one({"id": ipad_id, **ipad_filter})
 
     if not ipad:
         raise HTTPException(status_code=404, detail="iPad not found or access denied")
-
-    # Non-admin users cannot delete pool iPads unless they are the importer
-    if not is_admin(current_user) and ipad.get("is_in_pool") and ipad.get("user_id") != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Pool-iPads können nur vom Importeur oder Admin gelöscht werden")
 
     had_active_assignment = bool(ipad.get("current_assignment_id"))
 
@@ -322,8 +471,8 @@ async def update_ipad_status(ipad_id: str, payload: IPadStatusUpdate, current_us
     if status_value not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
 
-    # Get the iPad first - admin sees all, user sees own + pool
-    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    # Admin: any iPad. Regular user: own non-pool iPads only.
+    ipad_filter = await get_ipad_filter(current_user)
     ipad = await db.ipads.find_one({"id": ipad_id, **ipad_filter})
     if not ipad:
         raise HTTPException(status_code=404, detail="iPad not found")
@@ -351,7 +500,7 @@ class IPadUpdateRequest(BaseModel):
 @api_router.put("/ipads/{ipad_id}")
 async def update_ipad(ipad_id: str, request: IPadUpdateRequest, current_user: dict = Depends(get_current_user)):
     """Update iPad information"""
-    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    ipad_filter = await get_ipad_filter(current_user)
     ipad = await db.ipads.find_one({"id": ipad_id, **ipad_filter})
     if not ipad:
         raise HTTPException(status_code=404, detail="iPad not found")
@@ -441,8 +590,8 @@ async def migrate_ipad_status(current_user: dict = Depends(get_current_user)):
 # iPad history and details
 @api_router.get("/ipads/{ipad_id}/history")
 async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_current_user)):
-    # Get iPad - admin sees all, user sees own + pool
-    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    # Admin: any iPad. Regular user: own non-pool iPads only.
+    ipad_filter = await get_ipad_filter(current_user)
     ipad = await db.ipads.find_one({"id": ipad_id, **ipad_filter})
     if not ipad:
         raise HTTPException(status_code=404, detail="iPad not found")

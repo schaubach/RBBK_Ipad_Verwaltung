@@ -102,7 +102,7 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
           </TabsContent>
 
           <TabsContent value="settings">
-            <Settings />
+            <Settings isAdmin={isAdmin} />
           </TabsContent>
 
           {isAdmin && (

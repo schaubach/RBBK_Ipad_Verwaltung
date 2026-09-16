@@ -18,7 +18,7 @@ from core.mongo import parse_from_mongo, prepare_for_mongo
 from core.router import api_router
 from core.security import (
     get_current_user,
-    get_ipad_filter_with_pool,
+    get_ipad_filter,
     get_user_filter,
     is_admin,
     validate_resource_ownership,
@@ -78,7 +78,12 @@ async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
         # resulting assignment.user_id (= student_owner_id) must always match the claimed iPad's
         # existing owner, or the assignment becomes invisible/undeletable to its real owner.
         ipad = await db.ipads.find_one_and_update(
-            {"user_id": student_owner_id, "current_assignment_id": None, "status": "ok"},
+            {
+                "user_id": student_owner_id,
+                "current_assignment_id": None,
+                "status": "ok",
+                "is_in_pool": {"$ne": True},
+            },
             {"$set": {"current_assignment_id": assignment.id, "updated_at": now_iso}},
         )
 
@@ -129,7 +134,7 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
             )
 
         # Validate iPad - either own or in pool
-        ipad_filter = await get_ipad_filter_with_pool(current_user)
+        ipad_filter = await get_ipad_filter(current_user)
         ipad = await db.ipads.find_one({"id": request.ipad_id, **ipad_filter})
         if not ipad:
             raise HTTPException(status_code=404, detail="iPad not found or access denied")
@@ -165,7 +170,7 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
             query = {"id": request.ipad_id, "is_in_pool": True, "current_assignment_id": None}
         else:
             # Admins may assign any owned iPad (regardless of owner);
-            # regular users are already scoped to their own iPads by get_ipad_filter_with_pool above.
+            # regular users are already scoped to their own iPads by get_ipad_filter above.
             query = {"id": request.ipad_id, "current_assignment_id": None}
             if not is_admin(current_user):
                 query["user_id"] = current_user["id"]
@@ -204,7 +209,7 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
 @limiter.limit("60/minute")
 async def get_available_ipads(request: Request, current_user: dict = Depends(get_current_user)):
     """Get iPads without current assignment. Includes pool iPads."""
-    ipad_filter = await get_ipad_filter_with_pool(current_user)
+    ipad_filter = await get_ipad_filter(current_user)
     ipads = await db.ipads.find({**ipad_filter, "current_assignment_id": None}, {"_id": 0}).to_list(length=None)
 
     return [
