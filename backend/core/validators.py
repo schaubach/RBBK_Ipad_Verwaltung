@@ -1,9 +1,11 @@
 """Input sanitization + uploaded-file validation + contract validation helpers."""
 
+import io
 import re
 from typing import Optional
 
 import bleach
+import pandas as pd
 from fastapi import HTTPException
 
 # ``python-magic`` needs libmagic on the OS.  In production the Dockerfile
@@ -34,6 +36,24 @@ def sanitize_input(value: str, max_length: int = 255, allow_html: bool = False) 
     return value.strip()
 
 
+def safe_str(value) -> str:
+    """Coerce an Excel cell value to a trimmed string; NaN/None becomes ''."""
+    if pd.isna(value) or value is None:
+        return ""
+    str_val = str(value).strip()
+    return "" if str_val == "nan" else str_val
+
+
+def read_excel_upload(contents: bytes, filename: str) -> pd.DataFrame:
+    """Parse uploaded Excel bytes into a DataFrame, picking the engine by extension."""
+    try:
+        if filename.lower().endswith(".xlsx"):
+            return pd.read_excel(io.BytesIO(contents), engine="openpyxl")
+        return pd.read_excel(io.BytesIO(contents), engine="xlrd")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading Excel file: {str(e)}")
+
+
 def validate_uploaded_file(file_content: bytes, filename: str, max_size_mb: int = 10, allowed_types: list = None):
     """Validate uploaded file (size, extension, MIME type)."""
     if len(file_content) > max_size_mb * 1024 * 1024:
@@ -49,7 +69,11 @@ def validate_uploaded_file(file_content: bytes, filename: str, max_size_mb: int 
         return True
 
     try:
-        mime_type = magic.from_buffer(file_content[:2048], mime=True)
+        # OOXML (.xlsx) files are zip containers whose identifying central-directory
+        # entries often sit past 2KB, so libmagic needs a bigger sniff window than a
+        # PDF's %PDF- header (byte 0) does - 2048 was misidentifying valid .xlsx
+        # uploads as generic application/zip and rejecting them.
+        mime_type = magic.from_buffer(file_content[:8192], mime=True)
         expected_mimes = {
             ".pdf": "application/pdf",
             ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -11,9 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
+import { UserPicker } from '../shared/UserPicker';
 import { toast } from 'sonner';
-import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Download, Users } from 'lucide-react';
+import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Download, Upload, Users } from 'lucide-react';
 import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
+import { downloadBlob } from '../../utils/download';
 
 const IPadsManagement = ({ isAdmin = false }) => {
   const [ipads, setIPads] = useState([]);
@@ -54,6 +56,16 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const [allUsers, setAllUsers] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [studentSearchQuery, setStudentSearchQuery] = useState('');
+
+  // Admin: Batch-Zuordnung per Datei-Upload (ITNr/SNr-Liste -> eine Zielperson)
+  const [batchImportDialogOpen, setBatchImportDialogOpen] = useState(false);
+  const [batchImportAllUsers, setBatchImportAllUsers] = useState([]);
+  const [batchImportUserSearchQuery, setBatchImportUserSearchQuery] = useState('');
+  const [batchImportTargetUser, setBatchImportTargetUser] = useState(null); // { id, username }
+  const [batchImportFile, setBatchImportFile] = useState(null);
+  const [batchImportSubmitting, setBatchImportSubmitting] = useState(false);
+  const [batchImportResultDialogOpen, setBatchImportResultDialogOpen] = useState(false);
+  const [batchImportResult, setBatchImportResult] = useState(null);
 
   // Sort states
   const [sortField, setSortField] = useState(null);
@@ -212,6 +224,92 @@ const IPadsManagement = ({ isAdmin = false }) => {
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler bei Zuweisung');
     }
+  };
+
+  // Admin: Batch-Zuordnung per Datei-Upload
+  const openBatchImportDialog = async () => {
+    if (!isAdmin) return;
+    setBatchImportTargetUser(null);
+    setBatchImportFile(null);
+    setBatchImportUserSearchQuery('');
+    setBatchImportDialogOpen(true);
+    if (batchImportAllUsers.length === 0) {
+      try {
+        const res = await api.get('/admin/users');
+        setBatchImportAllUsers(res.data);
+      } catch {
+        toast.error('Benutzerliste konnte nicht geladen werden');
+      }
+    }
+  };
+
+  const handleBatchImportSubmit = async () => {
+    if (!batchImportTargetUser || !batchImportFile) return;
+    setBatchImportSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', batchImportFile);
+      formData.append('target_user_id', batchImportTargetUser.id);
+      const res = await api.post('/admin/ipads/batch-assign-import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const { summary } = res.data;
+      toast.success(
+        `${summary.from_pool_count} aus Pool zugeordnet, ${summary.created_count} neu erstellt & zugeordnet, ` +
+        `${summary.already_assigned_count} bereits vorhanden (unverändert)`
+      );
+      if (summary.error_count > 0) toast.warning(`${summary.error_count} Fehler - Details im Log`);
+      if (summary.invalid_rows > 0) toast.warning(`${summary.invalid_rows} Zeile(n) ohne ITNr übersprungen`);
+      setBatchImportResult(res.data);
+      setBatchImportDialogOpen(false);
+      setBatchImportResultDialogOpen(true);
+      loadIPads();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler bei der Batch-Zuordnung');
+    } finally {
+      setBatchImportSubmitting(false);
+    }
+  };
+
+  const BATCH_IMPORT_OUTCOME_LABELS = {
+    from_pool: 'Aus Pool zugeordnet',
+    created: 'Neu erstellt & zugeordnet',
+    already_assigned: 'Bereits vorhanden (unverändert)',
+    invalid_row: 'Ungültige Zeile (ITNr fehlt)',
+    error: 'Fehler'
+  };
+
+  const downloadBatchImportCsv = () => {
+    if (!batchImportResult) return;
+    const { target_username, summary, rows } = batchImportResult;
+    const headerLines = [
+      '# Batch-Zuordnung Log',
+      `# Ziel-Person: ${target_username}`,
+      `# Aus Pool zugeordnet: ${summary.from_pool_count}`,
+      `# Neu erstellt & zugeordnet: ${summary.created_count}`,
+      `# Bereits vorhanden (keine Änderung): ${summary.already_assigned_count}`,
+      `# Ungültige Zeilen: ${summary.invalid_rows}`,
+      `# Fehler: ${summary.error_count}`,
+      '#'
+    ];
+    const csvEscape = (val) => {
+      const str = (val ?? '').toString();
+      return str.includes(';') || str.includes('"') || str.includes('\n')
+        ? `"${str.replace(/"/g, '""')}"`
+        : str;
+    };
+    const tableHeader = 'ITNr;SNr;Ergebnis;Zugeordnet an;Hinweis;Zeitpunkt';
+    const tableRows = rows.map(r => [
+      csvEscape(r.itnr),
+      csvEscape(r.snr),
+      csvEscape(BATCH_IMPORT_OUTCOME_LABELS[r.outcome] || r.outcome),
+      csvEscape(r.assigned_to || ''),
+      csvEscape(r.note || ''),
+      csvEscape(r.at ? new Date(r.at).toLocaleString('de-DE') : '')
+    ].join(';'));
+    const csvContent = [...headerLines, tableHeader, ...tableRows].join('\r\n');
+    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    downloadBlob(blob, `batch_zuordnung_log_${target_username}.csv`);
   };
 
   // Release confirmation dialog
@@ -598,14 +696,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       const blob = new Blob([response.data], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = 'ipads_export.xlsx';
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(downloadUrl);
-      document.body.removeChild(link);
+      downloadBlob(blob, 'ipads_export.xlsx');
 
       toast.success('Export erfolgreich');
     } catch (error) {
@@ -733,7 +824,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+          <div className={`grid grid-cols-2 gap-4 text-sm ${isAdmin ? 'md:grid-cols-5' : 'md:grid-cols-4'}`}>
             <div className="bg-slate-100 p-3 rounded-lg">
               <div className="font-medium text-slate-800">Gesamt</div>
               <div className="text-2xl font-bold text-slate-600">{ipads.length}</div>
@@ -742,10 +833,12 @@ const IPadsManagement = ({ isAdmin = false }) => {
               <div className="font-medium text-green-800">Frei & OK</div>
               <div className="text-2xl font-bold text-green-600">{freeAndOkCount}</div>
             </div>
-            <div className="bg-violet-50 p-3 rounded-lg border border-violet-200">
-              <div className="font-medium text-violet-800">🌐 Pool verfügbar</div>
-              <div className="text-2xl font-bold text-violet-600">{poolAvailableCount}</div>
-            </div>
+            {isAdmin && (
+              <div className="bg-violet-50 p-3 rounded-lg border border-violet-200">
+                <div className="font-medium text-violet-800">🌐 Pool verfügbar</div>
+                <div className="text-2xl font-bold text-violet-600">{poolAvailableCount}</div>
+              </div>
+            )}
             <div className="bg-red-50 p-3 rounded-lg">
               <div className="font-medium text-red-800">Defekt</div>
               <div className="text-2xl font-bold text-red-600">{statusCounts.defekt || 0}</div>
@@ -765,10 +858,23 @@ const IPadsManagement = ({ isAdmin = false }) => {
               <Tablet className="h-5 w-5" />
               iPads verwalten ({ipads.length})
             </CardTitle>
-            <Button onClick={openCreateDialog} className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Neues iPad anlegen
-            </Button>
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <Button
+                  onClick={openBatchImportDialog}
+                  variant="outline"
+                  className="flex items-center gap-2"
+                  data-testid="open-batch-import-btn"
+                >
+                  <Upload className="h-4 w-4" />
+                  Batch-Zuordnung per Datei
+                </Button>
+              )}
+              <Button onClick={openCreateDialog} className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Neues iPad anlegen
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -822,35 +928,37 @@ const IPadsManagement = ({ isAdmin = false }) => {
               </div>
             </div>
 
-            {/* Pool Filter Toggle */}
-            <div className="flex flex-wrap items-center gap-2">
-              <Label className="text-sm font-medium mr-2">Anzeigen:</Label>
-              <Button
-                size="sm"
-                variant={poolFilter === 'all' ? 'default' : 'outline'}
-                onClick={() => setPoolFilter('all')}
-                data-testid="pool-filter-all"
-              >
-                Alle ({ipads.length})
-              </Button>
-              <Button
-                size="sm"
-                variant={poolFilter === 'own' ? 'default' : 'outline'}
-                onClick={() => setPoolFilter('own')}
-                data-testid="pool-filter-own"
-              >
-                Meine ({ownIPads.length})
-              </Button>
-              <Button
-                size="sm"
-                variant={poolFilter === 'pool' ? 'default' : 'outline'}
-                onClick={() => setPoolFilter('pool')}
-                className={poolFilter === 'pool' ? 'bg-violet-600 hover:bg-violet-700' : ''}
-                data-testid="pool-filter-pool"
-              >
-                🌐 Pool ({poolIPads.length})
-              </Button>
-            </div>
+            {/* Pool Filter Toggle - admin only: regular users have no pool and only see their own iPads */}
+            {isAdmin && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Label className="text-sm font-medium mr-2">Anzeigen:</Label>
+                <Button
+                  size="sm"
+                  variant={poolFilter === 'all' ? 'default' : 'outline'}
+                  onClick={() => setPoolFilter('all')}
+                  data-testid="pool-filter-all"
+                >
+                  Alle ({ipads.length})
+                </Button>
+                <Button
+                  size="sm"
+                  variant={poolFilter === 'own' ? 'default' : 'outline'}
+                  onClick={() => setPoolFilter('own')}
+                  data-testid="pool-filter-own"
+                >
+                  Meine ({ownIPads.length})
+                </Button>
+                <Button
+                  size="sm"
+                  variant={poolFilter === 'pool' ? 'default' : 'outline'}
+                  onClick={() => setPoolFilter('pool')}
+                  className={poolFilter === 'pool' ? 'bg-violet-600 hover:bg-violet-700' : ''}
+                  data-testid="pool-filter-pool"
+                >
+                  🌐 Pool ({poolIPads.length})
+                </Button>
+              </div>
+            )}
 
             {/* Zuordnungs-Toggle */}
             <div className="flex flex-wrap items-center gap-2">
@@ -913,7 +1021,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
           {/* Batch Actions */}
           {selectedIPads.length > 0 && (
             <div className="mb-4 flex flex-wrap gap-2">
-              {selectedIPads.some(id => ipads.find(i => i.id === id)?.is_in_pool) && (
+              {isAdmin && selectedIPads.some(id => ipads.find(i => i.id === id)?.is_in_pool) && (
                 <Button
                   onClick={handleBulkClaim}
                   disabled={bulkClaiming}
@@ -1139,7 +1247,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                               Schüler zuordnen
                             </Button>
                           )}
-                          {ipad.is_in_pool ? (
+                          {isAdmin && ipad.is_in_pool ? (
                             <>
                               <Button
                                 variant="outline"
@@ -1150,19 +1258,17 @@ const IPadsManagement = ({ isAdmin = false }) => {
                               >
                                 📥 Übernehmen
                               </Button>
-                              {isAdmin && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openAssignToUserDialog([ipad.id])}
-                                  title="An User zuweisen"
-                                  data-testid={`assign-to-user-btn-${ipad.id}`}
-                                >
-                                  👤 An User
-                                </Button>
-                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openAssignToUserDialog([ipad.id])}
+                                title="An User zuweisen"
+                                data-testid={`assign-to-user-btn-${ipad.id}`}
+                              >
+                                👤 An User
+                              </Button>
                             </>
-                          ) : (
+                          ) : isAdmin && !ipad.is_in_pool ? (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1172,7 +1278,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                             >
                               📤 In Pool
                             </Button>
-                          )}
+                          ) : null}
                           {!ipad.current_assignment_id && (
                             <Button
                               variant="outline"
@@ -1280,17 +1386,19 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center gap-2 p-3 bg-violet-50 rounded-lg border border-violet-200">
-              <Checkbox
-                id="create-is-pool"
-                checked={newIPadData.is_in_pool}
-                onCheckedChange={(checked) => setNewIPadData({...newIPadData, is_in_pool: !!checked})}
-                data-testid="create-pool-checkbox"
-              />
-              <Label htmlFor="create-is-pool" className="cursor-pointer text-sm">
-                🌐 Direkt in den gemeinsamen Pool anlegen (für alle Nutzer sichtbar)
-              </Label>
-            </div>
+            {isAdmin && (
+              <div className="flex items-center gap-2 p-3 bg-violet-50 rounded-lg border border-violet-200">
+                <Checkbox
+                  id="create-is-pool"
+                  checked={newIPadData.is_in_pool}
+                  onCheckedChange={(checked) => setNewIPadData({...newIPadData, is_in_pool: !!checked})}
+                  data-testid="create-pool-checkbox"
+                />
+                <Label htmlFor="create-is-pool" className="cursor-pointer text-sm">
+                  🌐 Direkt in den gemeinsamen Pool anlegen (für alle Nutzer sichtbar)
+                </Label>
+              </div>
+            )}
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
@@ -1496,6 +1604,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
           ipadId={selectedIPadId}
           onClose={() => setSelectedIPadId(null)}
           onUpdate={loadIPads}
+          isAdmin={isAdmin}
         />
       )}
 
@@ -1508,36 +1617,131 @@ const IPadsManagement = ({ isAdmin = false }) => {
               {assignToUserTargetIds.length} Pool-iPad(s) werden dem ausgewählten Benutzer zugewiesen.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-3">
-            <Input
-              placeholder="Benutzer suchen..."
-              value={userSearchQuery}
-              onChange={(e) => setUserSearchQuery(e.target.value)}
-              data-testid="user-search-input"
-            />
-            <div className="max-h-64 overflow-y-auto border rounded-lg">
-              {allUsers
-                .filter(u => !userSearchQuery || u.username.toLowerCase().includes(userSearchQuery.toLowerCase()))
-                .map(u => (
-                  <button
-                    key={u.id}
-                    onClick={() => handleAssignToUser(u.id)}
-                    className="w-full text-left p-3 hover:bg-gray-100 border-b last:border-b-0"
-                    data-testid={`assign-user-row-${u.id}`}
-                  >
-                    <div className="font-medium">{u.username}</div>
-                    <div className="text-xs text-gray-500">{u.role}</div>
-                  </button>
-                ))}
-              {allUsers.filter(u => !userSearchQuery || u.username.toLowerCase().includes(userSearchQuery.toLowerCase())).length === 0 && (
-                <div className="p-4 text-center text-sm text-gray-500">
-                  Keine Benutzer gefunden
-                </div>
-              )}
+          <UserPicker
+            users={allUsers}
+            searchQuery={userSearchQuery}
+            onSearchChange={setUserSearchQuery}
+            onSelectUser={(u) => handleAssignToUser(u.id)}
+            searchTestId="user-search-input"
+            rowTestIdPrefix="assign-user-row"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Admin: Batch-Zuordnung per Datei-Upload */}
+      <AlertDialog open={batchImportDialogOpen} onOpenChange={setBatchImportDialogOpen}>
+        <AlertDialogContent className="max-w-2xl" data-testid="batch-import-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Batch-Zuordnung per Datei</AlertDialogTitle>
+            <AlertDialogDescription>
+              Excel-Datei mit Spalten <strong>ITNr</strong> (Pflicht) und <strong>SNr</strong> (optional) hochladen.
+              Pro Zeile wird automatisch entschieden: aus dem Pool holen &amp; zuweisen, neu anlegen &amp; zuweisen,
+              oder unverändert lassen, falls bereits einer anderen Person zugeordnet.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="mb-2 block">1. Zielperson auswählen{batchImportTargetUser && (
+                <span className="font-normal text-green-700"> — ausgewählt: <strong>{batchImportTargetUser.username}</strong></span>
+              )}</Label>
+              <UserPicker
+                users={batchImportAllUsers}
+                searchQuery={batchImportUserSearchQuery}
+                onSearchChange={setBatchImportUserSearchQuery}
+                onSelectUser={(u) => setBatchImportTargetUser({ id: u.id, username: u.username })}
+                selectedUserId={batchImportTargetUser?.id ?? null}
+                searchTestId="batch-import-user-search-input"
+                rowTestIdPrefix="batch-import-user-row"
+              />
+            </div>
+            <div>
+              <Label className="mb-2 block">2. Datei hochladen</Label>
+              <Input
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={(e) => setBatchImportFile(e.target.files[0] || null)}
+                data-testid="batch-import-file-input"
+              />
             </div>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <Button
+              onClick={handleBatchImportSubmit}
+              disabled={!batchImportTargetUser || !batchImportFile || batchImportSubmitting}
+              data-testid="batch-import-submit-btn"
+            >
+              {batchImportSubmitting ? 'Verarbeite...' : 'Batch-Zuordnung starten'}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch-Zuordnung: Ergebnis-Log */}
+      <AlertDialog open={batchImportResultDialogOpen} onOpenChange={setBatchImportResultDialogOpen}>
+        <AlertDialogContent className="max-w-3xl" data-testid="batch-import-result-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Batch-Zuordnung: Ergebnis</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                {batchImportResult && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 text-sm">
+                    <div className="p-2 bg-violet-50 rounded border border-violet-200">
+                      <div className="font-semibold text-violet-800">{batchImportResult.summary.from_pool_count}</div>
+                      <div className="text-violet-700">aus Pool zugeordnet</div>
+                    </div>
+                    <div className="p-2 bg-green-50 rounded border border-green-200">
+                      <div className="font-semibold text-green-800">{batchImportResult.summary.created_count}</div>
+                      <div className="text-green-700">neu erstellt &amp; zugeordnet</div>
+                    </div>
+                    <div className="p-2 bg-gray-50 rounded border border-gray-200">
+                      <div className="font-semibold text-gray-800">{batchImportResult.summary.already_assigned_count}</div>
+                      <div className="text-gray-700">bereits vorhanden</div>
+                    </div>
+                    <div className="p-2 bg-red-50 rounded border border-red-200">
+                      <div className="font-semibold text-red-800">{batchImportResult.summary.invalid_rows + batchImportResult.summary.error_count}</div>
+                      <div className="text-red-700">ungültig / Fehler</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {batchImportResult && (
+            <div className="max-h-96 overflow-y-auto border rounded-lg">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ITNr</TableHead>
+                    <TableHead>SNr</TableHead>
+                    <TableHead>Ergebnis</TableHead>
+                    <TableHead>Zugeordnet an</TableHead>
+                    <TableHead>Hinweis</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {batchImportResult.rows.map((r, idx) => (
+                    <TableRow key={idx} data-testid={`batch-import-result-row-${idx}`}>
+                      <TableCell>{r.itnr}</TableCell>
+                      <TableCell>{r.snr}</TableCell>
+                      <TableCell>{BATCH_IMPORT_OUTCOME_LABELS[r.outcome] || r.outcome}</TableCell>
+                      <TableCell>{r.assigned_to || '-'}</TableCell>
+                      <TableCell>{r.note || '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Schließen</AlertDialogCancel>
+            <Button onClick={downloadBatchImportCsv} className="flex items-center gap-2" data-testid="batch-import-csv-download-btn">
+              <Download className="h-4 w-4" />
+              CSV-Log herunterladen
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
