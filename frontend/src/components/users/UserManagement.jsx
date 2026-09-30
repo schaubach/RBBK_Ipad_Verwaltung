@@ -63,7 +63,7 @@ const UserManagement = () => {
 
   // SMTP configuration
   const [smtpConfig, setSmtpConfig] = useState({
-    host: '', port: 587, user: '', from_addr: '', use_tls: true, password_configured: false, source: 'none'
+    host: '', port: 587, user: '', from_addr: '', use_tls: true, use_ssl: false, password_configured: false, source: 'none'
   });
   const [smtpPasswordInput, setSmtpPasswordInput] = useState('');
   const [loadingSmtp, setLoadingSmtp] = useState(true);
@@ -71,6 +71,7 @@ const UserManagement = () => {
 
   // Server-side backups (MongoDB/GridFS, rolling 7-day retention)
   const [serverBackups, setServerBackups] = useState([]);
+  const [serverBackupStatus, setServerBackupStatus] = useState(null);
   const [loadingServerBackups, setLoadingServerBackups] = useState(false);
   const [runningServerBackupNow, setRunningServerBackupNow] = useState(false);
 
@@ -180,8 +181,12 @@ const UserManagement = () => {
   const loadServerBackups = async () => {
     setLoadingServerBackups(true);
     try {
-      const response = await api.get('/backup/server-backups');
-      setServerBackups(response.data);
+      const [listResponse, statusResponse] = await Promise.all([
+        api.get('/backup/server-backups'),
+        api.get('/backup/server-backups/status')
+      ]);
+      setServerBackups(listResponse.data);
+      setServerBackupStatus(statusResponse.data);
     } catch (error) {
       console.error('Failed to load server backups:', error);
     } finally {
@@ -281,7 +286,8 @@ const UserManagement = () => {
         user: smtpConfig.user,
         password: smtpPasswordInput || undefined,
         from_addr: smtpConfig.from_addr,
-        use_tls: smtpConfig.use_tls
+        use_tls: smtpConfig.use_tls,
+        use_ssl: smtpConfig.use_ssl
       });
       toast.success(response.data.message);
       setSmtpPasswordInput('');
@@ -890,12 +896,28 @@ const UserManagement = () => {
                       type="checkbox"
                       id="smtp-tls"
                       checked={smtpConfig.use_tls}
+                      disabled={smtpConfig.use_ssl}
                       onChange={(e) => setSmtpConfig({ ...smtpConfig, use_tls: e.target.checked })}
                       className="w-4 h-4"
                     />
-                    <Label htmlFor="smtp-tls">STARTTLS verwenden</Label>
+                    <Label htmlFor="smtp-tls">STARTTLS verwenden (Port 587)</Label>
+                  </div>
+                  <div className="flex items-center space-x-2 pt-5">
+                    <input
+                      type="checkbox"
+                      id="smtp-ssl"
+                      checked={smtpConfig.use_ssl}
+                      onChange={(e) => setSmtpConfig({ ...smtpConfig, use_ssl: e.target.checked })}
+                      className="w-4 h-4"
+                    />
+                    <Label htmlFor="smtp-ssl">Direktes SSL (Port 465)</Label>
                   </div>
                 </div>
+                <p className="text-xs text-purple-700">
+                  Genau eine der beiden Optionen passt zum Port: <strong>587 = STARTTLS</strong>,
+                  <strong> 465 = direktes SSL</strong>. Die falsche Kombination führt dazu, dass beide Seiten
+                  aufeinander warten – der Versand endet dann nach 20 Sekunden im Timeout.
+                </p>
                 <Button
                   onClick={handleSaveSmtpConfig}
                   disabled={savingSmtp}
@@ -1050,6 +1072,21 @@ const UserManagement = () => {
                 Ohne Backup-Passwort werden <strong>keine</strong> täglichen Server-Backups erstellt (Schülerdaten
                 dürfen nicht unverschlüsselt gespeichert werden).
               </span>
+            </div>
+          )}
+          {serverBackupStatus && serverBackupStatus.last_status === 'error' && (
+            <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded mb-4">
+              <strong>Letzter automatischer Backup-Versuch fehlgeschlagen</strong>
+              {(serverBackupStatus.last_attempt_at || serverBackupStatus.last_run_at) && (
+                <> ({new Date(serverBackupStatus.last_attempt_at || serverBackupStatus.last_run_at).toLocaleString('de-DE')})</>
+              )}
+              {serverBackupStatus.last_error ? `: ${serverBackupStatus.last_error}` : '.'}
+            </div>
+          )}
+          {serverBackupStatus && serverBackupStatus.last_status === 'success' && serverBackupStatus.last_run_at && (
+            <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded mb-4">
+              Letztes automatisches Server-Backup: {new Date(serverBackupStatus.last_run_at).toLocaleString('de-DE')}
+              {' — '}<span className="text-green-700 font-medium">erfolgreich</span>
             </div>
           )}
           {loadingServerBackups ? (

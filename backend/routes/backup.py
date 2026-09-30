@@ -110,12 +110,30 @@ async def restore_backup_payload(backup_data: dict):
                 await collection.insert_many(decoded_records)
 
 
+def _parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
+    """Parse a stored ISO timestamp. Legacy naive values are treated as UTC so that
+    comparing them against an aware ``datetime.now(timezone.utc)`` cannot raise."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 async def get_active_backup_password() -> Optional[str]:
     """Return the currently configured (central) backup encryption password, unwrapped, or None if unset."""
     settings = await db.global_settings.find_one({"type": "backup_encryption"})
     if not settings or not settings.get("wrapped_password"):
         return None
     return unwrap_secret(settings["wrapped_password"])
+
+
+def _serialize_and_encrypt(backup_data: dict, password: str) -> bytes:
+    """Blocking JSON serialisation + encryption (run via ``asyncio.to_thread``)."""
+    json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
+    return encrypt_backup_bytes(json_bytes, password)
 
 
 async def build_backup_export_bytes() -> tuple:
@@ -129,9 +147,11 @@ async def build_backup_export_bytes() -> tuple:
             "erforderlich (siehe Admin-Tab > Backup-Sicherheit: Backup-Passwort setzen)."
         )
     backup_data = await build_backup_payload()
-    json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    return encrypt_backup_bytes(json_bytes, password), f"rbbk_ipad_verwaltung_backup_{timestamp}.json.enc", True
+    # JSON dump + PBKDF2/Fernet are CPU-bound and grow with the data set - keep them off the
+    # event loop so a running backup does not stall every other request (and the healthcheck).
+    content_bytes = await asyncio.to_thread(_serialize_and_encrypt, backup_data, password)
+    return content_bytes, f"rbbk_ipad_verwaltung_backup_{timestamp}.json.enc", True
 
 
 async def decrypt_uploaded_backup(content: bytes) -> bytes:
@@ -335,16 +355,24 @@ async def set_backup_encryption_password(payload: BackupPasswordUpdate, current_
 
 # --- SMTP configuration (DB-backed, falls back to backend/.env) ---
 
+def _default_use_ssl(port: int) -> bool:
+    """Port 465 speaks TLS from the first byte (implicit SSL); 587/25 use STARTTLS."""
+    return int(port) == 465
+
+
 def _smtp_config_from_env() -> dict:
     import os
 
+    port = int(os.environ.get("SMTP_PORT") or 587)
+    use_ssl_env = os.environ.get("SMTP_USE_SSL")
     return {
         "host": os.environ.get("SMTP_HOST", ""),
-        "port": int(os.environ.get("SMTP_PORT") or 587),
+        "port": port,
         "user": os.environ.get("SMTP_USER", ""),
         "password": os.environ.get("SMTP_PASSWORD", ""),
         "from_addr": os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER", ""),
         "use_tls": os.environ.get("SMTP_USE_TLS", "true").lower() != "false",
+        "use_ssl": use_ssl_env.lower() == "true" if use_ssl_env else _default_use_ssl(port),
     }
 
 
@@ -352,13 +380,16 @@ async def get_smtp_config() -> dict:
     """SMTP config, preferring the DB (settable via the Admin UI) over backend/.env."""
     settings = await db.global_settings.find_one({"type": "smtp_config"})
     if settings and settings.get("host"):
+        port = int(settings.get("port") or 587)
         return {
             "host": settings.get("host", ""),
-            "port": int(settings.get("port") or 587),
+            "port": port,
             "user": settings.get("user", ""),
             "password": unwrap_secret(settings["wrapped_password"]) if settings.get("wrapped_password") else "",
             "from_addr": settings.get("from_addr") or settings.get("user", ""),
             "use_tls": settings.get("use_tls", True),
+            # Older configs predate the setting - fall back to what the port implies.
+            "use_ssl": settings.get("use_ssl", _default_use_ssl(port)),
         }
     return _smtp_config_from_env()
 
@@ -375,6 +406,7 @@ async def get_smtp_config_settings(current_user: dict = Depends(get_current_user
             "user": settings.get("user", ""),
             "from_addr": settings.get("from_addr", ""),
             "use_tls": settings.get("use_tls", True),
+            "use_ssl": settings.get("use_ssl", _default_use_ssl(settings.get("port") or 587)),
             "password_configured": bool(settings.get("wrapped_password")),
             "source": "database",
         }
@@ -385,6 +417,7 @@ async def get_smtp_config_settings(current_user: dict = Depends(get_current_user
         "user": env_config["user"],
         "from_addr": env_config["from_addr"],
         "use_tls": env_config["use_tls"],
+        "use_ssl": env_config["use_ssl"],
         "password_configured": bool(env_config["password"]),
         "source": "env" if env_config["host"] else "none",
     }
@@ -397,6 +430,7 @@ class SmtpConfigUpdate(BaseModel):
     password: Optional[str] = None  # omitted/blank = keep existing stored password
     from_addr: str = ""
     use_tls: bool = True
+    use_ssl: Optional[bool] = None  # None = derive from the port (465 = implicit SSL)
 
 
 @api_router.put("/settings/smtp-config")
@@ -410,6 +444,7 @@ async def update_smtp_config_settings(payload: SmtpConfigUpdate, current_user: d
         "user": payload.user.strip(),
         "from_addr": payload.from_addr.strip() or payload.user.strip(),
         "use_tls": payload.use_tls,
+        "use_ssl": _default_use_ssl(payload.port) if payload.use_ssl is None else payload.use_ssl,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if payload.password:
@@ -417,6 +452,48 @@ async def update_smtp_config_settings(payload: SmtpConfigUpdate, current_user: d
 
     await db.global_settings.update_one({"type": "smtp_config"}, {"$set": update_data}, upsert=True)
     return {"message": "SMTP-Konfiguration gespeichert."}
+
+
+SMTP_TIMEOUT_SECONDS = 20
+
+
+def _smtp_connection_error(config: dict, exc: Exception) -> RuntimeError:
+    """Turn a socket/SMTP-level failure into an actionable German message.
+
+    A wrong encryption mode is the classic cause of a *timeout* here: on port 465 the server
+    waits for a TLS ClientHello while plain ``smtplib.SMTP`` waits for a text greeting, so
+    neither side ever speaks and the socket runs into its timeout.
+    """
+    port = config.get("port")
+    detail = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+    base = f"Keine Verbindung zum Mailserver {config.get('host')}:{port} möglich ({detail})."
+    if isinstance(exc, (TimeoutError, smtplib.SMTPServerDisconnected)):
+        if port == 465 and not config.get("use_ssl"):
+            return RuntimeError(
+                base + " Port 465 erwartet eine direkte SSL-Verbindung (implizites TLS). Bitte in den "
+                "SMTP-Zugangsdaten die Option \"SSL (Port 465)\" aktivieren - oder auf Port 587 mit "
+                "STARTTLS wechseln."
+            )
+        if port != 465 and config.get("use_ssl"):
+            return RuntimeError(
+                base + f" Port {port} erwartet STARTTLS, kein direktes SSL. Bitte die Option "
+                "\"SSL (Port 465)\" deaktivieren und \"STARTTLS verwenden\" aktivieren."
+            )
+    return RuntimeError(
+        base + " Mögliche Ursachen: falscher Host oder Port, der Mailserver ist vom Server aus nicht "
+        f"erreichbar (Firewall blockiert ausgehend Port {port}), oder die Verschlüsselungsart passt "
+        "nicht (587 = STARTTLS, 465 = SSL)."
+    )
+
+
+def _open_smtp_connection(config: dict):
+    """Open the SMTP connection, mapping socket-level failures to a readable RuntimeError."""
+    try:
+        if config.get("use_ssl"):
+            return smtplib.SMTP_SSL(config["host"], config["port"], timeout=SMTP_TIMEOUT_SECONDS)
+        return smtplib.SMTP(config["host"], config["port"], timeout=SMTP_TIMEOUT_SECONDS)
+    except (OSError, smtplib.SMTPException) as e:
+        raise _smtp_connection_error(config, e) from e
 
 
 def send_backup_email(recipient_email: str, content_bytes: bytes, filename: str, config: dict):
@@ -441,9 +518,14 @@ def send_backup_email(recipient_email: str, content_bytes: bytes, filename: str,
     part.add_header("Content-Disposition", f"attachment; filename={filename}")
     msg.attach(part)
 
-    with smtplib.SMTP(config["host"], config["port"], timeout=30) as server:
-        if config["use_tls"]:
-            server.starttls()
+    with _open_smtp_connection(config) as server:
+        # STARTTLS upgrades a plaintext connection - meaningless (and an error) on an already
+        # encrypted SMTP_SSL socket.
+        if config["use_tls"] and not config.get("use_ssl"):
+            try:
+                server.starttls()
+            except (OSError, smtplib.SMTPException) as e:
+                raise _smtp_connection_error(config, e) from e
         if config["user"]:
             try:
                 server.login(config["user"], config["password"])
@@ -457,6 +539,8 @@ def send_backup_email(recipient_email: str, content_bytes: bytes, filename: str,
                         "als SMTP-Passwort hinterlegen."
                     ) from e
                 raise RuntimeError(f"SMTP-Anmeldung fehlgeschlagen: {error_text}") from e
+            except (OSError, smtplib.SMTPException) as e:
+                raise _smtp_connection_error(config, e) from e
         try:
             server.sendmail(config["from_addr"], [recipient_email], msg.as_string())
         except smtplib.SMTPResponseException as e:
@@ -470,6 +554,8 @@ def send_backup_email(recipient_email: str, content_bytes: bytes, filename: str,
                     "das Backup direkt herunterzuladen, statt es per E-Mail zu verschicken."
                 ) from e
             raise RuntimeError(f"Versand fehlgeschlagen: {error_text}") from e
+        except (OSError, smtplib.SMTPException) as e:
+            raise _smtp_connection_error(config, e) from e
 
 
 @api_router.get("/settings/backup-schedule")
@@ -550,16 +636,42 @@ async def send_backup_now(payload: SendBackupNowRequest, current_user: dict = De
         # a client-side configuration error, not a server bug.
         raise HTTPException(status_code=400, detail=f"Fehler beim Senden der Backup-E-Mail: {str(e)}")
     except Exception as e:
-        logger.error(f"Manual backup email failed: {str(e)}")
+        logger.exception("Manual backup email failed")
         raise HTTPException(status_code=500, detail=f"Fehler beim Senden der Backup-E-Mail: {str(e)}")
 
 
 BACKUP_SCHEDULE_CHECK_INTERVAL_SECONDS = 3600  # check hourly whether a scheduled backup is due
+BACKUP_RETRY_AFTER_ERROR = timedelta(hours=1)  # a failed run retries on the next tick, not a day later
 BACKUP_SCHEDULE_FREQUENCY_TO_TIMEDELTA = {
     "daily": timedelta(days=1),
     "weekly": timedelta(days=7),
     "monthly": timedelta(days=30),
 }
+
+
+async def _record_schedule_failure(settings_type: str, message: str):
+    """Record a failed scheduled run without touching ``last_run_at``, so the next hourly tick
+    retries instead of the failure silently counting as "done for today"."""
+    await db.global_settings.update_one(
+        {"type": settings_type},
+        {"$set": {
+            "last_attempt_at": datetime.now(timezone.utc).isoformat(),
+            "last_status": "error",
+            "last_error": message,
+        }},
+        upsert=True,
+    )
+
+
+def _is_due(state: dict, interval: timedelta) -> bool:
+    """True if the job is due: never succeeded, last success older than ``interval``, or the last
+    attempt failed and the retry delay has passed."""
+    now = datetime.now(timezone.utc)
+    if state.get("last_status") == "error":
+        last_attempt = _parse_iso_utc(state.get("last_attempt_at")) or _parse_iso_utc(state.get("last_run_at"))
+        return last_attempt is None or now - last_attempt >= BACKUP_RETRY_AFTER_ERROR
+    last_run = _parse_iso_utc(state.get("last_run_at"))
+    return last_run is None or now - last_run >= interval
 
 
 async def run_scheduled_backup_check():
@@ -572,20 +684,24 @@ async def run_scheduled_backup_check():
         return
 
     interval = BACKUP_SCHEDULE_FREQUENCY_TO_TIMEDELTA.get(settings.get("frequency", "daily"), timedelta(days=1))
-    last_run_at = settings.get("last_run_at")
-    if last_run_at:
-        last_run_dt = datetime.fromisoformat(last_run_at)
-        if datetime.now(timezone.utc) - last_run_dt < interval:
-            return
+    if not _is_due(settings, interval):
+        return
 
     try:
-        content_bytes, filename, _is_encrypted = await build_backup_export_bytes()
+        # Check the cheap preconditions before building and encrypting a full backup, so a
+        # misconfiguration is reported in seconds instead of after the expensive work.
         config = await get_smtp_config()
+        if not config["host"] or not config["user"]:
+            raise RuntimeError(
+                "SMTP ist nicht konfiguriert (siehe Admin-Tab > Backup-Sicherheit oder backend/.env)."
+            )
+        content_bytes, filename, _is_encrypted = await build_backup_export_bytes()
         await asyncio.to_thread(send_backup_email, recipient_email, content_bytes, filename, config)
         await db.global_settings.update_one(
             {"type": "backup_schedule"},
             {"$set": {
                 "last_run_at": datetime.now(timezone.utc).isoformat(),
+                "last_attempt_at": datetime.now(timezone.utc).isoformat(),
                 "last_status": "success",
                 "last_error": None,
             }},
@@ -593,14 +709,7 @@ async def run_scheduled_backup_check():
         logger.info(f"Scheduled backup email sent to {recipient_email}")
     except Exception as e:
         logger.error(f"Scheduled backup email failed: {str(e)}")
-        await db.global_settings.update_one(
-            {"type": "backup_schedule"},
-            {"$set": {
-                "last_run_at": datetime.now(timezone.utc).isoformat(),
-                "last_status": "error",
-                "last_error": str(e),
-            }},
-        )
+        await _record_schedule_failure("backup_schedule", str(e))
 
 
 # --- Daily server-side backup, stored in MongoDB via GridFS (survives independently of the
@@ -680,6 +789,23 @@ async def download_server_backup(file_id: str, current_user: dict = Depends(get_
     )
 
 
+@api_router.get("/backup/server-backups/status")
+async def get_server_backup_status(current_user: dict = Depends(get_current_user)):
+    """Last run/result of the daily server-side backup (admin only).
+
+    Without this the daily job could fail every night without anything surfacing in the UI -
+    the backup list simply stayed empty.
+    """
+    require_admin(current_user)
+    state = await db.global_settings.find_one({"type": "server_backup_state"}) or {}
+    return {
+        "last_run_at": state.get("last_run_at"),
+        "last_attempt_at": state.get("last_attempt_at"),
+        "last_status": state.get("last_status"),
+        "last_error": state.get("last_error"),
+    }
+
+
 @api_router.post("/backup/server-backups/run-now")
 async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
     """Manually trigger the daily server-side backup immediately (admin only)."""
@@ -700,29 +826,24 @@ async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
 
 
 async def run_scheduled_server_backup_check():
-    """Create the daily server-side backup if the last one is more than a day old (always on)."""
-    state = await db.global_settings.find_one({"type": "server_backup_state"})
-    last_run_at = state.get("last_run_at") if state else None
-    if last_run_at:
-        last_run_dt = datetime.fromisoformat(last_run_at)
-        if datetime.now(timezone.utc) - last_run_dt < timedelta(days=1):
-            return
+    """Create the daily server-side backup if the last successful one is more than a day old
+    (always on). A failed run is retried on the next hourly tick."""
+    state = await db.global_settings.find_one({"type": "server_backup_state"}) or {}
+    if not _is_due(state, timedelta(days=1)):
+        return
 
     try:
         await save_server_backup()
+        now_iso = datetime.now(timezone.utc).isoformat()
         await db.global_settings.update_one(
             {"type": "server_backup_state"},
-            {"$set": {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_status": "success", "last_error": None}},
+            {"$set": {"last_run_at": now_iso, "last_attempt_at": now_iso, "last_status": "success", "last_error": None}},
             upsert=True,
         )
         logger.info("Daily server-side backup created")
     except Exception as e:
         logger.error(f"Daily server-side backup failed: {str(e)}")
-        await db.global_settings.update_one(
-            {"type": "server_backup_state"},
-            {"$set": {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_status": "error", "last_error": str(e)}},
-            upsert=True,
-        )
+        await _record_schedule_failure("server_backup_state", str(e))
 
 
 async def backup_scheduler_loop():
