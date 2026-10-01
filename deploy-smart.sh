@@ -174,6 +174,15 @@ fi
 echo "✅ Build abgeschlossen"
 echo ""
 
+# Zertifikat sicherstellen: nginx startet nicht ohne server.crt/server.key, und die
+# liegen bewusst nicht im Repo (privater Schluessel). Ein frischer Clone hat also keines.
+echo "🔐 Pruefe TLS-Zertifikat..."
+if ! bash ../nginx/generate-ssl-cert.sh; then
+    echo "❌ Zertifikat konnte nicht erzeugt werden!"
+    exit 1
+fi
+echo ""
+
 # Schritt 4: Container starten
 echo "🚀 [4/5] Starte alle Container..."
 $DOCKER_COMPOSE_CMD up -d

@@ -98,13 +98,12 @@ tmp/
 temp/
 *.tmp
 
-# Security - aber nginx/ssl erlauben
+# Security - private Schluessel und Zertifikate gehoeren NICHT ins Repo.
+# nginx/ssl/ wird beim Deploy auf dem jeweiligen Server erzeugt
+# (siehe nginx/generate-ssl-cert.sh), damit der private Schluessel dort bleibt.
 *.pem
 *.key
 *.crt
-!nginx/ssl/
-!nginx/ssl/*.key
-!nginx/ssl/*.crt
 
 # Keep template files
 !backend/templates/
