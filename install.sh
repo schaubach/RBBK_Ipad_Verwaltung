@@ -136,6 +136,9 @@ SMTP_USER=
 SMTP_PASSWORD=
 SMTP_FROM=
 SMTP_USE_TLS=true
+# SMTP_USE_SSL=true für Mailserver mit direktem SSL (üblicherweise Port 465).
+# Ohne Angabe wird es aus dem Port abgeleitet: 465 = SSL, sonst STARTTLS.
+SMTP_USE_SSL=
 EOF
         print_success "backend/.env erstellt"
     else
