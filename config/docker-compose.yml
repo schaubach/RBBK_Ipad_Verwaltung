@@ -40,6 +40,10 @@ services:
     volumes:
       - ../backend:/app
       - backend_uploads:/app/uploads
+      # Dateikopie der Tagesbackups auf dem Host, damit der Sync ausser Haus
+      # (systemd-Timer + rclone, siehe scripts/sync-backups.sh) sie abholen kann.
+      # Pfad ueber BACKUP_DIR in config/.env anpassbar.
+      - ${BACKUP_DIR:-/var/backups/ipad-verwaltung}:/app/backups
     depends_on:
       - mongodb
     restart: unless-stopped

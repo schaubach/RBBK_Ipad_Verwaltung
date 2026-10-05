@@ -10,6 +10,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import re
 import smtplib
 from datetime import datetime, timedelta, timezone
@@ -361,8 +362,6 @@ def _default_use_ssl(port: int) -> bool:
 
 
 def _smtp_config_from_env() -> dict:
-    import os
-
     port = int(os.environ.get("SMTP_PORT") or 587)
     use_ssl_env = os.environ.get("SMTP_USE_SSL")
     return {
@@ -717,9 +716,44 @@ async def run_scheduled_backup_check():
 
 SERVER_BACKUP_RETENTION_DAYS = 7
 
+# Zusaetzliche Dateikopie jedes Tagesbackups. Das Verzeichnis ist aus dem Host in den
+# Container gemountet, damit ein Sync-Werkzeug auf Betriebssystemebene (rclone/rsync)
+# die Dateien abholen und ausser Haus schieben kann - siehe scripts/sync-backups.sh.
+# Bewusst ausserhalb der Anwendung: der Transport muss auch dann noch funktionieren,
+# wenn die Anwendung selbst defekt ist, und die Zugangsdaten bleiben im Betriebssystem.
+SERVER_BACKUP_FILE_DIR = Path(os.environ.get("SERVER_BACKUP_DIR", "/app/backups"))
+SERVER_BACKUP_FILENAME_RE = re.compile(r"^rbbk_ipad_verwaltung_backup_.+\.json(\.enc)?$")
+
 
 def _backups_gridfs_bucket() -> AsyncIOMotorGridFSBucket:
     return AsyncIOMotorGridFSBucket(db, bucket_name="backups")
+
+
+def _prune_server_backup_files():
+    """Delete file copies older than the retention window. Mirrors the GridFS pruning."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=SERVER_BACKUP_RETENTION_DAYS)
+    for old in SERVER_BACKUP_FILE_DIR.glob("rbbk_ipad_verwaltung_backup_*"):
+        if not SERVER_BACKUP_FILENAME_RE.match(old.name):
+            continue
+        try:
+            if datetime.fromtimestamp(old.stat().st_mtime, timezone.utc) < cutoff:
+                old.unlink()
+        except OSError as e:
+            logger.error(f"Could not prune old backup file {old}: {str(e)}")
+
+
+def _write_server_backup_file(content_bytes: bytes, filename: str) -> str:
+    """Write the backup to the host-mounted directory the off-site sync picks up.
+
+    Blocking (run via ``asyncio.to_thread``). Raises OSError; callers treat a failure here as
+    a warning rather than a failed backup, because the GridFS copy already succeeded.
+    """
+    SERVER_BACKUP_FILE_DIR.mkdir(parents=True, exist_ok=True)
+    target = SERVER_BACKUP_FILE_DIR / filename
+    target.write_bytes(content_bytes)
+    target.chmod(0o600)
+    _prune_server_backup_files()
+    return str(target)
 
 
 async def save_server_backup() -> dict:
@@ -740,7 +774,19 @@ async def save_server_backup() -> dict:
         except Exception as e:
             logger.error(f"Could not prune old server backup {old_file['_id']}: {str(e)}")
 
-    return {"file_id": str(file_id), "filename": filename, "encrypted": is_encrypted}
+    result = {"file_id": str(file_id), "filename": filename, "encrypted": is_encrypted}
+
+    # Dateikopie fuer die Uebertragung ausser Haus. Schlaegt sie fehl, ist das Backup selbst
+    # trotzdem gelungen (GridFS) - deshalb nur vermerken, nicht den ganzen Lauf scheitern lassen.
+    try:
+        result["file_path"] = await asyncio.to_thread(_write_server_backup_file, content_bytes, filename)
+        result["file_error"] = None
+    except OSError as e:
+        logger.error(f"Could not write backup file copy to {SERVER_BACKUP_FILE_DIR}: {str(e)}")
+        result["file_path"] = None
+        result["file_error"] = f"Dateikopie nach {SERVER_BACKUP_FILE_DIR} fehlgeschlagen: {str(e)}"
+
+    return result
 
 
 @api_router.get("/backup/server-backups")
@@ -803,6 +849,8 @@ async def get_server_backup_status(current_user: dict = Depends(get_current_user
         "last_attempt_at": state.get("last_attempt_at"),
         "last_status": state.get("last_status"),
         "last_error": state.get("last_error"),
+        "last_file_path": state.get("last_file_path"),
+        "last_file_error": state.get("last_file_error"),
     }
 
 
@@ -812,9 +860,17 @@ async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
     try:
         result = await save_server_backup()
+        now_iso = datetime.now(timezone.utc).isoformat()
         await db.global_settings.update_one(
             {"type": "server_backup_state"},
-            {"$set": {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_status": "success", "last_error": None}},
+            {"$set": {
+                "last_run_at": now_iso,
+                "last_attempt_at": now_iso,
+                "last_status": "success",
+                "last_error": None,
+                "last_file_path": result.get("file_path"),
+                "last_file_error": result.get("file_error"),
+            }},
             upsert=True,
         )
         return {"message": "Server-Backup erfolgreich erstellt.", **result}
@@ -833,14 +889,21 @@ async def run_scheduled_server_backup_check():
         return
 
     try:
-        await save_server_backup()
+        result = await save_server_backup()
         now_iso = datetime.now(timezone.utc).isoformat()
         await db.global_settings.update_one(
             {"type": "server_backup_state"},
-            {"$set": {"last_run_at": now_iso, "last_attempt_at": now_iso, "last_status": "success", "last_error": None}},
+            {"$set": {
+                "last_run_at": now_iso,
+                "last_attempt_at": now_iso,
+                "last_status": "success",
+                "last_error": None,
+                "last_file_path": result.get("file_path"),
+                "last_file_error": result.get("file_error"),
+            }},
             upsert=True,
         )
-        logger.info("Daily server-side backup created")
+        logger.info(f"Daily server-side backup created ({result.get('file_path') or 'nur GridFS'})")
     except Exception as e:
         logger.error(f"Daily server-side backup failed: {str(e)}")
         await _record_schedule_failure("server_backup_state", str(e))
