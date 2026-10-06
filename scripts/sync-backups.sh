@@ -37,8 +37,7 @@ command -v "$RCLONE" >/dev/null || { echo "FEHLER: $RCLONE nicht gefunden." >&2;
 
 # Neuestes lokales Backup ermitteln. Fehlt eines, laeuft die Backup-Erzeugung in der
 # Anwendung nicht - das ist ein Alarm, kein stilles Ueberspringen.
-NEWEST="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name "$PATTERN" -printf '%T@ %p\n' 2>/dev/null \
-          | sort -rn | head -1 | cut -d' ' -f2- || true)"
+NEWEST="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name "$PATTERN" 2>/dev/null | sort | tail -1 || true)"
 if [ -z "$NEWEST" ]; then
     echo "FEHLER: kein Backup in $BACKUP_DIR gefunden - erzeugt die Anwendung noch welche?" >&2
     exit 1

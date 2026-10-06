@@ -718,7 +718,6 @@ const UserManagement = () => {
                   {savingBackupPassword ? 'Speichert...' : 'Backup-Passwort speichern'}
                 </Button>
               </div>
-
             </div>
           )}
         </CardContent>
