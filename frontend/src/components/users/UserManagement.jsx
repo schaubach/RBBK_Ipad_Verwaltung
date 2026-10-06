@@ -8,7 +8,7 @@ import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Alert, AlertDescription } from '../ui/alert';
 import { toast } from 'sonner';
-import { Users, Trash2, Shield, Edit, Plus, AlertTriangle, Download, Mail, Send, History, Lock, Unlock, Server, KeyRound, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
+import { Users, Trash2, Shield, Edit, Plus, AlertTriangle, Download, History, Lock, Unlock, Server, KeyRound, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
@@ -41,33 +41,12 @@ const UserManagement = () => {
   const [preRestoreBackups, setPreRestoreBackups] = useState([]);
   const [loadingPreRestoreBackups, setLoadingPreRestoreBackups] = useState(false);
 
-  // Automatic backup e-mail schedule
-  const [backupSchedule, setBackupSchedule] = useState({
-    enabled: false,
-    frequency: 'daily',
-    recipient_email: '',
-    last_run_at: null,
-    last_status: null,
-    last_error: null
-  });
-  const [loadingSchedule, setLoadingSchedule] = useState(true);
-  const [savingSchedule, setSavingSchedule] = useState(false);
-  const [sendingTestMail, setSendingTestMail] = useState(false);
-
   // Central backup encryption password (any admin may set it)
   const [backupEncryption, setBackupEncryption] = useState({ password_configured: false });
   const [loadingBackupEncryption, setLoadingBackupEncryption] = useState(true);
   const [newBackupPassword, setNewBackupPassword] = useState('');
   const [newBackupPasswordConfirm, setNewBackupPasswordConfirm] = useState('');
   const [savingBackupPassword, setSavingBackupPassword] = useState(false);
-
-  // SMTP configuration
-  const [smtpConfig, setSmtpConfig] = useState({
-    host: '', port: 587, user: '', from_addr: '', use_tls: true, use_ssl: false, password_configured: false, source: 'none'
-  });
-  const [smtpPasswordInput, setSmtpPasswordInput] = useState('');
-  const [loadingSmtp, setLoadingSmtp] = useState(true);
-  const [savingSmtp, setSavingSmtp] = useState(false);
 
   // Server-side backups (MongoDB/GridFS, rolling 7-day retention)
   const [serverBackups, setServerBackups] = useState([]);
@@ -130,18 +109,6 @@ const UserManagement = () => {
     }
   };
 
-  const loadBackupSchedule = async () => {
-    setLoadingSchedule(true);
-    try {
-      const response = await api.get('/settings/backup-schedule');
-      setBackupSchedule(response.data);
-    } catch (error) {
-      console.error('Failed to load backup schedule:', error);
-    } finally {
-      setLoadingSchedule(false);
-    }
-  };
-
   const loadPreRestoreBackups = async () => {
     setLoadingPreRestoreBackups(true);
     try {
@@ -163,18 +130,6 @@ const UserManagement = () => {
       console.error('Failed to load backup encryption status:', error);
     } finally {
       setLoadingBackupEncryption(false);
-    }
-  };
-
-  const loadSmtpConfig = async () => {
-    setLoadingSmtp(true);
-    try {
-      const response = await api.get('/settings/smtp-config');
-      setSmtpConfig(response.data);
-    } catch (error) {
-      console.error('Failed to load SMTP config:', error);
-    } finally {
-      setLoadingSmtp(false);
     }
   };
 
@@ -209,10 +164,8 @@ const UserManagement = () => {
 
   useEffect(() => {
     loadUsers();
-    loadBackupSchedule();
     loadPreRestoreBackups();
     loadBackupEncryption();
-    loadSmtpConfig();
     loadServerBackups();
     loadGlobalSettings();
   }, []);
@@ -270,32 +223,6 @@ const UserManagement = () => {
       toast.error(error.response?.data?.detail || 'Fehler beim Setzen des Backup-Passworts');
     } finally {
       setSavingBackupPassword(false);
-    }
-  };
-
-  const handleSaveSmtpConfig = async () => {
-    if (!smtpConfig.host) {
-      toast.error('Bitte einen SMTP-Host angeben');
-      return;
-    }
-    setSavingSmtp(true);
-    try {
-      const response = await api.put('/settings/smtp-config', {
-        host: smtpConfig.host,
-        port: Number(smtpConfig.port) || 587,
-        user: smtpConfig.user,
-        password: smtpPasswordInput || undefined,
-        from_addr: smtpConfig.from_addr,
-        use_tls: smtpConfig.use_tls,
-        use_ssl: smtpConfig.use_ssl
-      });
-      toast.success(response.data.message);
-      setSmtpPasswordInput('');
-      await loadSmtpConfig();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler beim Speichern der SMTP-Konfiguration');
-    } finally {
-      setSavingSmtp(false);
     }
   };
 
@@ -441,47 +368,6 @@ const UserManagement = () => {
       document.body.removeChild(link);
     } catch (error) {
       toast.error('Fehler beim Herunterladen des Sicherheits-Backups');
-    }
-  };
-
-  const handleSaveBackupSchedule = async () => {
-    if (backupSchedule.enabled && !backupSchedule.recipient_email) {
-      toast.error('Bitte eine Ziel-E-Mail-Adresse angeben');
-      return;
-    }
-
-    setSavingSchedule(true);
-    try {
-      const response = await api.put('/settings/backup-schedule', {
-        enabled: backupSchedule.enabled,
-        frequency: backupSchedule.frequency,
-        recipient_email: backupSchedule.recipient_email || undefined
-      });
-      toast.success(response.data.message);
-      await loadBackupSchedule();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler beim Speichern des Backup-Zeitplans');
-    } finally {
-      setSavingSchedule(false);
-    }
-  };
-
-  const handleSendTestMail = async () => {
-    if (!backupSchedule.recipient_email) {
-      toast.error('Bitte eine Ziel-E-Mail-Adresse angeben');
-      return;
-    }
-
-    setSendingTestMail(true);
-    try {
-      const response = await api.post('/backup/send-now', {
-        recipient_email: backupSchedule.recipient_email
-      });
-      toast.success(response.data.message);
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler beim Senden der Test-Mail');
-    } finally {
-      setSendingTestMail(false);
     }
   };
 
@@ -771,7 +657,7 @@ const UserManagement = () => {
         </CardContent>
       </Card>
 
-      {/* Backup Security: central encryption password + SMTP credentials, any admin can manage both */}
+      {/* Backup Security: central encryption password, manageable by any admin */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -783,11 +669,11 @@ const UserManagement = () => {
             Backup-Sicherheit
           </CardTitle>
           <CardDescription>
-            Zentrales Verschlüsselungs-Passwort und SMTP-Zugangsdaten für automatische Backups (von jedem Admin verwaltbar)
+            Zentrales Verschlüsselungs-Passwort für alle Backups (von jedem Admin verwaltbar)
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loadingBackupEncryption || loadingSmtp ? (
+          {loadingBackupEncryption ? (
             <div className="text-center py-4">Lade Konfiguration...</div>
           ) : (
             <div className="space-y-6">
@@ -833,208 +719,6 @@ const UserManagement = () => {
                 </Button>
               </div>
 
-              {/* SMTP credentials */}
-              <div className="space-y-3 max-w-lg border-l-4 border-purple-400 bg-purple-50 p-4 rounded">
-                <h4 className="font-medium text-purple-800 flex items-center gap-2">
-                  <Mail className="h-4 w-4" />
-                  SMTP-Zugangsdaten
-                </h4>
-                {smtpConfig.source === 'env' && (
-                  <p className="text-xs text-purple-700">Aktuell aus backend/.env geladen. Speichern hier überschreibt das für die Datenbank-Konfiguration.</p>
-                )}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label htmlFor="smtp-host">Host</Label>
-                    <Input
-                      id="smtp-host"
-                      value={smtpConfig.host}
-                      onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
-                      placeholder="smtp.example.com"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="smtp-port">Port</Label>
-                    <Input
-                      id="smtp-port"
-                      type="number"
-                      value={smtpConfig.port}
-                      onChange={(e) => setSmtpConfig({ ...smtpConfig, port: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="smtp-user">Benutzername</Label>
-                    <Input
-                      id="smtp-user"
-                      value={smtpConfig.user}
-                      onChange={(e) => setSmtpConfig({ ...smtpConfig, user: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="smtp-password">
-                      Passwort {smtpConfig.password_configured && <span className="text-xs text-gray-500">(gesetzt, leer lassen zum Beibehalten)</span>}
-                    </Label>
-                    <Input
-                      id="smtp-password"
-                      type="password"
-                      value={smtpPasswordInput}
-                      onChange={(e) => setSmtpPasswordInput(e.target.value)}
-                      placeholder={smtpConfig.password_configured ? '••••••••' : ''}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="smtp-from">Absender-Adresse</Label>
-                    <Input
-                      id="smtp-from"
-                      type="email"
-                      value={smtpConfig.from_addr}
-                      onChange={(e) => setSmtpConfig({ ...smtpConfig, from_addr: e.target.value })}
-                      placeholder="Standard: Benutzername"
-                    />
-                  </div>
-                  <div className="flex items-center space-x-2 pt-5">
-                    <input
-                      type="checkbox"
-                      id="smtp-tls"
-                      checked={smtpConfig.use_tls}
-                      disabled={smtpConfig.use_ssl}
-                      onChange={(e) => setSmtpConfig({ ...smtpConfig, use_tls: e.target.checked })}
-                      className="w-4 h-4"
-                    />
-                    <Label htmlFor="smtp-tls">STARTTLS verwenden (Port 587)</Label>
-                  </div>
-                  <div className="flex items-center space-x-2 pt-5">
-                    <input
-                      type="checkbox"
-                      id="smtp-ssl"
-                      checked={smtpConfig.use_ssl}
-                      onChange={(e) => setSmtpConfig({ ...smtpConfig, use_ssl: e.target.checked })}
-                      className="w-4 h-4"
-                    />
-                    <Label htmlFor="smtp-ssl">Direktes SSL (Port 465)</Label>
-                  </div>
-                </div>
-                <p className="text-xs text-purple-700">
-                  Genau eine der beiden Optionen passt zum Port: <strong>587 = STARTTLS</strong>,
-                  <strong> 465 = direktes SSL</strong>. Die falsche Kombination führt dazu, dass beide Seiten
-                  aufeinander warten – der Versand endet dann nach 20 Sekunden im Timeout.
-                </p>
-                <Button
-                  onClick={handleSaveSmtpConfig}
-                  disabled={savingSmtp}
-                  className="bg-gradient-to-r from-ipad-teal to-ipad-blue"
-                >
-                  {savingSmtp ? 'Speichert...' : 'SMTP-Konfiguration speichern'}
-                </Button>
-
-                <div className="pt-3 border-t border-purple-200 space-y-2">
-                  <Label htmlFor="backup-recipient-email">Ziel-E-Mail-Adresse</Label>
-                  <Input
-                    id="backup-recipient-email"
-                    type="email"
-                    value={backupSchedule.recipient_email || ''}
-                    onChange={(e) => setBackupSchedule({ ...backupSchedule, recipient_email: e.target.value })}
-                    placeholder="z.B. Ihre eigene Benutzer-E-Mail"
-                  />
-                  <p className="text-xs text-purple-700">
-                    Ziel für automatische Backup-Mails (siehe Zeitplan unten) und für den Testversand.
-                  </p>
-                  <Button
-                    onClick={handleSendTestMail}
-                    disabled={sendingTestMail || !backupEncryption.password_configured}
-                    title={!backupEncryption.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe oben)' : undefined}
-                    variant="outline"
-                  >
-                    <Send className="h-4 w-4 mr-2" />
-                    {sendingTestMail ? 'Sendet...' : 'Test-Mail jetzt senden'}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Automatic Backup E-Mail Schedule */}
-      <Card className="shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Mail className="h-5 w-5" />
-            Automatisches Backup per E-Mail
-          </CardTitle>
-          <CardDescription>
-            Verschickt regelmäßig ein vollständiges System-Backup an eine hinterlegte E-Mail-Adresse
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loadingSchedule ? (
-            <div className="text-center py-4">Lade Zeitplan...</div>
-          ) : (
-            <div className="space-y-4 max-w-lg">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="schedule-enabled"
-                  checked={backupSchedule.enabled}
-                  onChange={(e) => setBackupSchedule({ ...backupSchedule, enabled: e.target.checked })}
-                  className="w-4 h-4"
-                />
-                <Label htmlFor="schedule-enabled">Automatische Backup-Mails aktivieren</Label>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="schedule-frequency">Häufigkeit</Label>
-                <select
-                  id="schedule-frequency"
-                  value={backupSchedule.frequency}
-                  onChange={(e) => setBackupSchedule({ ...backupSchedule, frequency: e.target.value })}
-                  className="w-full p-2 border rounded-md"
-                >
-                  <option value="daily">Täglich</option>
-                  <option value="weekly">Wöchentlich</option>
-                  <option value="monthly">Monatlich</option>
-                </select>
-              </div>
-
-              {backupSchedule.last_run_at && (
-                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
-                  Letztes automatisches Backup: {new Date(backupSchedule.last_run_at).toLocaleString('de-DE')}
-                  {' — '}
-                  {backupSchedule.last_status === 'success' ? (
-                    <span className="text-green-700 font-medium">erfolgreich</span>
-                  ) : (
-                    <span className="text-red-700 font-medium">
-                      fehlgeschlagen{backupSchedule.last_error ? `: ${backupSchedule.last_error}` : ''}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              {!backupEncryption.password_configured && (
-                <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2">
-                  <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                  <span>
-                    <strong>Kein Mail-Versand ohne Backup-Passwort:</strong> Da Backups Schülerdaten enthalten, wird
-                    <strong> keine E-Mail verschickt</strong>, solange oben unter "Backup-Sicherheit" kein
-                    Backup-Passwort gesetzt ist – auch nicht, wenn der Zeitplan aktiviert ist.
-                  </span>
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleSaveBackupSchedule}
-                  disabled={savingSchedule}
-                  className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
-                >
-                  {savingSchedule ? 'Speichert...' : 'Zeitplan speichern'}
-                </Button>
-              </div>
-              <p className="text-xs text-gray-500">
-                Ziel-E-Mail-Adresse und SMTP-Zugangsdaten werden oben in der Karte "Backup-Sicherheit" verwaltet.
-                {backupEncryption.password_configured && (
-                  <span className="text-green-700"> Backups werden aktuell verschlüsselt versendet.</span>
-                )}
-              </p>
             </div>
           )}
         </CardContent>
@@ -1050,7 +734,8 @@ const UserManagement = () => {
                 Server-Backups (MongoDB)
               </CardTitle>
               <CardDescription>
-                Läuft automatisch einmal täglich, unabhängig vom E-Mail-Versand. Die letzten 7 Tage werden aufbewahrt.
+                Läuft automatisch einmal täglich. Auf dem Server werden die letzten 7 Tage aufbewahrt;
+                zusätzlich wird jedes Backup als Datei abgelegt und von dort außer Haus gesichert.
               </CardDescription>
             </div>
             <Button

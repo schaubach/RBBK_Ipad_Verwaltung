@@ -3,9 +3,9 @@
 Two independent layers:
 
 1. Secret wrapping (``wrap_secret``/``unwrap_secret``): at-rest protection for
-   admin-entered secrets (backup encryption password, SMTP password) stored in
-   MongoDB. Derived deterministically from SECRET_KEY so the server can unwrap
-   them automatically for unattended cron jobs. This protects against casual
+   the admin-entered backup encryption password stored in MongoDB. Derived
+   deterministically from SECRET_KEY so the server can unwrap it automatically
+   for the unattended daily backup. This protects against casual
    DB reads; anyone with SECRET_KEY + DB access can still unwrap.
 
 2. Password-based backup content encryption (``encrypt_backup_bytes``/
