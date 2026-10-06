@@ -31,6 +31,10 @@ Lücke — die Server-Backups laufen in dieser Zeit weiter, nur die Kopie außer
 > **Wo wird was ausgeführt?** Alle Befehle dieses Abschnitts laufen **auf Ihrem Mac** — auch
 > die, die per `ssh` etwas auf dem Server erledigen. Nur so landet der private Schlüssel dort,
 > wo er hingehört: auf Ihrem Rechner, nicht auf dem Server.
+>
+> Befehle mit `sudo` auf der Gegenseite brauchen `ssh -t`. Ohne das gibt es kein Terminal, in
+> dem `sudo` nach dem Passwort fragen könnte, und der Befehl scheitert mit
+> *„a terminal is required to read the password"*.
 
 **1. SSH-Schlüssel erzeugen und auf den Server bringen** — ⚠️ **auf dem Mac**, nicht auf dem
 Server. Ein auf dem Server erzeugter Schlüssel nützt nichts: dann könnte sich der Server nur
@@ -50,14 +54,14 @@ ssh schaubach@10.97.6.249 'echo Anmeldung ok'
 **2. Prüfen, dass `rsync` auf dem Server vorhanden ist** (vom Mac aus):
 
 ```bash
-ssh schaubach@10.97.6.249 'rsync --version | head -1 || sudo apt-get install -y rsync'
+ssh -t schaubach@10.97.6.249 'rsync --version | head -1 || sudo apt-get install -y rsync'
 ```
 
 **3. Lesezugriff auf das Backup-Verzeichnis.** Die Anwendung schreibt als root; abgeholt wird
 unter Ihrem Konto. Das Verzeichnis bekommt deshalb Ihre Gruppe **und das setgid-Bit**:
 
 ```bash
-ssh schaubach@10.97.6.249 'sudo chgrp -R $USER /var/backups/ipad-verwaltung && sudo chmod 2750 /var/backups/ipad-verwaltung && sudo chmod -R g+rX /var/backups/ipad-verwaltung'
+ssh -t schaubach@10.97.6.249 'sudo chgrp -R $USER /var/backups/ipad-verwaltung && sudo chmod 2750 /var/backups/ipad-verwaltung && sudo chmod -R g+rX /var/backups/ipad-verwaltung'
 ```
 
 Das setgid-Bit (die `2` in `2750`) ist der entscheidende Teil, und zwar für die **Zukunft**:
