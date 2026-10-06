@@ -1,0 +1,13 @@
+[Unit]
+Description=iPad-Verwaltung: taeglicher Backup-Sync ausser Haus
+
+[Timer]
+# Nach dem taeglichen Backup der Anwendung. Die laeuft stuendlich und erzeugt das
+# Tagesbackup beim ersten Lauf nach Ablauf der 24 Stunden - 05:30 liegt sicher danach.
+OnCalendar=*-*-* 05:30:00
+# Lauf nachholen, wenn der Server zur geplanten Zeit aus war
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

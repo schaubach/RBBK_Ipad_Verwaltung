@@ -1,0 +1,16 @@
+[Unit]
+Description=iPad-Verwaltung: Backups ausser Haus sichern
+Documentation=file:///home/RBBK_Ipad_Verwaltung/scripts/BACKUP-OFFSITE.md
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/RBBK_Ipad_Verwaltung/scripts/sync-backups.sh
+# Voruebergehende Netzausfaelle abfangen, bevor der Lauf als gescheitert gilt
+Restart=on-failure
+RestartSec=10min
+# systemd zaehlt bei oneshot+Restart die Versuche nicht automatisch - drei Anlaeufe reichen
+StartLimitBurst=3
+StartLimitIntervalSec=1h
+User=root
