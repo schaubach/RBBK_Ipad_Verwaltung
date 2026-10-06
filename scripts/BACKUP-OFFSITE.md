@@ -53,16 +53,23 @@ ssh schaubach@10.97.6.249 'echo Anmeldung ok'
 ssh schaubach@10.97.6.249 'rsync --version | head -1 || sudo apt-get install -y rsync'
 ```
 
-**3. Lesezugriff auf das Backup-Verzeichnis.** Die Dateien gehören root und haben Modus 600:
+**3. Lesezugriff auf das Backup-Verzeichnis.** Die Anwendung schreibt als root; abgeholt wird
+unter Ihrem Konto. Das Verzeichnis bekommt deshalb Ihre Gruppe **und das setgid-Bit**:
 
 ```bash
-ssh schaubach@10.97.6.249 'sudo setfacl -R -m u:$USER:rX /var/backups/ipad-verwaltung && sudo setfacl -d -m u:$USER:rX /var/backups/ipad-verwaltung'
+ssh schaubach@10.97.6.249 'sudo chgrp -R $USER /var/backups/ipad-verwaltung && sudo chmod 2750 /var/backups/ipad-verwaltung && sudo chmod -R g+rX /var/backups/ipad-verwaltung'
 ```
 
-Kennt Ihr System `setfacl` nicht, tut es auch eine Gruppe:
+Das setgid-Bit (die `2` in `2750`) ist der entscheidende Teil, und zwar für die **Zukunft**:
+nur dadurch erbt jede neu geschriebene Datei die Gruppe des Verzeichnisses. Ohne setgid
+korrigiert `chgrp -R` zwar die vorhandenen Dateien, aber jedes neue Backup wäre wieder
+`root:root` und für die Abholung unlesbar — ohne dass etwas Sichtbares passiert, bis Sie
+irgendwann merken, dass seit Tagen nichts mehr bei IServ ankommt.
+
+Prüfen, dass es wirkt (die Zeile muss `drwxr-s---` zeigen, das `s` ist das setgid-Bit):
 
 ```bash
-ssh schaubach@10.97.6.249 'sudo chgrp -R $USER /var/backups/ipad-verwaltung && sudo chmod -R g+rX /var/backups/ipad-verwaltung'
+ssh schaubach@10.97.6.249 'ls -ld /var/backups/ipad-verwaltung'
 ```
 
 **4. IServ im Finder einbinden:** *Gehe zu → Mit Server verbinden*, die WebDAV-Adresse Ihrer

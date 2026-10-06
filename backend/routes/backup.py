@@ -418,7 +418,11 @@ def _write_server_backup_file(content_bytes: bytes, filename: str) -> str:
     SERVER_BACKUP_FILE_DIR.mkdir(parents=True, exist_ok=True)
     target = SERVER_BACKUP_FILE_DIR / filename
     target.write_bytes(content_bytes)
-    target.chmod(0o600)
+    # 640 statt 600: die Anwendung schreibt als root, abgeholt werden die Backups aber von
+    # einem unprivilegierten Konto (siehe scripts/BACKUP-OFFSITE.md). Damit das traegt, muss
+    # das Verzeichnis setgid sein und der passenden Gruppe gehoeren - dann erbt jede neue
+    # Datei diese Gruppe. Ohne setgid waere sie root:root und fuer die Abholung unlesbar.
+    target.chmod(0o640)
     _prune_server_backup_files()
     return str(target)
 
