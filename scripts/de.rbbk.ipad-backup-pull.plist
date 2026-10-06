@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Holt die Backups taeglich vom Server und legt sie bei IServ ab.
+  Nach ~/Library/LaunchAgents/ kopieren, PFAD ANPASSEN, dann:
+      launchctl load ~/Library/LaunchAgents/de.rbbk.ipad-backup-pull.plist
+  Laeuft nur, wenn Sie angemeldet sind - IServ ist ja als Netzlaufwerk eingebunden.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>de.rbbk.ipad-backup-pull</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <!-- PFAD ANPASSEN: wo Ihr Klon des Projekts liegt -->
+        <string>/Users/IHR_BENUTZER/Applications/RBBK_Ipad_Verwaltung/scripts/pull-backups-to-iserv.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>16</integer>
+        <key>Minute</key><integer>30</integer>
+    </dict>
+
+    <!-- Nachholen, wenn der Mac zur geplanten Zeit aus war -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/ipad-backup-pull.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/ipad-backup-pull.err</string>
+</dict>
+</plist>

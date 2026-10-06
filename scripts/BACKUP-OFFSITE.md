@@ -1,52 +1,114 @@
-# Backups außer Haus sichern (IServ Files per WebDAV)
+# Backups außer Haus sichern
 
 Die Anwendung erzeugt einmal täglich ein verschlüsseltes Backup und legt es zweifach ab:
-in MongoDB (GridFS, 7 Tage) und als Datei unter `/var/backups/ipad-verwaltung` auf dem Host.
-Ein systemd-Timer schiebt diese Dateien anschließend nach IServ.
+in MongoDB (GridFS, 7 Tage) und als Datei unter `/var/backups/ipad-verwaltung` auf dem Server.
+Von dort wird es außer Haus gesichert.
 
-Der Transport liegt bewusst **außerhalb** der Anwendung. Zwei Gründe: er funktioniert auch
-dann noch, wenn die Anwendung selbst defekt ist — also genau im Ernstfall —, und die
-Zugangsdaten liegen im Betriebssystem statt in der Datenbank.
+**E-Mail-Versand gibt es nicht mehr.** Die Vertrags-PDFs liegen als Binärdaten in den
+MongoDB-Dokumenten, das Backup wächst mit jedem Vertrag und hat die üblichen ~25 MB für
+Anhänge längst überschritten. Komprimieren hilft nicht: die base64-Kodierung einer E-Mail
+bläht das Ergebnis exakt wieder auf den Ausgangswert auf.
 
-E-Mail-Versand ist für diesen Zweck ungeeignet: die Vertrags-PDFs liegen als Binärdaten in
-der Datenbank, das Backup wächst mit jedem Vertrag, und Anhänge sind bei etwa 25 MB am Ende.
+Es gibt zwei Wege. **Weg A** braucht keinen Zugang auf dem Server und ist der empfohlene,
+solange Sie keinen IServ-Funktionsaccount haben.
 
-## Voraussetzungen
+---
 
-Ein **Funktionsaccount in IServ** mit WebDAV-Zugang, von der IServ-Administration
-einzurichten. Nicht Ihren persönlichen Account verwenden: das Passwort liegt auf dem Server,
-und der Zugriff soll auf den Backup-Ordner beschränkt bleiben.
+## Weg A: Der Mac holt die Backups ab (empfohlen)
 
-Erfragen Sie dort die **WebDAV-URL** Ihrer Instanz — der Pfad unterscheidet sich je nach
-IServ-Version, und die Anwendung kann ihn nicht erraten.
+Ihr Rechner holt die Backups per SSH vom Server und legt sie in einen IServ-Ordner, den Sie
+im Finder eingebunden haben.
 
-## Einrichtung
+Der Vorteil: **auf dem Server liegt kein IServ-Zugang.** Das IServ-Passwort bleibt im
+Schlüsselbund Ihres Macs. Der Server kennt nur Ihren öffentlichen SSH-Schlüssel, und der
+lässt sich jederzeit zurückziehen.
 
-### 1. rclone installieren
+Der Preis: es läuft nur, wenn Ihr Rechner an und angemeldet ist. In den Ferien entsteht eine
+Lücke — die Server-Backups laufen in dieser Zeit weiter, nur die Kopie außer Haus pausiert.
+
+### Einrichtung
+
+**1. SSH-Schlüssel auf den Server bringen** (falls noch nicht geschehen):
+
+```bash
+ssh-keygen -t ed25519 -C "backup-abholung"      # nur wenn Sie noch keinen haben
+ssh-copy-id schaubach@10.97.6.249
+```
+
+**2. Prüfen, dass `rsync` auf dem Server vorhanden ist:**
+
+```bash
+ssh schaubach@10.97.6.249 'rsync --version | head -1 || sudo apt-get install -y rsync'
+```
+
+**3. Lesezugriff auf das Backup-Verzeichnis.** Die Dateien gehören root und haben Modus 600:
+
+```bash
+ssh schaubach@10.97.6.249 'sudo setfacl -R -m u:$USER:rX /var/backups/ipad-verwaltung && sudo setfacl -d -m u:$USER:rX /var/backups/ipad-verwaltung'
+```
+
+Kennt Ihr System `setfacl` nicht, tut es auch eine Gruppe:
+
+```bash
+ssh schaubach@10.97.6.249 'sudo chgrp -R $USER /var/backups/ipad-verwaltung && sudo chmod -R g+rX /var/backups/ipad-verwaltung'
+```
+
+**4. IServ im Finder einbinden:** *Gehe zu → Mit Server verbinden*, die WebDAV-Adresse Ihrer
+IServ-Instanz. Notieren Sie den Pfad unterhalb von `/Volumes/`.
+
+**5. Konfiguration anlegen:**
+
+```bash
+mkdir -p ~/.config/ipad-verwaltung
+cat > ~/.config/ipad-verwaltung/backup-pull.conf <<'CONF'
+SERVER=schaubach@10.97.6.249
+REMOTE_DIR=/var/backups/ipad-verwaltung
+ISERV_DIR=/Volumes/Files/Backups/iPad-Verwaltung
+KEEP_DAYS=30
+MAX_AGE_HOURS=36
+CONF
+```
+
+`ISERV_DIR` an Ihren tatsächlichen Mountpfad anpassen. `MAX_AGE_HOURS` ist die Alarmschwelle:
+ist das neueste Backup älter, bricht der Lauf mit Fehler ab, statt stillschweigend eine alte
+Datei nochmal zu kopieren.
+
+**6. Einmal von Hand testen:**
+
+```bash
+bash scripts/pull-backups-to-iserv.sh
+```
+
+**7. Täglich automatisch:**
+
+```bash
+cp scripts/de.rbbk.ipad-backup-pull.plist ~/Library/LaunchAgents/
+# Pfad in der Datei auf Ihr Benutzerverzeichnis anpassen!
+launchctl load ~/Library/LaunchAgents/de.rbbk.ipad-backup-pull.plist
+```
+
+Kontrolle: `cat /tmp/ipad-backup-pull.log` und `/tmp/ipad-backup-pull.err`.
+
+---
+
+## Weg B: Der Server schiebt selbst zu IServ
+
+Braucht einen **IServ-Funktionsaccount** mit WebDAV-Zugriff, von der IServ-Administration
+einzurichten. Nicht Ihren persönlichen Account: dessen Passwort läge dann auf dem Server, und
+wer den Server übernimmt, hätte Ihren gesamten IServ-Zugang.
+
+> Beachten Sie: `rclone obscure` ist **keine** Verschlüsselung. `rclone reveal` holt das
+> Passwort in einem Befehl wieder heraus. `chmod 600` schützt gegen andere Benutzer auf dem
+> Server, nicht gegen root und nicht gegen einen Einbruch.
+
+### Einrichtung
 
 ```bash
 sudo apt-get update && sudo apt-get install -y rclone
+sudo rclone config        # n → Name "iserv" → webdav → URL von der IServ-Administration
+                          # Vendor: other, Benutzer/Passwort des Funktionsaccounts
+sudo rclone lsd iserv:    # Zugang prüfen
 ```
-
-### 2. Zugang einrichten
-
-```bash
-sudo rclone config
-```
-
-* `n` für einen neuen Remote, Name: **iserv**
-* Typ: **webdav**
-* URL: die von der IServ-Administration genannte Adresse, inklusive Zielordner
-* Vendor: **other**
-* Benutzer und Passwort des Funktionsaccounts
-
-Prüfen, dass der Zugang trägt:
-
-```bash
-sudo rclone lsd iserv:
-```
-
-### 3. Konfiguration anlegen
 
 ```bash
 sudo tee /etc/ipad-verwaltung-backup.conf > /dev/null <<'CONF'
@@ -56,56 +118,49 @@ REMOTE_RETENTION_DAYS=30
 MAX_AGE_HOURS=36
 CONF
 sudo chmod 600 /etc/ipad-verwaltung-backup.conf
-```
 
-`REMOTE_RETENTION_DAYS` ist unabhängig von der lokalen Aufbewahrung: auf dem Server bleiben
-7 Tage, bei IServ 30. `MAX_AGE_HOURS` ist die Alarmschwelle — ist das neuste Backup älter,
-bricht der Lauf mit Fehler ab, statt stillschweigend nichts zu tun.
+sudo /home/RBBK_Ipad_Verwaltung/scripts/sync-backups.sh     # einmal von Hand
 
-### 4. Einmal von Hand testen
-
-```bash
-sudo /home/RBBK_Ipad_Verwaltung/scripts/sync-backups.sh
-```
-
-Erwartete Ausgabe: das neuste Backup, die Bestätigung, dass es am Ziel liegt, und die Anzahl
-der dortigen Backups.
-
-### 5. Timer aktivieren
-
-```bash
 sudo cp /home/RBBK_Ipad_Verwaltung/scripts/systemd/ipad-backup-sync.* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ipad-backup-sync.timer
 ```
 
-## Kontrolle
+Kontrolle:
 
 ```bash
-systemctl list-timers ipad-backup-sync.timer     # wann lief er, wann läuft er wieder
-systemctl status ipad-backup-sync.service        # Ergebnis des letzten Laufs
+systemctl list-timers ipad-backup-sync.timer
+systemctl status ipad-backup-sync.service
 journalctl -u ipad-backup-sync.service --since -7d
 ```
 
-Ein fehlgeschlagener Lauf hinterlässt die Unit im Zustand `failed`. Wer das aktiv gemeldet
-bekommen möchte, hinterlegt in der Service-Unit ein `OnFailure=`.
+---
+
+## Reste des E-Mail-Versands entfernen
+
+In der Datenbank liegen noch die alten Einstellungen (SMTP-Zugangsdaten und Zeitplan). Sie
+richten keinen Schaden an, die Anwendung liest sie nicht mehr — aber in `smtp_config` steckt
+ein verschlüsseltes Passwort, das dort nichts mehr zu suchen hat:
+
+```bash
+docker exec ipad_mongodb mongosh iPadDatabase --quiet --eval 'printjson(db.global_settings.deleteMany({type:{$in:["smtp_config","backup_schedule"]}}))'
+```
 
 ## Wiederherstellung
 
 Backups sind mit dem **Backup-Passwort** aus dem Admin-Tab verschlüsselt. Ohne dieses
-Passwort ist eine heruntergeladene Datei wertlos — bewahren Sie es getrennt vom Server auf,
-etwa in einem Passwortmanager.
+Passwort ist eine Datei wertlos — bewahren Sie es getrennt vom Server auf, etwa in einem
+Passwortmanager.
 
 Einspielen über **Admin → Backup wiederherstellen**.
 
 > Ein Backup, das nie zurückgespielt wurde, ist kein Backup, sondern eine Vermutung.
-> Probieren Sie die Wiederherstellung einmal auf einer Testinstanz aus, bevor Sie sie
-> im Ernstfall zum ersten Mal brauchen.
+> Probieren Sie die Wiederherstellung einmal auf einer Testinstanz aus, bevor Sie sie im
+> Ernstfall zum ersten Mal brauchen.
 
 ## Was noch aussteht
 
-Jede Nacht wird das **vollständige** Backup übertragen, einschließlich aller Vertrags-PDFs —
+Übertragen wird jede Nacht das **vollständige** Backup, einschließlich aller Vertrags-PDFs —
 auch der unveränderten. Das trägt bis in den Bereich einiger hundert MB. Wenn die Übertragung
-spürbar länger dauert oder der IServ-Platz knapp wird, ist der nächste Schritt, die
-Vertragsdateien aus den MongoDB-Dokumenten herauszulösen; dann überträgt die Nacht nur noch
-das Hinzugekommene.
+spürbar länger dauert oder der Platz knapp wird, ist der nächste Schritt, die Vertragsdateien
+aus den MongoDB-Dokumenten herauszulösen; dann überträgt die Nacht nur noch das Hinzugekommene.

@@ -16,7 +16,6 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_ipad_filter,
-    is_admin,
     require_admin_user,
 )
 from core.validators import read_excel_upload, safe_str, validate_uploaded_file
@@ -57,17 +56,19 @@ async def _claim_pool_ipad_for_user(
 
 
 @api_router.post("/ipads", response_model=iPad)
-async def create_ipad(ipad_data: dict, current_user: dict = Depends(get_current_user)):
-    """Manuell ein neues iPad anlegen. Optional: is_in_pool=true für Pool-Anlage"""
+async def create_ipad(ipad_data: dict, current_user: dict = Depends(require_admin_user)):
+    """Manuell ein neues iPad anlegen (nur Admins). Optional: is_in_pool=true für Pool-Anlage.
+
+    Das Anlegen von Geräten ist Verwaltungsaufgabe: der Gerätebestand wird zentral gepflegt,
+    damit ITNr/SNr eindeutig bleiben und niemand versehentlich Karteileichen erzeugt. Normale
+    Benutzer erhalten iPads über die Zuweisung durch einen Admin, nicht durch Selbstanlage.
+    """
     try:
         # Validate required fields
         if not ipad_data.get("itnr") or not ipad_data.get("snr"):
             raise HTTPException(status_code=400, detail="ITNr und SNr sind erforderlich")
 
         is_in_pool = bool(ipad_data.get("is_in_pool", False))
-
-        if is_in_pool and not is_admin(current_user):
-            raise HTTPException(status_code=403, detail="Nur Admins dürfen iPads direkt in den Pool anlegen")
 
         # Pool: global uniqueness check; non-pool: per-user uniqueness
         if is_in_pool:

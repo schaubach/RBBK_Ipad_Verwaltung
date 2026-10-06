@@ -749,6 +749,10 @@ const IPadsManagement = ({ isAdmin = false }) => {
   };
 
   const handleCreateIPad = async () => {
+    if (!isAdmin) {
+      toast.error('Nur Administratoren dürfen iPads anlegen');
+      return;
+    }
     if (!newIPadData.itnr || !newIPadData.snr) {
       toast.error('ITNr und SNr sind Pflichtfelder');
       return;
@@ -870,10 +874,12 @@ const IPadsManagement = ({ isAdmin = false }) => {
                   Batch-Zuordnung per Datei
                 </Button>
               )}
-              <Button onClick={openCreateDialog} className="flex items-center gap-2">
-                <Plus className="h-4 w-4" />
-                Neues iPad anlegen
-              </Button>
+              {isAdmin && (
+                <Button onClick={openCreateDialog} className="flex items-center gap-2">
+                  <Plus className="h-4 w-4" />
+                  Neues iPad anlegen
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
