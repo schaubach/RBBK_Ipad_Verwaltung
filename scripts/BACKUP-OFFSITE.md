@@ -28,14 +28,26 @@ Lücke — die Server-Backups laufen in dieser Zeit weiter, nur die Kopie außer
 
 ### Einrichtung
 
-**1. SSH-Schlüssel auf den Server bringen** (falls noch nicht geschehen):
+> **Wo wird was ausgeführt?** Alle Befehle dieses Abschnitts laufen **auf Ihrem Mac** — auch
+> die, die per `ssh` etwas auf dem Server erledigen. Nur so landet der private Schlüssel dort,
+> wo er hingehört: auf Ihrem Rechner, nicht auf dem Server.
+
+**1. SSH-Schlüssel erzeugen und auf den Server bringen** — ⚠️ **auf dem Mac**, nicht auf dem
+Server. Ein auf dem Server erzeugter Schlüssel nützt nichts: dann könnte sich der Server nur
+bei sich selbst anmelden.
 
 ```bash
-ssh-keygen -t ed25519 -C "backup-abholung"      # nur wenn Sie noch keinen haben
+ssh-keygen -t ed25519 -C "backup-abholung-mac"   # nur wenn Sie noch keinen haben
 ssh-copy-id schaubach@10.97.6.249
 ```
 
-**2. Prüfen, dass `rsync` auf dem Server vorhanden ist:**
+Prüfen, dass die Anmeldung ohne Passwort klappt:
+
+```bash
+ssh schaubach@10.97.6.249 'echo Anmeldung ok'
+```
+
+**2. Prüfen, dass `rsync` auf dem Server vorhanden ist** (vom Mac aus):
 
 ```bash
 ssh schaubach@10.97.6.249 'rsync --version | head -1 || sudo apt-get install -y rsync'
