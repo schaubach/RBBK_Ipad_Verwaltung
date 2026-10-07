@@ -40,9 +40,6 @@ elif [ -f "./docker-compose.yml" ]; then
     CONFIG_DIR="."
     echo "📍 Erkannt: Bereits im config-Verzeichnis"
 # Oder absolute Pfade
-elif [ -d "/home/RBBK_Ipad_Verwaltung-main/config" ]; then
-    CONFIG_DIR="/home/RBBK_Ipad_Verwaltung-main/config"
-    echo "📍 Erkannt: Absoluter Pfad (Produktions-Server)"
 elif [ -d "/app/config" ]; then
     CONFIG_DIR="/app/config"
     echo "📍 Erkannt: Absoluter Pfad (Entwicklungs-System)"
@@ -52,12 +49,10 @@ else
     echo "   Aktuelles Verzeichnis: $(pwd)"
     echo "   Inhalt: $(ls -la | head -5)"
     echo ""
-    echo "   Bitte führe das Script aus:"
-    echo "   cd /home/RBBK_Ipad_Verwaltung-main && sudo bash deploy-smart.sh"
+    echo "   Bitte wechsle zuerst in das Projektverzeichnis (das mit dem Unterordner config/)"
+    echo "   und starte dann:"
     echo ""
-    echo "   ODER"
-    echo ""
-    echo "   cd /home/RBBK_Ipad_Verwaltung-main/config && sudo bash ../deploy-smart.sh"
+    echo "   sudo bash deploy-smart.sh"
     exit 1
 fi
 

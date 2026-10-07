@@ -142,9 +142,9 @@ MAX_AGE_HOURS=36
 CONF
 sudo chmod 600 /etc/ipad-verwaltung-backup.conf
 
-sudo /home/RBBK_Ipad_Verwaltung/scripts/sync-backups.sh     # einmal von Hand
+sudo /home/schaubach/RBBK_Ipad_Verwaltung/scripts/sync-backups.sh     # einmal von Hand
 
-sudo cp /home/RBBK_Ipad_Verwaltung/scripts/systemd/ipad-backup-sync.* /etc/systemd/system/
+sudo cp /home/schaubach/RBBK_Ipad_Verwaltung/scripts/systemd/ipad-backup-sync.* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now ipad-backup-sync.timer
 ```
