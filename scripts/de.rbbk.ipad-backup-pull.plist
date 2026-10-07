@@ -20,8 +20,8 @@
 
     <key>StartCalendarInterval</key>
     <dict>
-        <key>Hour</key><integer>16</integer>
-        <key>Minute</key><integer>30</integer>
+        <key>Hour</key><integer>12</integer>
+        <key>Minute</key><integer>0</integer>
     </dict>
 
     <!-- Nachholen, wenn der Mac zur geplanten Zeit aus war -->
