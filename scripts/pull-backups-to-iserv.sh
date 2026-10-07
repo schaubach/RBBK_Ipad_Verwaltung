@@ -35,6 +35,11 @@ WEBDAV_URL="${WEBDAV_URL%/}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S')  $*"; }
 
+# Auch in die Fehlerausgabe eine datierte Startzeile schreiben. launchd haengt an seine
+# Protokolldateien an und leert sie nie - ohne Marke sieht eine Fehlermeldung von vor Tagen
+# aus wie das Ergebnis des letzten Laufs.
+echo "$(date '+%Y-%m-%d %H:%M:%S')  --- Lauf gestartet ---" >&2
+
 # --- Passwort aus dem Schluesselbund, niemals aus einer Datei ---------------
 if ! PASS="$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$WEBDAV_USER" -w 2>/dev/null)"; then
     echo "FEHLER: Kein Passwort im Schluesselbund fuer Dienst '$KEYCHAIN_SERVICE', Konto '$WEBDAV_USER'." >&2
