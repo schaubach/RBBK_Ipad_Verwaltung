@@ -38,7 +38,28 @@ if [ ! -d "$ISERV_DIR" ]; then
     exit 1
 fi
 
+# Wirklich schreiben koennen, nicht nur "Verzeichnis existiert". macOS schuetzt Netzlaufwerke
+# ueber die Datenschutzeinstellungen, und ein Hintergrundprozess kann den Dialog nicht
+# anzeigen - er wuerde sonst mit einer rohen rsync-Meldung scheitern. Genau dieser Fall
+# trifft den launchd-Job, also hier eine verstaendliche Meldung erzeugen.
+_probe="$ISERV_DIR/.schreibtest-$$"
+if ! (touch "$_probe" 2>/dev/null && rm -f "$_probe" 2>/dev/null); then
+    echo "FEHLER: In $ISERV_DIR kann nicht geschrieben werden." >&2
+    echo "        Bei 'Operation not permitted': Systemeinstellungen > Datenschutz & Sicherheit" >&2
+    echo "        > Dateien und Ordner - Zugriff auf Netzwerkvolumes erlauben." >&2
+    exit 1
+fi
+
 mkdir -p "$LOCAL_CACHE"
+
+# Erreichbarkeit vorab pruefen. Ohne das liefert rsync eine rohe Netzwerkmeldung, und der
+# haeufigste Fall - der Mac haengt gerade nicht im Schulnetz - sieht aus wie ein Defekt.
+if ! ssh -o BatchMode=yes -o ConnectTimeout=15 "$SERVER" true 2>/dev/null; then
+    echo "FEHLER: $SERVER ist nicht erreichbar." >&2
+    echo "        Haeufigste Ursache: dieser Rechner ist nicht im Schulnetz." >&2
+    echo "        Sonst pruefen: ssh $SERVER 'echo ok'" >&2
+    exit 1
+fi
 
 log "Hole Backups von $SERVER:$REMOTE_DIR"
 rsync -az --timeout=120 \
