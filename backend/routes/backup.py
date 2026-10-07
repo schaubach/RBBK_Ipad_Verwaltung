@@ -19,6 +19,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 from bson.binary import Binary
@@ -360,7 +361,6 @@ async def set_backup_encryption_password(payload: BackupPasswordUpdate, current_
 
 
 BACKUP_SCHEDULE_CHECK_INTERVAL_SECONDS = 3600  # check hourly whether the daily backup is due
-BACKUP_RETRY_AFTER_ERROR = timedelta(hours=1)  # a failed run retries on the next tick, not a day later
 async def _record_schedule_failure(settings_type: str, message: str):
     """Record a failed scheduled run without touching ``last_run_at``, so the next hourly tick
     retries instead of the failure silently counting as "done for today"."""
@@ -375,25 +375,40 @@ async def _record_schedule_failure(settings_type: str, message: str):
     )
 
 
-def _is_due(state: dict, interval: timedelta) -> bool:
-    """True if the job is due: never succeeded, last success older than ``interval``, or the last
-    attempt failed and the retry delay has passed."""
-    now = datetime.now(timezone.utc)
-    if state.get("last_status") == "error":
-        last_attempt = _parse_iso_utc(state.get("last_attempt_at")) or _parse_iso_utc(state.get("last_run_at"))
-        return last_attempt is None or now - last_attempt >= BACKUP_RETRY_AFTER_ERROR
-    last_run = _parse_iso_utc(state.get("last_run_at"))
-    return last_run is None or now - last_run >= interval
-
-
-# --- Daily server-side backup, stored in MongoDB via GridFS (survives independently of the
-# host filesystem/volume). Always runs regardless of the e-mail schedule; retains 7 days. ---
+# --- Daily server-side backup, stored in MongoDB via GridFS and as a file copy on the host. ---
 
 SERVER_BACKUP_RETENTION_DAYS = 20
 # Beim Aufraeumen immer behalten, unabhaengig vom Alter. Noetig wegen der Entdoppelung weiter
 # unten: aendert sich ueber Wochen nichts (Ferien), entstehen keine neuen Backups - ohne diese
 # Untergrenze wuerden die vorhandenen nacheinander wegaltern, bis gar keines mehr da ist.
 SERVER_BACKUP_KEEP_MINIMUM = 3
+
+# Feste Uhrzeit statt "24 Stunden nach dem letzten Lauf": letzteres liess die Uhrzeit taeglich
+# um bis zu eine Stunde wandern, wodurch das Backup irgendwann hinter die Abholung durch den
+# Mac rutschte. Der Container laeuft auf UTC, deshalb ausdruecklich die hiesige Zeitzone.
+SERVER_BACKUP_HOUR = int(os.environ.get("SERVER_BACKUP_HOUR", 16))
+SERVER_BACKUP_TIMEZONE = ZoneInfo(os.environ.get("SERVER_BACKUP_TZ", "Europe/Berlin"))
+# Nach laengerem Ausfall sofort nachholen, statt bis zur naechsten Uhrzeit zu warten.
+SERVER_BACKUP_CATCHUP_AFTER_DAYS = 2
+
+
+def _server_backup_due(state: dict, now_local: Optional[datetime] = None) -> bool:
+    """True if today has no successful backup yet and the configured hour has passed.
+
+    Ein fehlgeschlagener Lauf laesst ``last_run_at`` unberuehrt (siehe _record_schedule_failure)
+    und gilt hier deshalb weiter als "heute noch nichts" - er wird beim naechsten stuendlichen
+    Tick erneut versucht. ``now_local`` dient nur dem Test.
+    """
+    now_local = now_local or datetime.now(SERVER_BACKUP_TIMEZONE)
+    last = _parse_iso_utc(state.get("last_run_at"))
+    if last is None:
+        return True
+    last_local = last.astimezone(SERVER_BACKUP_TIMEZONE)
+    if (now_local.date() - last_local.date()).days >= SERVER_BACKUP_CATCHUP_AFTER_DAYS:
+        return True
+    if now_local.hour < SERVER_BACKUP_HOUR:
+        return False
+    return last_local.date() < now_local.date()
 
 # Zusaetzliche Dateikopie jedes Tagesbackups. Das Verzeichnis ist aus dem Host in den
 # Container gemountet, damit ein Sync-Werkzeug auf Betriebssystemebene (rclone/rsync)
@@ -593,10 +608,10 @@ async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
 
 
 async def run_scheduled_server_backup_check():
-    """Create the daily server-side backup if the last successful one is more than a day old
+    """Create the daily server-side backup once per day from SERVER_BACKUP_HOUR onwards
     (always on). A failed run is retried on the next hourly tick."""
     state = await db.global_settings.find_one({"type": "server_backup_state"}) or {}
-    if not _is_due(state, timedelta(days=1)):
+    if not _server_backup_due(state):
         return
 
     try:
