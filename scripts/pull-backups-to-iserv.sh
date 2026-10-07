@@ -62,6 +62,14 @@ webdav_list() {
         | tr '<>' '\n\n' | grep -o "rbbk_ipad_verwaltung_backup_[^\"<]*\.enc" | sort -u
 }
 
+# Groesse der Datei am Ziel, oder leer wenn sie fehlt. Der Dateiname allein genuegt als
+# Nachweis NICHT: eine abgebrochene Uebertragung hinterlaesst denselben Namen mit
+# unvollstaendigem Inhalt, und ein Namensvergleich haelt das faelschlich fuer erledigt.
+webdav_size() {
+    "${CURL[@]}" -I "$WEBDAV_URL/$1" 2>/dev/null \
+        | tr -d '\r' | awk 'tolower($1) == "content-length:" { print $2 }' | tail -1
+}
+
 # Zugang vorab pruefen. Sonst scheitert erst der Upload, nach der Uebertragung vom Server,
 # mit einer rohen curl-Meldung wie "error: 401".
 if ! "${CURL[@]}" -X PROPFIND -H "Depth: 0" "$WEBDAV_URL/" -o /dev/null 2>/dev/null; then
@@ -101,26 +109,36 @@ fi
 log "Neuestes Backup: $(basename "$NEWEST") (${AGE_HOURS}h alt)"
 
 # --- Hochladen, was dort noch fehlt ---------------------------------------
-REMOTE_FILES="$(webdav_list || true)"
 UPLOADED=0
 for f in "$LOCAL_CACHE"/$PATTERN; do
     name="$(basename "$f")"
-    if grep -Fxq "$name" <<< "$REMOTE_FILES"; then
+    lokal="$(stat -f %z "$f")"
+    dort="$(webdav_size "$name")"
+    if [ "$dort" = "$lokal" ]; then
         continue
     fi
-    log "Lade hoch: $name ($(( $(stat -f %z "$f") / 1024 / 1024 )) MB)"
+    [ -n "$dort" ] && log "Unvollstaendig am Ziel ($dort statt $lokal Bytes) - lade neu: $name"
+    log "Lade hoch: $name ($(( lokal / 1024 / 1024 )) MB)"
     "${CURL[@]}" -T "$f" "$WEBDAV_URL/$name" > /dev/null
     UPLOADED=$((UPLOADED + 1))
 done
-[ "$UPLOADED" -eq 0 ] && log "Nichts hochzuladen - alles schon bei IServ."
+[ "$UPLOADED" -eq 0 ] && log "Nichts hochzuladen - alles schon vollstaendig bei IServ."
 
-# --- Nachweisen statt vertrauen -------------------------------------------
-REMOTE_FILES="$(webdav_list || true)"
-if ! grep -Fxq "$(basename "$NEWEST")" <<< "$REMOTE_FILES"; then
-    echo "FEHLER: $(basename "$NEWEST") ist bei IServ nicht auffindbar." >&2
+# --- Nachweisen statt vertrauen: Groesse vergleichen, nicht nur den Namen --
+neu_name="$(basename "$NEWEST")"
+neu_lokal="$(stat -f %z "$NEWEST")"
+neu_dort="$(webdav_size "$neu_name")"
+if [ -z "$neu_dort" ]; then
+    echo "FEHLER: $neu_name ist bei IServ nicht auffindbar." >&2
     exit 1
 fi
-log "Bestaetigt: $(basename "$NEWEST") liegt bei IServ."
+if [ "$neu_dort" != "$neu_lokal" ]; then
+    echo "FEHLER: $neu_name ist bei IServ unvollstaendig ($neu_dort statt $neu_lokal Bytes)." >&2
+    exit 1
+fi
+log "Bestaetigt: $neu_name liegt vollstaendig bei IServ ($neu_lokal Bytes)."
+
+REMOTE_FILES="$(webdav_list || true)"
 
 # --- Aufraeumen, anhand des Datums IM DATEINAMEN --------------------------
 CUTOFF="$(date -v-"${KEEP_DAYS}"d +%Y-%m-%d)"
