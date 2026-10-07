@@ -285,8 +285,10 @@ const ContractsManagement = () => {
       link.download = filename;
       document.body.appendChild(link);
       link.click();
-      window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(link);
+      // Erst verzoegert freigeben - der Browser liest die Blob-Adresse asynchron aus,
+      // ein sofortiges Freigeben laesst den Download als leere Datei enden.
+      setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 60000);
 
       const successCount = response.headers['x-success-count'];
       toast.success(`${successCount || 'Verträge'} erfolgreich erstellt`);

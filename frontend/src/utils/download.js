@@ -9,8 +9,12 @@ export function downloadBlob(blob, filename) {
   link.setAttribute('download', filename);
   document.body.appendChild(link);
   link.click();
-  window.URL.revokeObjectURL(url);
   document.body.removeChild(link);
+  // NICHT sofort freigeben: der Browser liest die Blob-Adresse erst asynchron aus, nachdem
+  // click() zurueckgekehrt ist. Ein revokeObjectURL() in derselben Runde macht sie vorher
+  // ungueltig - bei kleinen Dateien gewinnt der Browser das Rennen meist, bei grossen nicht.
+  // Ein 48-MB-Backup kam auf diesem Weg als 0-Byte-Datei an.
+  setTimeout(() => window.URL.revokeObjectURL(url), 60000);
 }
 
 /** Extract a filename from a Content-Disposition response header, falling back if absent/malformed. */

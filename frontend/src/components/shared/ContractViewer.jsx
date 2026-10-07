@@ -3,6 +3,7 @@ import api from '../../api';
 import { Button } from '../ui/button';
 import { X } from 'lucide-react';
 
+import { downloadBlob } from '../../utils/download';
 const ContractViewer = ({ contractId, onClose }) => {
   const [loading, setLoading] = useState(true);
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -38,14 +39,7 @@ const ContractViewer = ({ contractId, onClose }) => {
       const response = await api.get(`/contracts/${contractId}/download`, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `contract_${contractId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      downloadBlob(new Blob([response.data]), `contract_${contractId}.pdf`);
     } catch (error) {
       toast.error('Fehler beim Download');
     }

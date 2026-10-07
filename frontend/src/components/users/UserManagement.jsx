@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '../ui/alert';
 import { toast } from 'sonner';
 import { Users, Trash2, Shield, Edit, Plus, AlertTriangle, Download, History, Lock, Unlock, Server, KeyRound, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 
+import { downloadBlob } from '../../utils/download';
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -244,14 +245,7 @@ const UserManagement = () => {
       const response = await api.get(`/backup/server-backups/${backup.id}/download`, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', backup.filename);
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      downloadBlob(new Blob([response.data]), backup.filename);
     } catch (error) {
       toast.error('Fehler beim Herunterladen des Server-Backups');
     }
@@ -358,14 +352,7 @@ const UserManagement = () => {
       const response = await api.get(`/backup/pre-restore-backups/${filename}/download`, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      downloadBlob(new Blob([response.data]), filename);
     } catch (error) {
       toast.error('Fehler beim Herunterladen des Sicherheits-Backups');
     }

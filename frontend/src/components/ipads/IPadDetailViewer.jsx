@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { Tablet, FileText, Download, X, User, Pencil, Save, XCircle } from 'lucide-react';
 
+import { downloadBlob } from '../../utils/download';
 const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
   const [ipadData, setIPadData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -85,14 +86,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
       const response = await api.get(`/contracts/${contractId}/download`, {
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', filename);
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      downloadBlob(new Blob([response.data]), filename);
     } catch (error) {
       toast.error('Fehler beim Download');
     }

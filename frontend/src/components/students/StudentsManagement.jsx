@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { Users, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Edit, Download, Tablet, AlertTriangle } from 'lucide-react';
 import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
 
+import { downloadBlob } from '../../utils/download';
 const StudentsManagement = () => {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -534,14 +535,7 @@ const StudentsManagement = () => {
       const blob = new Blob([response.data], {
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       });
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = 'schueler_export.xlsx';
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(downloadUrl);
-      document.body.removeChild(link);
+      downloadBlob(blob, 'schueler_export.xlsx');
 
       toast.success('Export erfolgreich');
     } catch (error) {
