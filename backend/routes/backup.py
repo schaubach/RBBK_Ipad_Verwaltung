@@ -12,6 +12,7 @@ the operating-system level moves it off site - see scripts/BACKUP-OFFSITE.md.
 import asyncio
 import base64
 import json
+import hashlib
 import logging
 import os
 import re
@@ -129,16 +130,23 @@ async def get_active_backup_password() -> Optional[str]:
     return unwrap_secret(settings["wrapped_password"])
 
 
-def _serialize_and_encrypt(backup_data: dict, password: str) -> bytes:
-    """Blocking JSON serialisation + encryption (run via ``asyncio.to_thread``)."""
-    json_bytes = json.dumps(backup_data, ensure_ascii=False).encode("utf-8")
-    return encrypt_backup_bytes(json_bytes, password)
+def _serialize_and_encrypt(backup_data: dict, password: str) -> tuple:
+    """Blocking JSON serialisation + encryption (run via ``asyncio.to_thread``).
+
+    Returns (encrypted_bytes, sha256_of_plaintext). The checksum is taken BEFORE encryption on
+    purpose: every encryption uses a fresh random salt and IV, so two backups of byte-identical
+    data produce completely different ciphertext of identical length. Comparing the encrypted
+    files - or their sizes - can therefore never tell duplicates apart.
+    """
+    json_bytes = json.dumps(backup_data, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return encrypt_backup_bytes(json_bytes, password), hashlib.sha256(json_bytes).hexdigest()
 
 
 async def build_backup_export_bytes() -> tuple:
     """Build the current backup as encrypted bytes. Raises ValueError if no backup password is
     configured - backups contain student data (Schülerdaten) and must never leave the server
-    (download, e-mail, server-side archive) unencrypted. Returns (content_bytes, filename, is_encrypted)."""
+    (download, server-side archive) unencrypted.
+    Returns (content_bytes, filename, is_encrypted, sha256_of_plaintext)."""
     password = await get_active_backup_password()
     if not password:
         raise ValueError(
@@ -149,8 +157,8 @@ async def build_backup_export_bytes() -> tuple:
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     # JSON dump + PBKDF2/Fernet are CPU-bound and grow with the data set - keep them off the
     # event loop so a running backup does not stall every other request (and the healthcheck).
-    content_bytes = await asyncio.to_thread(_serialize_and_encrypt, backup_data, password)
-    return content_bytes, f"rbbk_ipad_verwaltung_backup_{timestamp}.json.enc", True
+    content_bytes, payload_sha256 = await asyncio.to_thread(_serialize_and_encrypt, backup_data, password)
+    return content_bytes, f"rbbk_ipad_verwaltung_backup_{timestamp}.json.enc", True, payload_sha256
 
 
 async def decrypt_uploaded_backup(content: bytes) -> bytes:
@@ -201,7 +209,7 @@ async def export_backup(current_user: dict = Depends(get_current_user)):
     configured - always required, see build_backup_export_bytes). Only accessible by administrators."""
     require_admin(current_user)
     try:
-        content_bytes, filename, is_encrypted = await build_backup_export_bytes()
+        content_bytes, filename, is_encrypted, _sha = await build_backup_export_bytes()
         media_type = "application/octet-stream" if is_encrypted else "application/json"
         return Response(
             content=content_bytes,
@@ -381,7 +389,11 @@ def _is_due(state: dict, interval: timedelta) -> bool:
 # --- Daily server-side backup, stored in MongoDB via GridFS (survives independently of the
 # host filesystem/volume). Always runs regardless of the e-mail schedule; retains 7 days. ---
 
-SERVER_BACKUP_RETENTION_DAYS = 7
+SERVER_BACKUP_RETENTION_DAYS = 20
+# Beim Aufraeumen immer behalten, unabhaengig vom Alter. Noetig wegen der Entdoppelung weiter
+# unten: aendert sich ueber Wochen nichts (Ferien), entstehen keine neuen Backups - ohne diese
+# Untergrenze wuerden die vorhandenen nacheinander wegaltern, bis gar keines mehr da ist.
+SERVER_BACKUP_KEEP_MINIMUM = 3
 
 # Zusaetzliche Dateikopie jedes Tagesbackups. Das Verzeichnis ist aus dem Host in den
 # Container gemountet, damit ein Sync-Werkzeug auf Betriebssystemebene (rclone/rsync)
@@ -397,10 +409,17 @@ def _backups_gridfs_bucket() -> AsyncIOMotorGridFSBucket:
 
 
 def _prune_server_backup_files():
-    """Delete file copies older than the retention window. Mirrors the GridFS pruning."""
+    """Delete file copies older than the retention window, but never below the minimum count."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=SERVER_BACKUP_RETENTION_DAYS)
-    for old in SERVER_BACKUP_FILE_DIR.glob("rbbk_ipad_verwaltung_backup_*"):
-        if not SERVER_BACKUP_FILENAME_RE.match(old.name):
+    candidates = sorted(
+        (f for f in SERVER_BACKUP_FILE_DIR.glob("rbbk_ipad_verwaltung_backup_*")
+         if SERVER_BACKUP_FILENAME_RE.match(f.name)),
+        key=lambda f: f.name,
+    )
+    # Die jüngsten nach Dateinamen (der traegt den Zeitstempel) sind geschuetzt.
+    protected = set(candidates[-SERVER_BACKUP_KEEP_MINIMUM:])
+    for old in candidates:
+        if old in protected:
             continue
         try:
             if datetime.fromtimestamp(old.stat().st_mtime, timezone.utc) < cutoff:
@@ -427,9 +446,22 @@ def _write_server_backup_file(content_bytes: bytes, filename: str) -> str:
     return str(target)
 
 
-async def save_server_backup() -> dict:
-    """Create a server-side backup snapshot in GridFS and prune snapshots older than the retention window."""
-    content_bytes, filename, is_encrypted = await build_backup_export_bytes()
+async def save_server_backup(skip_if_unchanged: bool = False) -> dict:
+    """Create a server-side backup snapshot in GridFS plus a file copy, and prune old ones.
+
+    With ``skip_if_unchanged`` the run is skipped when the data is byte-identical to the last
+    backup - compared via a checksum of the plaintext, since the encrypted files differ every
+    time (random salt/IV) and their size says nothing about their content. Used by the daily
+    job; the manual button always writes, so "Jetzt erstellen" does what it says.
+    """
+    content_bytes, filename, is_encrypted, payload_sha256 = await build_backup_export_bytes()
+
+    if skip_if_unchanged:
+        state = await db.global_settings.find_one({"type": "server_backup_state"}) or {}
+        if state.get("last_payload_sha256") == payload_sha256:
+            logger.info("Daily server-side backup skipped: data unchanged since the last backup")
+            return {"skipped": True, "reason": "unveraendert", "payload_sha256": payload_sha256}
+
     bucket = _backups_gridfs_bucket()
     file_id = await bucket.upload_from_stream(
         filename,
@@ -438,14 +470,21 @@ async def save_server_backup() -> dict:
     )
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=SERVER_BACKUP_RETENTION_DAYS)
+    newest = await db["backups.files"].find({}, {"_id": 1}).sort("uploadDate", -1).to_list(
+        length=SERVER_BACKUP_KEEP_MINIMUM
+    )
+    protected = {d["_id"] for d in newest}
     cursor = db["backups.files"].find({"uploadDate": {"$lt": cutoff}}, {"_id": 1})
     async for old_file in cursor:
+        if old_file["_id"] in protected:
+            continue
         try:
             await bucket.delete(old_file["_id"])
         except Exception as e:
             logger.error(f"Could not prune old server backup {old_file['_id']}: {str(e)}")
 
-    result = {"file_id": str(file_id), "filename": filename, "encrypted": is_encrypted}
+    result = {"file_id": str(file_id), "filename": filename, "encrypted": is_encrypted,
+              "skipped": False, "payload_sha256": payload_sha256}
 
     # Dateikopie fuer die Uebertragung ausser Haus. Schlaegt sie fehl, ist das Backup selbst
     # trotzdem gelungen (GridFS) - deshalb nur vermerken, nicht den ganzen Lauf scheitern lassen.
@@ -541,6 +580,7 @@ async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
                 "last_error": None,
                 "last_file_path": result.get("file_path"),
                 "last_file_error": result.get("file_error"),
+                "last_payload_sha256": result.get("payload_sha256"),
             }},
             upsert=True,
         )
@@ -560,21 +600,25 @@ async def run_scheduled_server_backup_check():
         return
 
     try:
-        result = await save_server_backup()
+        result = await save_server_backup(skip_if_unchanged=True)
         now_iso = datetime.now(timezone.utc).isoformat()
+        update = {
+            "last_run_at": now_iso,
+            "last_attempt_at": now_iso,
+            "last_status": "success",
+            "last_error": None,
+            "last_payload_sha256": result.get("payload_sha256"),
+        }
+        if not result.get("skipped"):
+            update["last_file_path"] = result.get("file_path")
+            update["last_file_error"] = result.get("file_error")
         await db.global_settings.update_one(
-            {"type": "server_backup_state"},
-            {"$set": {
-                "last_run_at": now_iso,
-                "last_attempt_at": now_iso,
-                "last_status": "success",
-                "last_error": None,
-                "last_file_path": result.get("file_path"),
-                "last_file_error": result.get("file_error"),
-            }},
-            upsert=True,
+            {"type": "server_backup_state"}, {"$set": update}, upsert=True
         )
-        logger.info(f"Daily server-side backup created ({result.get('file_path') or 'nur GridFS'})")
+        if result.get("skipped"):
+            logger.info("Daily server-side backup: data unchanged, no new snapshot written")
+        else:
+            logger.info(f"Daily server-side backup created ({result.get('file_path') or 'nur GridFS'})")
     except Exception as e:
         logger.error(f"Daily server-side backup failed: {str(e)}")
         await _record_schedule_failure("server_backup_state", str(e))

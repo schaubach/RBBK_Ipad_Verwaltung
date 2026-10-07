@@ -1,70 +1,83 @@
 #!/bin/bash
-# Holt die Backups vom Server auf diesen Mac und legt sie in einen IServ-Ordner.
+# Holt die Backups vom Server auf diesen Mac und laedt sie zu IServ hoch.
 #
-# Warum dieser Weg: so liegt KEIN IServ-Zugang auf dem Server. Das IServ-Passwort bleibt
-# im Schluesselbund dieses Macs, wo es hingehoert. Der Server kennt nur den oeffentlichen
+# Warum dieser Weg: so liegt KEIN IServ-Zugang auf dem Server. Das IServ-Passwort steht im
+# Schluesselbund dieses Macs, nicht in einer Datei. Der Server kennt nur den oeffentlichen
 # SSH-Schluessel dieses Rechners - und der laesst sich jederzeit zurueckziehen.
 #
-# Voraussetzung: IServ ist im Finder als WebDAV eingebunden (Finder > Gehe zu > Mit Server
-# verbinden), und der Zielordner liegt unterhalb von /Volumes/.
+# Hochgeladen wird direkt per WebDAV, nicht ueber ein im Finder eingebundenes Laufwerk.
+# Zwei Gruende: ein solcher Mount ueberlebt keinen Neustart, und macOS verweigert
+# Hintergrundprozessen den Zugriff auf Netzlaufwerke - der naechtliche Job wuerde daran
+# scheitern, waehrend derselbe Aufruf im Terminal funktioniert.
 #
-# Einrichtung und automatischer Lauf: siehe scripts/BACKUP-OFFSITE.md
+# Einrichtung: siehe scripts/BACKUP-OFFSITE.md
 
 set -euo pipefail
 
 CONF="${BACKUP_PULL_CONF:-$HOME/.config/ipad-verwaltung/backup-pull.conf}"
 if [ ! -r "$CONF" ]; then
     echo "FEHLER: Konfiguration $CONF nicht lesbar." >&2
-    echo "        Vorlage anlegen: siehe scripts/BACKUP-OFFSITE.md" >&2
     exit 1
 fi
 # shellcheck source=/dev/null
 . "$CONF"
 
 : "${SERVER:?SERVER ist in $CONF nicht gesetzt (z.B. schaubach@10.97.6.249)}"
-: "${ISERV_DIR:?ISERV_DIR ist in $CONF nicht gesetzt (z.B. /Volumes/Files/Backups/iPad-Verwaltung)}"
+: "${WEBDAV_URL:?WEBDAV_URL ist in $CONF nicht gesetzt}"
+: "${WEBDAV_USER:?WEBDAV_USER ist in $CONF nicht gesetzt}"
 REMOTE_DIR="${REMOTE_DIR:-/var/backups/ipad-verwaltung}"
 LOCAL_CACHE="${LOCAL_CACHE:-$HOME/Library/Application Support/ipad-verwaltung-backups}"
-KEEP_DAYS="${KEEP_DAYS:-30}"
+KEYCHAIN_SERVICE="${KEYCHAIN_SERVICE:-iserv-webdav}"
+KEEP_DAYS="${KEEP_DAYS:-20}"
 MAX_AGE_HOURS="${MAX_AGE_HOURS:-36}"
 PATTERN="rbbk_ipad_verwaltung_backup_*"
+WEBDAV_URL="${WEBDAV_URL%/}"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S')  $*"; }
 
-# IServ muss eingebunden sein. Ohne diese Pruefung wuerde rsync munter in einen leeren
-# lokalen Ordner schreiben, der nur so aussieht wie das Netzlaufwerk.
-if [ ! -d "$ISERV_DIR" ]; then
-    echo "FEHLER: $ISERV_DIR ist nicht erreichbar - IServ im Finder eingebunden?" >&2
+# --- Passwort aus dem Schluesselbund, niemals aus einer Datei ---------------
+if ! PASS="$(security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$WEBDAV_USER" -w 2>/dev/null)"; then
+    echo "FEHLER: Kein Passwort im Schluesselbund fuer Dienst '$KEYCHAIN_SERVICE', Konto '$WEBDAV_USER'." >&2
+    echo "        Einmalig hinterlegen mit:" >&2
+    echo "        security add-generic-password -s '$KEYCHAIN_SERVICE' -a '$WEBDAV_USER' -w" >&2
     exit 1
 fi
 
-# Wirklich schreiben koennen, nicht nur "Verzeichnis existiert". macOS schuetzt Netzlaufwerke
-# ueber die Datenschutzeinstellungen, und ein Hintergrundprozess kann den Dialog nicht
-# anzeigen - er wuerde sonst mit einer rohen rsync-Meldung scheitern. Genau dieser Fall
-# trifft den launchd-Job, also hier eine verstaendliche Meldung erzeugen.
-_probe="$ISERV_DIR/.schreibtest-$$"
-if ! (touch "$_probe" 2>/dev/null && rm -f "$_probe" 2>/dev/null); then
-    echo "FEHLER: In $ISERV_DIR kann nicht geschrieben werden." >&2
-    echo "        Bei 'Operation not permitted': Systemeinstellungen > Datenschutz & Sicherheit" >&2
-    echo "        > Dateien und Ordner - Zugriff auf Netzwerkvolumes erlauben." >&2
+# curl-Zugangsdaten ueber eine Konfigurationsdatei statt ueber -u: Argumente sind in der
+# Prozessliste fuer jeden Benutzer sichtbar, diese Datei ist es nicht.
+CURLRC="$(mktemp)"
+chmod 600 "$CURLRC"
+trap 'rm -f "$CURLRC"' EXIT
+printf 'user = "%s:%s"\n' "$WEBDAV_USER" "$PASS" > "$CURLRC"
+unset PASS
+CURL=(curl -sS -K "$CURLRC" --fail-with-body --connect-timeout 20 --max-time 1800)
+
+webdav_list() {
+    "${CURL[@]}" -X PROPFIND -H "Depth: 1" "$WEBDAV_URL/" 2>/dev/null \
+        | tr '<>' '\n\n' | grep -o "rbbk_ipad_verwaltung_backup_[^\"<]*\.enc" | sort -u
+}
+
+# Zugang vorab pruefen. Sonst scheitert erst der Upload, nach der Uebertragung vom Server,
+# mit einer rohen curl-Meldung wie "error: 401".
+if ! "${CURL[@]}" -X PROPFIND -H "Depth: 0" "$WEBDAV_URL/" -o /dev/null 2>/dev/null; then
+    echo "FEHLER: Zugriff auf $WEBDAV_URL nicht moeglich." >&2
+    echo "        Passwort im Schluesselbund pruefen (Dienst '$KEYCHAIN_SERVICE', Konto '$WEBDAV_USER')," >&2
+    echo "        oder die Adresse in $CONF. Ersetzen mit:" >&2
+    echo "        security add-generic-password -U -s '$KEYCHAIN_SERVICE' -a '$WEBDAV_USER' -w" >&2
+    exit 1
+fi
+
+# --- Server erreichbar? ----------------------------------------------------
+if ! ssh -o BatchMode=yes -o ConnectTimeout=15 "$SERVER" true 2>/dev/null; then
+    echo "FEHLER: $SERVER ist nicht erreichbar." >&2
+    echo "        Haeufigste Ursache: dieser Rechner ist nicht im Schulnetz." >&2
     exit 1
 fi
 
 mkdir -p "$LOCAL_CACHE"
 
-# Erreichbarkeit vorab pruefen. Ohne das liefert rsync eine rohe Netzwerkmeldung, und der
-# haeufigste Fall - der Mac haengt gerade nicht im Schulnetz - sieht aus wie ein Defekt.
-if ! ssh -o BatchMode=yes -o ConnectTimeout=15 "$SERVER" true 2>/dev/null; then
-    echo "FEHLER: $SERVER ist nicht erreichbar." >&2
-    echo "        Haeufigste Ursache: dieser Rechner ist nicht im Schulnetz." >&2
-    echo "        Sonst pruefen: ssh $SERVER 'echo ok'" >&2
-    exit 1
-fi
-
 log "Hole Backups von $SERVER:$REMOTE_DIR"
-rsync -az --timeout=120 \
-    --include="$PATTERN" --exclude='*' \
-    "$SERVER:$REMOTE_DIR/" "$LOCAL_CACHE/"
+rsync -az --timeout=120 --include="$PATTERN" --exclude='*' "$SERVER:$REMOTE_DIR/" "$LOCAL_CACHE/"
 
 # Nach dem Zeitstempel IM DATEINAMEN sortieren, nicht nach der Aenderungszeit: beim
 # Kopieren liegen die Zeiten dicht beieinander, der Name ist eindeutig und sortierbar.
@@ -82,19 +95,41 @@ if [ "$AGE_HOURS" -gt "$MAX_AGE_HOURS" ]; then
 fi
 log "Neuestes Backup: $(basename "$NEWEST") (${AGE_HOURS}h alt)"
 
-log "Kopiere nach $ISERV_DIR"
-rsync -a --include="$PATTERN" --exclude='*' "$LOCAL_CACHE/" "$ISERV_DIR/"
+# --- Hochladen, was dort noch fehlt ---------------------------------------
+REMOTE_FILES="$(webdav_list || true)"
+UPLOADED=0
+for f in "$LOCAL_CACHE"/$PATTERN; do
+    name="$(basename "$f")"
+    if grep -Fxq "$name" <<< "$REMOTE_FILES"; then
+        continue
+    fi
+    log "Lade hoch: $name ($(( $(stat -f %z "$f") / 1024 / 1024 )) MB)"
+    "${CURL[@]}" -T "$f" "$WEBDAV_URL/$name" > /dev/null
+    UPLOADED=$((UPLOADED + 1))
+done
+[ "$UPLOADED" -eq 0 ] && log "Nichts hochzuladen - alles schon bei IServ."
 
-# Nachweisen statt vertrauen: rsync meldet auch dann Erfolg, wenn es nichts zu tun gab.
-if [ ! -f "$ISERV_DIR/$(basename "$NEWEST")" ]; then
-    echo "FEHLER: $(basename "$NEWEST") liegt nicht in $ISERV_DIR." >&2
+# --- Nachweisen statt vertrauen -------------------------------------------
+REMOTE_FILES="$(webdav_list || true)"
+if ! grep -Fxq "$(basename "$NEWEST")" <<< "$REMOTE_FILES"; then
+    echo "FEHLER: $(basename "$NEWEST") ist bei IServ nicht auffindbar." >&2
     exit 1
 fi
 log "Bestaetigt: $(basename "$NEWEST") liegt bei IServ."
 
-# Aufbewahrung getrennt von der des Servers (dort 7 Tage)
-find "$LOCAL_CACHE" -maxdepth 1 -name "$PATTERN" -mtime "+$KEEP_DAYS" -delete 2>/dev/null || true
-find "$ISERV_DIR"   -maxdepth 1 -name "$PATTERN" -mtime "+$KEEP_DAYS" -delete 2>/dev/null || true
+# --- Aufraeumen, anhand des Datums IM DATEINAMEN --------------------------
+CUTOFF="$(date -v-"${KEEP_DAYS}"d +%Y-%m-%d)"
+while read -r name; do
+    [ -z "$name" ] && continue
+    datum="${name#rbbk_ipad_verwaltung_backup_}"
+    datum="${datum:0:10}"
+    if [[ "$datum" < "$CUTOFF" ]]; then
+        log "Entferne bei IServ: $name"
+        "${CURL[@]}" -X DELETE "$WEBDAV_URL/$name" > /dev/null || true
+    fi
+done <<< "$REMOTE_FILES"
 
-COUNT="$(find "$ISERV_DIR" -maxdepth 1 -name "$PATTERN" | wc -l | tr -d ' ')"
+find "$LOCAL_CACHE" -maxdepth 1 -name "$PATTERN" -mtime "+$KEEP_DAYS" -delete 2>/dev/null || true
+
+COUNT="$(webdav_list | wc -l | tr -d ' ')"
 log "Fertig. Backups bei IServ: $COUNT (Aufbewahrung ${KEEP_DAYS} Tage)"

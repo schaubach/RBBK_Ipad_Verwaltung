@@ -1,7 +1,11 @@
 # Backups außer Haus sichern
 
 Die Anwendung erzeugt einmal täglich ein verschlüsseltes Backup und legt es zweifach ab:
-in MongoDB (GridFS, 7 Tage) und als Datei unter `/var/backups/ipad-verwaltung` auf dem Server.
+in MongoDB (GridFS) und als Datei unter `/var/backups/ipad-verwaltung` auf dem Server, beides
+20 Tage lang. Ändert sich der Datenbestand nicht, entsteht kein neues Backup — verglichen wird
+eine Prüfsumme der **unverschlüsselten** Daten, da zwei Verschlüsselungen derselben Daten wegen
+des Zufalls-Salts nie gleich aussehen und ihre Größe nichts über den Inhalt aussagt. Damit beim
+Aufräumen nie alles wegaltert, bleiben immer mindestens die drei jüngsten erhalten.
 Von dort wird es außer Haus gesichert.
 
 **E-Mail-Versand gibt es nicht mehr.** Die Vertrags-PDFs liegen als Binärdaten in den
@@ -23,8 +27,9 @@ Der Vorteil: **auf dem Server liegt kein IServ-Zugang.** Das IServ-Passwort blei
 Schlüsselbund Ihres Macs. Der Server kennt nur Ihren öffentlichen SSH-Schlüssel, und der
 lässt sich jederzeit zurückziehen.
 
-Der Preis: es läuft nur, wenn Ihr Rechner an und angemeldet ist. In den Ferien entsteht eine
-Lücke — die Server-Backups laufen in dieser Zeit weiter, nur die Kopie außer Haus pausiert.
+Der Preis: es läuft nur, wenn Ihr Rechner an und im Schulnetz ist. In den Ferien entsteht eine
+Lücke — die Server-Backups laufen in dieser Zeit weiter, nur die Kopie außer Haus pausiert. An
+solchen Tagen meldet der Job „Server ist nicht erreichbar"; das ist kein Defekt.
 
 ### Einrichtung
 
@@ -76,8 +81,13 @@ Prüfen, dass es wirkt (die Zeile muss `drwxr-s---` zeigen, das `s` ist das setg
 ssh schaubach@10.97.6.249 'ls -ld /var/backups/ipad-verwaltung'
 ```
 
-**4. IServ im Finder einbinden:** *Gehe zu → Mit Server verbinden*, die WebDAV-Adresse Ihrer
-IServ-Instanz. Notieren Sie den Pfad unterhalb von `/Volumes/`.
+**4. IServ-Passwort in den Schlüsselbund legen** — es landet in keiner Datei:
+
+```bash
+security add-generic-password -s 'iserv-webdav' -a 'IHR_ISERV_BENUTZER' -w
+```
+
+Das Passwort wird abgefragt, ohne es anzuzeigen.
 
 **5. Konfiguration anlegen:**
 
@@ -86,15 +96,22 @@ mkdir -p ~/.config/ipad-verwaltung
 cat > ~/.config/ipad-verwaltung/backup-pull.conf <<'CONF'
 SERVER=schaubach@10.97.6.249
 REMOTE_DIR=/var/backups/ipad-verwaltung
-ISERV_DIR=/Volumes/Files/Backups/iPad-Verwaltung
-KEEP_DAYS=30
+WEBDAV_URL=https://webdav.rbbk-do.de/Files/iPadVerwaltung_Backups
+WEBDAV_USER=IHR_ISERV_BENUTZER
+KEYCHAIN_SERVICE=iserv-webdav
+KEEP_DAYS=20
 MAX_AGE_HOURS=36
 CONF
+chmod 600 ~/.config/ipad-verwaltung/backup-pull.conf
 ```
 
-`ISERV_DIR` an Ihren tatsächlichen Mountpfad anpassen. `MAX_AGE_HOURS` ist die Alarmschwelle:
-ist das neueste Backup älter, bricht der Lauf mit Fehler ab, statt stillschweigend eine alte
-Datei nochmal zu kopieren.
+Hochgeladen wird **direkt per WebDAV**, nicht über ein im Finder eingebundenes Laufwerk. Zwei
+Gründe: ein solcher Mount überlebt keinen Neustart, und macOS verweigert Hintergrundprozessen
+den Zugriff auf Netzlaufwerke — der nächtliche Job scheiterte daran, während derselbe Aufruf im
+Terminal funktionierte.
+
+`MAX_AGE_HOURS` ist die Alarmschwelle: ist das neueste Backup älter, bricht der Lauf mit Fehler
+ab, statt stillschweigend eine alte Datei noch einmal hochzuladen.
 
 **6. Einmal von Hand testen:**
 
