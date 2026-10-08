@@ -145,6 +145,53 @@ async def get_ipad_filter(user: dict) -> dict:
     }
 
 
+async def resolve_bildungsgang(user: dict, explicit_id: Optional[str] = None) -> str:
+    """Bestimmt, welchem Bildungsgang ein NEUER Datensatz gehört.
+
+    Drei Fälle, und der mittlere ist der Alltag:
+    - ausdrücklich angegeben: wird übernommen, sofern die Person dort schreiben darf
+    - für genau einen zuständig: der wird genommen, ohne Rückfrage
+    - für mehrere zuständig (oder Admin): muss gewählt werden
+
+    Admins bekommen bewusst keine Vorauswahl. Sie sind für nichts zuständig und für alles
+    zuständig zugleich - eine geratene Zuordnung landete unbemerkt im falschen Bestand.
+    Genau so sind die 105 Geräte am admin-Konto entstanden.
+    """
+    verfuegbar = await get_responsible_bildungsgang_ids(user)
+
+    if explicit_id:
+        if is_admin(user) or explicit_id in verfuegbar:
+            if not await db.bildungsgaenge.find_one({"id": explicit_id}):
+                raise HTTPException(status_code=400, detail="Der gewählte Bildungsgang existiert nicht.")
+            return explicit_id
+        raise HTTPException(status_code=403, detail="Für diesen Bildungsgang sind Sie nicht zuständig.")
+
+    if is_admin(user):
+        raise HTTPException(
+            status_code=400,
+            detail="Bitte einen Bildungsgang auswählen. Als Administrator gibt es keine Vorauswahl, "
+            "damit nichts versehentlich im falschen Bestand landet.",
+        )
+
+    if len(verfuegbar) == 1:
+        return verfuegbar[0]
+
+    if not verfuegbar:
+        raise HTTPException(
+            status_code=400,
+            detail="Sie sind derzeit für keinen Bildungsgang zuständig und können deshalb nichts anlegen. "
+            "Bitte an die Administration wenden.",
+        )
+
+    namen = [
+        b["name"] async for b in db.bildungsgaenge.find({"id": {"$in": verfuegbar}}, {"name": 1}).sort("name", 1)
+    ]
+    raise HTTPException(
+        status_code=400,
+        detail="Bitte einen Bildungsgang auswählen: " + ", ".join(namen),
+    )
+
+
 async def validate_resource_ownership(resource_type: str, resource_id: str, user: dict):
     """Ensure user owns the resource (admin bypasses; pool iPads are admin-only, see get_ipad_filter)."""
     if is_admin(user):

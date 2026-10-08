@@ -17,6 +17,7 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_user_filter,
+    resolve_bildungsgang,
     is_admin,
     validate_resource_ownership,
 )
@@ -34,12 +35,15 @@ async def create_student(student_data: dict, current_user: dict = Depends(get_cu
         if not student_data.get("sus_vorn") or not student_data.get("sus_nachn"):
             raise HTTPException(status_code=400, detail="Vorname und Nachname sind erforderlich")
 
-        # Check if student already exists for this user
+        bildungsgang_id = await resolve_bildungsgang(current_user, student_data.get("bildungsgang_id"))
+
+        # Dublettenpruefung innerhalb des Bildungsgangs - derselbe Name in einem anderen
+        # Bildungsgang ist eine andere Person und voellig in Ordnung.
         existing = await db.students.find_one(
             {
                 "sus_vorn": student_data["sus_vorn"],
                 "sus_nachn": student_data["sus_nachn"],
-                "user_id": current_user["id"],
+                "bildungsgang_id": bildungsgang_id,
             }
         )
         if existing:
@@ -52,7 +56,8 @@ async def create_student(student_data: dict, current_user: dict = Depends(get_cu
         # Pydantic silently discards unknown kwargs (extra="ignore" by default), so a
         # mismatch here doesn't error, it just quietly drops the data on the floor.
         student = Student(
-            user_id=current_user["id"],
+            user_id=current_user["id"],  # angelegt von
+            bildungsgang_id=bildungsgang_id,
             sus_vorn=student_data["sus_vorn"],
             sus_nachn=student_data["sus_nachn"],
             sus_kl=student_data.get("sus_kl", ""),

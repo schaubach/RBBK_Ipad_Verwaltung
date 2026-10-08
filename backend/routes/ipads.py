@@ -17,6 +17,7 @@ from core.security import (
     get_current_user,
     get_ipad_filter,
     get_user_filter,
+    resolve_bildungsgang,
     require_admin_user,
 )
 from core.validators import read_excel_upload, safe_str, validate_uploaded_file
@@ -70,8 +71,12 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(require_admi
             raise HTTPException(status_code=400, detail="ITNr und SNr sind erforderlich")
 
         is_in_pool = bool(ipad_data.get("is_in_pool", False))
+        # Poolgeraete gehoeren keinem Bildungsgang - sie liegen zentral, bis jemand sie holt.
+        bildungsgang_id = None if is_in_pool else await resolve_bildungsgang(
+            current_user, ipad_data.get("bildungsgang_id")
+        )
 
-        # Pool: global uniqueness check; non-pool: per-user uniqueness
+        # Pool: global uniqueness check; non-pool: per Bildungsgang
         if is_in_pool:
             existing = await db.ipads.find_one({"itnr": ipad_data["itnr"]})
             if existing:
@@ -80,13 +85,14 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(require_admi
                     detail=f"iPad mit ITNr {ipad_data['itnr']} existiert bereits (Pool-Import erfordert globale Eindeutigkeit)",
                 )
         else:
-            existing = await db.ipads.find_one({"itnr": ipad_data["itnr"], "user_id": current_user["id"]})
+            existing = await db.ipads.find_one({"itnr": ipad_data["itnr"], "bildungsgang_id": bildungsgang_id})
             if existing:
                 raise HTTPException(status_code=400, detail=f"iPad mit ITNr {ipad_data['itnr']} existiert bereits")
 
         # Create iPad object
         ipad = iPad(
-            user_id=current_user["id"],
+            user_id=current_user["id"],  # angelegt von
+            bildungsgang_id=bildungsgang_id,
             itnr=ipad_data["itnr"],
             snr=ipad_data["snr"],
             karton=ipad_data.get("karton", ""),

@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 class Assignment(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
+    # Zugehoerigkeit. user_id darueber bleibt als "angelegt von" erhalten.
+    bildungsgang_id: Optional[str] = None
     student_id: str
     ipad_id: str
     itnr: str

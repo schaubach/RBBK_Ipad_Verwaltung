@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 class iPad(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: Optional[str] = None  # Owner (None = orphan in pool)
+    # Zugehoerigkeit. user_id darueber bleibt als "angelegt von" erhalten.
+    bildungsgang_id: Optional[str] = None
     itnr: str
     snr: str
     karton: Optional[str] = None
