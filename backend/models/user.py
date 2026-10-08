@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -15,7 +15,6 @@ class User(BaseModel):
     is_active: bool = True
     force_password_change: bool = False
     comment: Optional[str] = None
-    department_id: Optional[str] = None  # Verweis auf departments.id, None = keine Abteilung
     created_by: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -31,17 +30,15 @@ class UserCreate(BaseModel):
     password: str
     role: str = "user"
     comment: Optional[str] = None
-    department_id: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
     password: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
-    # Leerer Text loescht den Kommentar, leere Abteilung entfernt die Zuordnung. Deshalb
-    # unterscheidet die Route zwischen "nicht mitgeschickt" (None) und "ausdruecklich leer".
+    # Leerer Text loescht den Kommentar. Deshalb unterscheidet die Route zwischen
+    # "nicht mitgeschickt" (None) und "ausdruecklich leer".
     comment: Optional[str] = None
-    department_id: Optional[str] = None
 
 
 class UserResponse(BaseModel):
@@ -51,8 +48,10 @@ class UserResponse(BaseModel):
     is_active: bool
     force_password_change: bool = False
     comment: Optional[str] = None
-    department_id: Optional[str] = None
-    department_name: Optional[str] = None  # aufgeloest, damit die Oberflaeche nicht nachladen muss
+    # Bildungsgaenge, fuer die diese Person DERZEIT zustaendig ist - aufgeloest mitgeliefert,
+    # damit die Oberflaeche nicht nachladen muss. Zuordnung erfolgt ueber die
+    # Zustaendigkeits-Endpunkte, nicht ueber das Benutzerformular.
+    bildungsgaenge: List[dict] = Field(default_factory=list)
     created_by: Optional[str]
     created_at: datetime
     updated_at: datetime

@@ -36,18 +36,24 @@ def _parse_dt(value, fallback=None):
     return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
-async def _user_response(user: dict, dept_names: dict = None) -> UserResponse:
-    """UserResponse aus einem Mongo-Dokument, inklusive aufgeloestem Abteilungsnamen.
+async def _user_response(user: dict, bg_namen: dict = None, zust: dict = None) -> UserResponse:
+    """UserResponse aus einem Mongo-Dokument, mit den DERZEIT zustaendigen Bildungsgaengen.
 
-    ``dept_names`` erlaubt dem Listenendpunkt, die Namen einmal vorab zu laden, statt pro
-    Benutzer eine eigene Abfrage abzusetzen.
+    ``bg_namen`` und ``zust`` erlauben dem Listenendpunkt, Namen und Zustaendigkeiten einmal
+    vorab zu laden, statt pro Benutzer zwei eigene Abfragen abzusetzen.
     """
-    dept_id = user.get("department_id")
-    if dept_id and dept_names is None:
-        dept = await db.departments.find_one({"id": dept_id}, {"name": 1})
-        dept_name = dept["name"] if dept else None
+    if zust is None:
+        ids = [
+            z["bildungsgang_id"]
+            async for z in db.zustaendigkeiten.find({"user_id": user["id"], "bis": None}, {"bildungsgang_id": 1})
+        ]
     else:
-        dept_name = (dept_names or {}).get(dept_id)
+        ids = zust.get(user["id"], [])
+    if bg_namen is None:
+        bg_namen = {
+            b["id"]: b["name"]
+            async for b in db.bildungsgaenge.find({"id": {"$in": ids}}, {"id": 1, "name": 1})
+        }
     return UserResponse(
         id=user["id"],
         username=user["username"],
@@ -55,8 +61,7 @@ async def _user_response(user: dict, dept_names: dict = None) -> UserResponse:
         is_active=user.get("is_active", True),
         force_password_change=user.get("force_password_change", False),
         comment=user.get("comment"),
-        department_id=dept_id,
-        department_name=dept_name,
+        bildungsgaenge=[{"id": i, "name": bg_namen.get(i, "(unbekannt)")} for i in ids],
         created_by=user.get("created_by"),
         created_at=_parse_dt(user["created_at"]),
         updated_at=_parse_dt(user.get("updated_at"), _parse_dt(user["created_at"])),
@@ -85,12 +90,6 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
     if user_data.role not in ["admin", "user"]:
         raise HTTPException(status_code=400, detail="Role must be 'admin' or 'user'")
 
-    # Abteilung muss es geben - sonst entstuende ein Verweis ins Leere, der sich
-    # spaeter nur noch per Datenbankzugriff aufklaeren liesse.
-    department_id = (user_data.department_id or "").strip() or None
-    if department_id and not await db.departments.find_one({"id": department_id}):
-        raise HTTPException(status_code=400, detail="Die gewählte Abteilung existiert nicht.")
-
     # Create new user
     hashed_password = get_password_hash(user_data.password)
     new_user = User(
@@ -99,7 +98,6 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
         role=user_data.role,
         is_active=True,
         comment=(user_data.comment or "").strip() or None,
-        department_id=department_id,
         created_by=current_user["id"],
     )
 
@@ -117,11 +115,14 @@ async def list_users(request: Request, current_user: dict = Depends(get_current_
     require_admin(current_user)
 
     users = await db.users.find().to_list(length=None)
-    # Abteilungsnamen einmal laden statt einmal pro Benutzer
-    dept_names = {
-        d["id"]: d["name"] for d in await db.departments.find({}, {"id": 1, "name": 1}).to_list(length=None)
+    # Namen und laufende Zustaendigkeiten einmal laden statt zweimal pro Benutzer
+    bg_namen = {
+        b["id"]: b["name"] for b in await db.bildungsgaenge.find({}, {"id": 1, "name": 1}).to_list(length=None)
     }
-    return [await _user_response(user, dept_names) for user in users]
+    zust = {}
+    for z in await db.zustaendigkeiten.find({"bis": None}, {"user_id": 1, "bildungsgang_id": 1}).to_list(length=None):
+        zust.setdefault(z["user_id"], []).append(z["bildungsgang_id"])
+    return [await _user_response(user, bg_namen, zust) for user in users]
 
 
 @api_router.put("/admin/users/{user_id}", response_model=UserResponse)
@@ -157,13 +158,6 @@ async def update_user(user_id: str, user_data: UserUpdate, current_user: dict = 
     # Kommentar: ein mitgeschickter Leerstring loescht ihn, ein fehlendes Feld laesst ihn stehen.
     if user_data.comment is not None:
         update_dict["comment"] = user_data.comment.strip() or None
-
-    # Abteilung: ebenso - Leerstring entfernt die Zuordnung, ein Wert muss existieren.
-    if user_data.department_id is not None:
-        department_id = user_data.department_id.strip() or None
-        if department_id and not await db.departments.find_one({"id": department_id}):
-            raise HTTPException(status_code=400, detail="Die gewählte Abteilung existiert nicht.")
-        update_dict["department_id"] = department_id
 
     # Update user
     await db.users.update_one({"id": user_id}, {"$set": update_dict})
