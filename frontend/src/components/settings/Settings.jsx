@@ -192,7 +192,9 @@ const Settings = ({ isAdmin = false }) => {
             <div className="border-l-4 border-purple-400 bg-purple-50 p-4 rounded">
               <h4 className="font-medium text-purple-800 mb-2">Import-Vorlage herunterladen</h4>
               <p className="text-sm text-purple-700 mb-3">
-                Laden Sie eine Excel-Vorlage mit allen unterstützten Spalten und Beispieldaten herunter.
+                {isAdmin
+                  ? 'Laden Sie eine Excel-Vorlage mit allen unterstützten Spalten und Beispieldaten herunter.'
+                  : 'Laden Sie eine Excel-Vorlage mit den Schüler-Spalten und Beispieldaten herunter.'}
               </p>
               <Button 
                 onClick={async () => {
@@ -228,8 +230,7 @@ const Settings = ({ isAdmin = false }) => {
                 </>
               ) : (
                 <p className="text-sm text-blue-700 mb-4">
-                  Excel-Datei mit Schüler-Spalten (SuSVorn, SuSNachn, etc.) hochladen. Enthaltene Zeilen mit
-                  mehreren iPads pro Schüler (1:n) werden unterstützt (eine Zeile pro iPad-Zuordnung).
+                  Excel-Datei mit Schüler-Spalten (SuSVorn, SuSNachn, etc.) hochladen.
                 </p>
               )}
               <p className="text-sm text-blue-600 mb-4">

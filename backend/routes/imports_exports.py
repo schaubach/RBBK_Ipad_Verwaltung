@@ -604,11 +604,19 @@ async def import_inventory(
         raise HTTPException(status_code=500, detail=f"Error processing inventory import: {str(e)}")
 
 
+# iPad-related template columns - dropped from the student-only (non-admin) template.
+TEMPLATE_IPAD_COLUMNS = ["Pencil", "ITNr", "SNr", "Typ", "Status", "AnschJahr", "AusleiheDatum", "Rückgabe"]
+
+
 @api_router.get("/imports/template")
 async def download_import_template(current_user: dict = Depends(get_current_user)):
     """
     Download an Excel template for data import.
     The template contains all supported columns with example data.
+
+    Non-admins may only import students, so their template leaves out the iPad
+    columns and the iPad-only example rows - otherwise they'd fill in columns the
+    import then silently ignores.
     """
     try:
         # Create template data with example rows
@@ -731,6 +739,8 @@ async def download_import_template(current_user: dict = Depends(get_current_user
         ]
 
         df = pd.DataFrame(template_data)
+        if not is_admin(current_user):
+            df = df[df["SuSVorn"] != ""].drop(columns=TEMPLATE_IPAD_COLUMNS).drop_duplicates()
 
         # Create Excel file in memory
         output = io.BytesIO()

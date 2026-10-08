@@ -44,12 +44,30 @@ def safe_str(value) -> str:
     return "" if str_val == "nan" else str_val
 
 
+# Leading bytes of the two Excel container formats: OOXML (.xlsx) is a zip archive,
+# legacy BIFF (.xls) an OLE2 compound document.
+_ZIP_MAGIC = b"PK\x03\x04"
+_OLE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
 def read_excel_upload(contents: bytes, filename: str) -> pd.DataFrame:
-    """Parse uploaded Excel bytes into a DataFrame, picking the engine by extension."""
+    """Parse uploaded Excel bytes into a DataFrame, picking the engine by file content.
+
+    Sniffing the content rather than trusting the extension also handles files whose
+    extension doesn't match their format (e.g. an .xlsx saved under an .xls name).
+    """
+    if contents.startswith(_ZIP_MAGIC):
+        engine = "openpyxl"
+    elif contents.startswith(_OLE_MAGIC):
+        engine = "xlrd"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Die Datei ist keine gültige Excel-Datei (.xlsx oder .xls). "
+            "Bitte in Excel öffnen und erneut als Excel-Arbeitsmappe speichern.",
+        )
     try:
-        if filename.lower().endswith(".xlsx"):
-            return pd.read_excel(io.BytesIO(contents), engine="openpyxl")
-        return pd.read_excel(io.BytesIO(contents), engine="xlrd")
+        return pd.read_excel(io.BytesIO(contents), engine=engine)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error reading Excel file: {str(e)}")
 
@@ -74,16 +92,26 @@ def validate_uploaded_file(file_content: bytes, filename: str, max_size_mb: int 
         # PDF's %PDF- header (byte 0) does - 2048 was misidentifying valid .xlsx
         # uploads as generic application/zip and rejecting them.
         mime_type = magic.from_buffer(file_content[:8192], mime=True)
-        expected_mimes = {
-            ".pdf": "application/pdf",
-            ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            ".xls": "application/vnd.ms-excel",
+        # Excel files are accepted in either container format regardless of extension
+        # (read_excel_upload picks the parser by content). libmagic reports legacy .xls
+        # files as vnd.ms-excel, CDFV2 or x-ole-storage depending on its version and on
+        # which program wrote the file.
+        excel_mimes = {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.ms-excel",
+            "application/CDFV2",
+            "application/x-ole-storage",
         }
-        expected_mime = expected_mimes.get(f".{file_ext}")
-        if expected_mime and mime_type != expected_mime:
+        expected_mimes = {
+            ".pdf": {"application/pdf"},
+            ".xlsx": excel_mimes,
+            ".xls": excel_mimes,
+        }
+        expected = expected_mimes.get(f".{file_ext}")
+        if expected and mime_type not in expected:
             raise HTTPException(
                 status_code=400,
-                detail=f"File content doesn't match extension. Expected: {expected_mime}, Got: {mime_type}",
+                detail=f"File content doesn't match extension. Expected: {sorted(expected)}, Got: {mime_type}",
             )
     except HTTPException:
         raise
