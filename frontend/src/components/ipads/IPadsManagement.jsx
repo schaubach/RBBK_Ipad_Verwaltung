@@ -12,12 +12,20 @@ import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { UserPicker } from '../shared/UserPicker';
+import { BildungsgangSelect } from '../shared/BildungsgangSelect';
+import { useBildungsgaenge } from '../../hooks/useBildungsgaenge';
 import { toast } from 'sonner';
 import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Download, Upload, Users } from 'lucide-react';
 import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
 import { downloadBlob } from '../../utils/download';
 
 const IPadsManagement = ({ isAdmin = false }) => {
+  // Der Benutzername wird nicht als Prop durchgereicht; seit dem Login liegt er im localStorage.
+  const [currentUsername] = useState(() => localStorage.getItem('username') || '');
+  // `alle` nur zur Anzeige in der Liste (Name + aktuelle Zuständige), `auswahlNoetig` steuert,
+  // ob der Anlegen-Dialog eine Pflichtangabe erwartet.
+  const { alle: bildungsgaenge, auswahlNoetig } = useBildungsgaenge(currentUsername);
+
   const [ipads, setIPads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedIPadId, setSelectedIPadId] = useState(null);
@@ -91,6 +99,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
     status: 'ok',
     is_in_pool: false
   });
+  const [newBildungsgangId, setNewBildungsgangId] = useState('');
   const [creating, setCreating] = useState(false);
 
   // Global settings for defaults
@@ -340,6 +349,16 @@ const IPadsManagement = ({ isAdmin = false }) => {
     }
   };
 
+  // Bildungsgang eines Geräts - reine Anzeige. Poolgeräte behalten ihren bildungsgang_id
+  // (siehe release_ipad_to_pool), gehören aber zum zentralen Bestand: deshalb kein Name.
+  const getIpadBildungsgang = (ipad) =>
+    (ipad.is_in_pool ? null : bildungsgaenge.find(b => b.id === ipad.bildungsgang_id)) || null;
+
+  // Wer zuständig IST, steht nie am Gerät, sondern wird aus den offenen Zuständigkeiten
+  // des Bildungsgangs abgeleitet (bis === null = läuft noch).
+  const getAktuellZustaendige = (ipad) =>
+    (getIpadBildungsgang(ipad)?.zustaendige || []).filter(z => !z.bis).map(z => z.username);
+
   // Active assignment + student for a given iPad (for Schüler-Filter, Batch-Auflösen, Export-Kontext)
   const getIpadAssignment = (ipadId) => assignments.find(a => a.ipad_id === ipadId && a.is_active);
   const getIpadStudent = (ipadId) => {
@@ -521,6 +540,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       status: 'ok',
       is_in_pool: false
     });
+    setNewBildungsgangId('');
     setCreateDialogOpen(true);
   };
 
@@ -760,7 +780,13 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
     setCreating(true);
     try {
-      const response = await api.post('/ipads', newIPadData);
+      // Ein Poolgerät gehört keinem Bildungsgang - dann darf auch keiner mitgeschickt werden.
+      // Ohne Auswahl ergänzt das Backend den Bildungsgang aus der eigenen Zuständigkeit.
+      const payload = { ...newIPadData };
+      if (!newIPadData.is_in_pool && newBildungsgangId) {
+        payload.bildungsgang_id = newBildungsgangId;
+      }
+      const response = await api.post('/ipads', payload);
       toast.success('iPad erfolgreich angelegt!');
       setCreateDialogOpen(false);
       setNewIPadData({
@@ -770,6 +796,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
         pencil: globalSettings.pencil || '',
         status: 'ok'
       });
+      setNewBildungsgangId('');
       loadIPads();
     } catch (error) {
       console.error('Create iPad error:', error);
@@ -812,6 +839,10 @@ const IPadsManagement = ({ isAdmin = false }) => {
     ipad.status === 'ok' && !ipad.current_assignment_id
   ).length;
   const poolAvailableCount = poolIPads.filter(i => i.status === 'ok' && !i.current_assignment_id).length;
+
+  // Pflichtangabe nur, wenn das Feld auch zu sehen ist: bei genau einer eigenen Zuständigkeit
+  // ergänzt das Backend den Bildungsgang, Poolgeräte bekommen gar keinen.
+  const bildungsgangFehlt = auswahlNoetig && !newIPadData.is_in_pool && !newBildungsgangId;
 
   // For the delete-confirmation dialogs: warn when the deletion will also dissolve an active assignment.
   const selectedAssignedCount = selectedIPads.filter(
@@ -1126,6 +1157,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
                         )}
                       </div>
                     </TableHead>
+                    <TableHead>Bildungsgang</TableHead>
+                    <TableHead>Zuständig</TableHead>
                     <TableHead
                       className="cursor-pointer hover:bg-gray-50"
                       onClick={() => handleSort('status')}
@@ -1154,7 +1187,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 <TableBody>
                   {filteredIPads.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                      <TableCell colSpan={9} className="text-center py-8 text-gray-500">
                         Keine iPads entsprechen den aktuellen Filtern.
                       </TableCell>
                     </TableRow>
@@ -1200,6 +1233,14 @@ const IPadsManagement = ({ isAdmin = false }) => {
                         >
                           {ipad.typ || 'N/A'}
                         </button>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {ipad.is_in_pool
+                          ? <span className="text-violet-700">🌐 Pool</span>
+                          : getIpadBildungsgang(ipad)?.name || <span className="text-gray-400">—</span>}
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {getAktuellZustaendige(ipad).join(', ') || <span className="text-gray-400">—</span>}
                       </TableCell>
                       <TableCell>
                         <Select
@@ -1392,6 +1433,16 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 </SelectContent>
               </Select>
             </div>
+            {/* Poolgeräte liegen zentral, bis jemand sie übernimmt - dann entfällt die Frage. */}
+            {!newIPadData.is_in_pool && (
+              <BildungsgangSelect
+                value={newBildungsgangId}
+                onChange={setNewBildungsgangId}
+                username={currentUsername}
+                isAdmin={isAdmin}
+                id="create-bildungsgang"
+              />
+            )}
             {isAdmin && (
               <div className="flex items-center gap-2 p-3 bg-violet-50 rounded-lg border border-violet-200">
                 <Checkbox
@@ -1410,7 +1461,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleCreateIPad}
-              disabled={creating || !newIPadData.itnr || !newIPadData.snr}
+              disabled={creating || !newIPadData.itnr || !newIPadData.snr || bildungsgangFehlt}
             >
               {creating ? 'Erstelle...' : 'iPad anlegen'}
             </AlertDialogAction>

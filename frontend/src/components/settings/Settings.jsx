@@ -7,11 +7,26 @@ import { Label } from '../ui/label';
 import { toast } from 'sonner';
 import { Upload, Download, User } from 'lucide-react';
 import { downloadBlob, filenameFromContentDisposition } from '../../utils/download';
+import { BildungsgangSelect } from '../shared/BildungsgangSelect';
+import { useBildungsgaenge } from '../../hooks/useBildungsgaenge';
 
-const Settings = ({ isAdmin = false }) => {
+const Settings = ({ isAdmin = false, username }) => {
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importToPool, setImportToPool] = useState(false);
+  const [bildungsgangId, setBildungsgangId] = useState('');
+
+  // App.js reicht den Benutzernamen hier (noch) nicht herein - seit dem Login steht
+  // derselbe Wert im localStorage.
+  const aktuellerBenutzer = username || localStorage.getItem('username') || '';
+
+  // BildungsgangSelect entscheidet selbst, ob es sich zeigt; hier wird dieselbe Antwort
+  // gebraucht, um den Rahmen nicht leer zu umranden und das Dateifeld zu sperren, solange
+  // die Wahl fehlt - sonst lädt man eine Datei hoch, die das Backend mit 400 ablehnt.
+  const { auswahlNoetig } = useBildungsgaenge(aktuellerBenutzer);
+
+  // Pool-Geräte gehören bewusst zu keinem Bildungsgang, dort wird also nichts gewählt.
+  const bildungsgangFehlt = auswahlNoetig && !importToPool && !bildungsgangId;
 
   // Account management states
   const [changingPassword, setChangingPassword] = useState(false);
@@ -43,15 +58,20 @@ const Settings = ({ isAdmin = false }) => {
     }
   };
 
-  const handleInventoryImport = async (file, importToPool = false) => {
+  const handleInventoryImport = async (file, importToPool = false, bildungsgangId = '') => {
     if (!file) return;
-    
+
     setImporting(true);
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('import_to_pool', importToPool ? 'true' : 'false');
-      
+      // Beim Pool-Import bleibt das Feld bewusst weg - Poolgeräte gehören keinem Bildungsgang.
+      // Ohne eigene Wahl ergänzt das Backend den Bildungsgang selbst.
+      if (!importToPool && bildungsgangId) {
+        formData.append('bildungsgang_id', bildungsgangId);
+      }
+
       toast.info(importToPool ? 'Importiere iPads in den Pool...' : 'Importiere Datensicherung...');
       
       const response = await api.post('/imports/inventory', formData, {
@@ -253,11 +273,22 @@ const Settings = ({ isAdmin = false }) => {
                     </label>
                   </div>
                 )}
+                {!importToPool && auswahlNoetig && (
+                  <div className="mb-3 text-left">
+                    <BildungsgangSelect
+                      value={bildungsgangId}
+                      onChange={setBildungsgangId}
+                      username={aktuellerBenutzer}
+                      isAdmin={isAdmin}
+                      id="import-bildungsgang"
+                    />
+                  </div>
+                )}
                 <Input
                   type="file"
                   accept=".xlsx,.xls"
-                  onChange={(e) => e.target.files[0] && handleInventoryImport(e.target.files[0], importToPool)}
-                  disabled={importing}
+                  onChange={(e) => e.target.files[0] && handleInventoryImport(e.target.files[0], importToPool, bildungsgangId)}
+                  disabled={importing || bildungsgangFehlt}
                   className="mb-2"
                   data-testid="data-import-input"
                 />

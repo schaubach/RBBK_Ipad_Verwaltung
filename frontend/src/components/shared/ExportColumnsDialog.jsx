@@ -20,6 +20,7 @@ const GROUP_LABELS = {
   student: 'Schüler & Erziehungsberechtigte',
   ipad: 'iPad',
   contract: 'Vertrag',
+  bildungsgang: 'Bildungsgang',
 };
 
 /**
@@ -49,8 +50,24 @@ export const ExportColumnsDialog = ({ open, onOpenChange, onConfirm, title = 'Sp
         let initial;
         try {
           const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-          if (Array.isArray(stored) && stored.length > 0) {
-            initial = new Set(stored.filter(c => res.data.columns.includes(c)));
+          // Seit dem Bildungsgang-Umbau speichern wir neben der Auswahl auch, welche Spalten
+          // es beim Speichern überhaupt gab: Nur so ist eine bewusst abgewählte Spalte von
+          // einer später hinzugekommenen zu unterscheiden. Ohne das fiele jede neue Spalte
+          // bei allen, die schon einmal bestätigt haben, stillschweigend aus dem Export.
+          const gespeichert = Array.isArray(stored) ? stored : stored?.ausgewaehlt;
+          const bekannt = Array.isArray(stored)
+            // Altes Format: die Bildungsgang-Gruppe kam erst danach dazu, eine alte Auswahl
+            // kann sie also nicht abgewählt haben - alles andere gilt als bewusst gesetzt.
+            ? res.data.columns.filter(c => !(res.data.groups?.bildungsgang || []).includes(c))
+            : stored?.bekannt;
+          if (Array.isArray(gespeichert) && gespeichert.length > 0) {
+            const neueSpalten = Array.isArray(bekannt)
+              ? res.data.columns.filter(c => !bekannt.includes(c))
+              : [];
+            initial = new Set([
+              ...gespeichert.filter(c => res.data.columns.includes(c)),
+              ...neueSpalten,
+            ]);
           }
         } catch (e) {
           initial = undefined;
@@ -98,9 +115,12 @@ export const ExportColumnsDialog = ({ open, onOpenChange, onConfirm, title = 'Sp
     if (orderedSelection.length === 0) {
       return; // disable via button state below
     }
-    // Persist selection
+    // Persist selection (mit dem damals bekannten Spaltenumfang, siehe Laden oben)
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(orderedSelection));
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ ausgewaehlt: orderedSelection, bekannt: allColumns })
+      );
     } catch (e) {
       /* ignore quota errors */
     }

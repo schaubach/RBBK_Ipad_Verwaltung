@@ -9,9 +9,14 @@ import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Alert, AlertDescription } from '../ui/alert';
 import { toast } from 'sonner';
-import { Users, Building2, Trash2, Shield, Edit, Plus, AlertTriangle, Download, History, Lock, Unlock, Server, KeyRound, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
+import { Users, Building2, Trash2, Shield, Edit, Plus, AlertTriangle, Download, History, Lock, Unlock, Server, KeyRound, RefreshCw, Settings as SettingsIcon, UserPlus, UserMinus } from 'lucide-react';
+import { UserPicker } from '../shared/UserPicker';
 
 import { downloadBlob } from '../../utils/download';
+
+// Zuständigkeiten tragen ISO-Zeitstempel; angezeigt wird nur das Datum.
+const formatDatum = (wert) => (wert ? new Date(wert).toLocaleDateString('de-DE') : '—');
+
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,20 +35,23 @@ const UserManagement = () => {
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
   const [newComment, setNewComment] = useState('');
-  const [newDepartmentId, setNewDepartmentId] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // Abteilungen (eigene Sammlung, vom Admin gepflegt)
-  const [departments, setDepartments] = useState([]);
-  const [loadingDepartments, setLoadingDepartments] = useState(true);
-  const [newDepartmentName, setNewDepartmentName] = useState('');
-  const [newDepartmentDescription, setNewDepartmentDescription] = useState('');
-  const [savingDepartment, setSavingDepartment] = useState(false);
-  const [editingDepartment, setEditingDepartment] = useState(null);
+  // Bildungsgänge (eigene Sammlung, vom Admin gepflegt)
+  const [bildungsgaenge, setBildungsgaenge] = useState([]);
+  const [loadingBildungsgaenge, setLoadingBildungsgaenge] = useState(true);
+  const [newBildungsgangName, setNewBildungsgangName] = useState('');
+  const [newBildungsgangDescription, setNewBildungsgangDescription] = useState('');
+  const [savingBildungsgang, setSavingBildungsgang] = useState(false);
+  const [editingBildungsgang, setEditingBildungsgang] = useState(null);
+
+  // Zuständigkeiten: offener Benutzer-Picker (Bildungsgang-ID) und dessen Suchtext
+  const [zustaendigFuer, setZustaendigFuer] = useState(null);
+  const [zustaendigSuche, setZustaendigSuche] = useState('');
+  const [savingZustaendigkeit, setSavingZustaendigkeit] = useState(false);
 
   // Edit user form state
   const [editComment, setEditComment] = useState('');
-  const [editDepartmentId, setEditDepartmentId] = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [editPasswordConfirm, setEditPasswordConfirm] = useState('');
   const [editRole, setEditRole] = useState('user');
@@ -123,61 +131,101 @@ const UserManagement = () => {
     }
   };
 
-  const loadDepartments = async () => {
-    setLoadingDepartments(true);
+  const loadBildungsgaenge = async () => {
+    setLoadingBildungsgaenge(true);
     try {
-      const response = await api.get('/departments');
-      setDepartments(response.data);
+      const response = await api.get('/bildungsgaenge');
+      setBildungsgaenge(response.data);
     } catch (error) {
-      console.error('Failed to load departments:', error);
+      console.error('Failed to load Bildungsgänge:', error);
     } finally {
-      setLoadingDepartments(false);
+      setLoadingBildungsgaenge(false);
     }
   };
 
-  const handleSaveDepartment = async (e) => {
+  const handleSaveBildungsgang = async (e) => {
     e.preventDefault();
-    if (!newDepartmentName.trim()) {
+    if (!newBildungsgangName.trim()) {
       toast.error('Bitte einen Namen angeben');
       return;
     }
-    setSavingDepartment(true);
+    setSavingBildungsgang(true);
     try {
-      if (editingDepartment) {
-        await api.put(`/departments/${editingDepartment.id}`, {
-          name: newDepartmentName,
-          description: newDepartmentDescription
+      if (editingBildungsgang) {
+        await api.put(`/bildungsgaenge/${editingBildungsgang.id}`, {
+          name: newBildungsgangName,
+          description: newBildungsgangDescription
         });
-        toast.success('Abteilung gespeichert');
+        toast.success('Bildungsgang gespeichert');
       } else {
-        await api.post('/departments', {
-          name: newDepartmentName,
-          description: newDepartmentDescription
+        await api.post('/bildungsgaenge', {
+          name: newBildungsgangName,
+          description: newBildungsgangDescription
         });
-        toast.success('Abteilung angelegt');
+        toast.success('Bildungsgang angelegt');
       }
-      setNewDepartmentName('');
-      setNewDepartmentDescription('');
-      setEditingDepartment(null);
-      await loadDepartments();
+      setNewBildungsgangName('');
+      setNewBildungsgangDescription('');
+      setEditingBildungsgang(null);
+      await loadBildungsgaenge();
+      // Die Benutzertabelle zeigt die Namen der Bildungsgänge, eine Umbenennung schlägt dort durch.
       await loadUsers();
     } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler beim Speichern der Abteilung');
+      toast.error(error.response?.data?.detail || 'Fehler beim Speichern des Bildungsgangs');
     } finally {
-      setSavingDepartment(false);
+      setSavingBildungsgang(false);
     }
   };
 
-  const handleDeleteDepartment = async (department) => {
-    if (!window.confirm(`Abteilung "${department.name}" wirklich löschen?`)) return;
+  const handleDeleteBildungsgang = async (bildungsgang) => {
+    if (!window.confirm(`Bildungsgang "${bildungsgang.name}" wirklich löschen?`)) return;
     try {
-      const response = await api.delete(`/departments/${department.id}`);
+      const response = await api.delete(`/bildungsgaenge/${bildungsgang.id}`);
       toast.success(response.data.message);
-      await loadDepartments();
+      await loadBildungsgaenge();
+      await loadUsers();
     } catch (error) {
-      // Das Backend verweigert das Löschen, solange noch Benutzer zugeordnet sind, und
-      // nennt sie namentlich - diese Meldung ist hilfreicher als ein generischer Text.
-      toast.error(error.response?.data?.detail || 'Fehler beim Löschen der Abteilung');
+      // Das Backend verweigert das Löschen, solange dem Bildungsgang noch Daten gehören,
+      // und nennt sie im Detail - diese Meldung ist hilfreicher als ein generischer Text.
+      toast.error(error.response?.data?.detail || 'Fehler beim Löschen des Bildungsgangs');
+    }
+  };
+
+  const handleAddZustaendigkeit = async (bildungsgang, user) => {
+    setSavingZustaendigkeit(true);
+    try {
+      await api.post(`/bildungsgaenge/${bildungsgang.id}/zustaendige`, { user_id: user.id });
+      toast.success(`${user.username} ist jetzt für "${bildungsgang.name}" zuständig`);
+      setZustaendigFuer(null);
+      setZustaendigSuche('');
+      await loadBildungsgaenge();
+      await loadUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Eintragen der Zuständigkeit');
+    } finally {
+      setSavingZustaendigkeit(false);
+    }
+  };
+
+  const handleEndZustaendigkeit = async (bildungsgang, person) => {
+    // Beenden, nicht löschen: der Zugriff endet sofort, der Eintrag bleibt als Historie stehen.
+    const confirmed = window.confirm(
+      `Zuständigkeit von "${person.username}" für "${bildungsgang.name}" beenden?\n\n` +
+      'Der Zugriff endet sofort. Die Daten des Bildungsgangs bleiben erhalten, ' +
+      'der bisherige Zeitraum bleibt als Historie sichtbar.'
+    );
+    if (!confirmed) return;
+
+    setSavingZustaendigkeit(true);
+    try {
+      await api.delete(`/bildungsgaenge/${bildungsgang.id}/zustaendige/${person.user_id}`);
+      toast.success(`Zuständigkeit von ${person.username} wurde beendet`);
+      await loadBildungsgaenge();
+      await loadUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Beenden der Zuständigkeit');
+    } finally {
+      setSavingZustaendigkeit(false);
     }
   };
 
@@ -236,7 +284,7 @@ const UserManagement = () => {
 
   useEffect(() => {
     loadUsers();
-    loadDepartments();
+    loadBildungsgaenge();
     loadPreRestoreBackups();
     loadBackupEncryption();
     loadServerBackups();
@@ -332,8 +380,7 @@ const UserManagement = () => {
         username: newUsername,
         password: newPassword,
         role: newRole,
-        comment: newComment,
-        department_id: newDepartmentId
+        comment: newComment
       });
       toast.success(`Benutzer ${newUsername} erfolgreich erstellt!`);
       setShowCreateDialog(false);
@@ -341,9 +388,7 @@ const UserManagement = () => {
       setNewPassword('');
       setNewRole('user');
       setNewComment('');
-      setNewDepartmentId('');
       await loadUsers();
-      await loadDepartments();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler beim Erstellen des Benutzers');
       console.error('User creation error:', error);
@@ -373,9 +418,8 @@ const UserManagement = () => {
         role: editRole,
         is_active: editIsActive,
         // Immer mitschicken: das Backend unterscheidet "nicht gesendet" von "ausdruecklich
-        // leer", nur so laesst sich ein Kommentar oder eine Zuordnung wieder entfernen.
-        comment: editComment,
-        department_id: editDepartmentId
+        // leer", nur so laesst sich ein Kommentar wieder entfernen.
+        comment: editComment
       };
 
       if (editPassword) {
@@ -534,7 +578,6 @@ const UserManagement = () => {
     setEditRole(user.role);
     setEditIsActive(user.is_active);
     setEditComment(user.comment || '');
-    setEditDepartmentId(user.department_id || '');
     setEditPassword('');
     setEditPasswordConfirm('');
     setShowEditDialog(true);
@@ -591,7 +634,7 @@ const UserManagement = () => {
                   <TableRow>
                     <TableHead>Benutzername</TableHead>
                     <TableHead>Rolle</TableHead>
-                    <TableHead>Abteilung</TableHead>
+                    <TableHead>Bildungsgänge</TableHead>
                     <TableHead>Kommentar</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Erstellt von</TableHead>
@@ -609,9 +652,15 @@ const UserManagement = () => {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        {user.department_name
-                          ? <Badge className="bg-purple-100 text-purple-800">{user.department_name}</Badge>
-                          : <span className="text-gray-400 text-sm">—</span>}
+                        {(user.bildungsgaenge || []).length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {user.bildungsgaenge.map((b) => (
+                              <Badge key={b.id} className="bg-purple-100 text-purple-800">{b.name}</Badge>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-sm">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="max-w-xs">
                         {user.comment
@@ -739,49 +788,50 @@ const UserManagement = () => {
         </CardContent>
       </Card>
 
-      {/* Abteilungen: eigene Sammlung, damit eine Umbenennung die Zuordnungen nicht verliert */}
+      {/* Bildungsgänge: eigene Sammlung, damit eine Umbenennung die Zuordnungen nicht verliert */}
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Building2 className="h-5 w-5" />
-            Abteilungen
+            Bildungsgänge
           </CardTitle>
           <CardDescription>
-            Abteilungen anlegen, umbenennen und löschen. Benutzer lassen sich einer Abteilung zuordnen.
+            Bildungsgänge anlegen, umbenennen und löschen. Hier wird auch festgelegt, wer für einen
+            Bildungsgang zuständig ist — nicht im Benutzerformular.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <form onSubmit={handleSaveDepartment} className="grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-3 items-end">
+          <form onSubmit={handleSaveBildungsgang} className="grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-3 items-end">
             <div className="space-y-1">
-              <Label htmlFor="department-name">Name</Label>
+              <Label htmlFor="bildungsgang-name">Name</Label>
               <Input
-                id="department-name"
-                value={newDepartmentName}
-                onChange={(e) => setNewDepartmentName(e.target.value)}
-                placeholder="z.B. Technik"
+                id="bildungsgang-name"
+                value={newBildungsgangName}
+                onChange={(e) => setNewBildungsgangName(e.target.value)}
+                placeholder="z.B. Höhere Handelsschule"
               />
             </div>
             <div className="space-y-1">
-              <Label htmlFor="department-description">Beschreibung (optional)</Label>
+              <Label htmlFor="bildungsgang-description">Beschreibung (optional)</Label>
               <Input
-                id="department-description"
-                value={newDepartmentDescription}
-                onChange={(e) => setNewDepartmentDescription(e.target.value)}
+                id="bildungsgang-description"
+                value={newBildungsgangDescription}
+                onChange={(e) => setNewBildungsgangDescription(e.target.value)}
                 placeholder="kurze Erläuterung"
               />
             </div>
             <div className="flex gap-2">
-              <Button type="submit" disabled={savingDepartment} className="bg-gradient-to-r from-ipad-teal to-ipad-blue">
-                {savingDepartment ? 'Speichert...' : editingDepartment ? 'Speichern' : 'Anlegen'}
+              <Button type="submit" disabled={savingBildungsgang} className="bg-gradient-to-r from-ipad-teal to-ipad-blue">
+                {savingBildungsgang ? 'Speichert...' : editingBildungsgang ? 'Speichern' : 'Anlegen'}
               </Button>
-              {editingDepartment && (
+              {editingBildungsgang && (
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => {
-                    setEditingDepartment(null);
-                    setNewDepartmentName('');
-                    setNewDepartmentDescription('');
+                    setEditingBildungsgang(null);
+                    setNewBildungsgangName('');
+                    setNewBildungsgangDescription('');
                   }}
                 >
                   Abbrechen
@@ -790,48 +840,137 @@ const UserManagement = () => {
             </div>
           </form>
 
-          {loadingDepartments ? (
-            <div className="text-center py-4">Lade Abteilungen...</div>
-          ) : departments.length === 0 ? (
-            <div className="text-sm text-gray-500">Noch keine Abteilungen angelegt.</div>
+          {loadingBildungsgaenge ? (
+            <div className="text-center py-4">Lade Bildungsgänge...</div>
+          ) : bildungsgaenge.length === 0 ? (
+            <div className="text-sm text-gray-500">Noch keine Bildungsgänge angelegt.</div>
           ) : (
-            <ul className="space-y-1">
-              {departments.map((d) => (
-                <li key={d.id} className="flex items-center justify-between bg-gray-50 border rounded px-3 py-2">
-                  <div className="min-w-0">
-                    <span className="font-medium">{d.name}</span>
-                    <span className="text-gray-400 text-sm ml-2">
-                      {d.user_count === 1 ? '1 Benutzer' : `${d.user_count} Benutzer`}
-                    </span>
-                    {d.description && (
-                      <div className="text-sm text-gray-600 truncate">{d.description}</div>
-                    )}
-                  </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      title="Abteilung bearbeiten"
-                      onClick={() => {
-                        setEditingDepartment(d);
-                        setNewDepartmentName(d.name);
-                        setNewDepartmentDescription(d.description || '');
-                      }}
-                    >
-                      <Edit className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      title={d.user_count > 0 ? 'Erst die zugeordneten Benutzer umhängen' : 'Abteilung löschen'}
-                      className="hover:bg-red-50 hover:text-red-600"
-                      onClick={() => handleDeleteDepartment(d)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </li>
-              ))}
+            <ul className="space-y-2">
+              {bildungsgaenge.map((b) => {
+                // Wer zuständig IST, steht nirgends gespeichert: es sind die Einträge ohne Ende.
+                const aktuelle = (b.zustaendige || []).filter((z) => !z.bis);
+                const ehemalige = (b.zustaendige || []).filter((z) => z.bis);
+                const waehlbar = users.filter(
+                  (u) => u.is_active && !aktuelle.some((z) => z.user_id === u.id)
+                );
+
+                return (
+                  <li key={b.id} className="bg-gray-50 border rounded px-3 py-2 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className="font-medium">{b.name}</span>
+                        <span className="text-gray-400 text-sm ml-2">
+                          {aktuelle.length === 1 ? '1 zuständige Person' : `${aktuelle.length} zuständige Personen`}
+                        </span>
+                        {b.description && (
+                          <div className="text-sm text-gray-600 truncate">{b.description}</div>
+                        )}
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title="Bildungsgang bearbeiten"
+                          onClick={() => {
+                            setEditingBildungsgang(b);
+                            setNewBildungsgangName(b.name);
+                            setNewBildungsgangDescription(b.description || '');
+                          }}
+                        >
+                          <Edit className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          title="Bildungsgang löschen (nur möglich, solange ihm keine Daten gehören)"
+                          className="hover:bg-red-50 hover:text-red-600"
+                          onClick={() => handleDeleteBildungsgang(b)}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      {aktuelle.length === 0 ? (
+                        <div className="text-sm text-gray-500">Derzeit ist niemand zuständig.</div>
+                      ) : (
+                        aktuelle.map((z) => (
+                          <div
+                            key={z.user_id}
+                            className="flex items-center justify-between gap-2 bg-white border rounded px-2 py-1"
+                          >
+                            <span className="text-sm text-gray-700 min-w-0">
+                              <span className="font-medium">{z.username}</span>
+                              <span className="text-gray-400 ml-2">zuständig seit {formatDatum(z.von)}</span>
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={savingZustaendigkeit}
+                              title="Zuständigkeit beenden — der Eintrag bleibt als Historie erhalten"
+                              className="flex-shrink-0 hover:bg-orange-50 hover:text-orange-600"
+                              onClick={() => handleEndZustaendigkeit(b, z)}
+                            >
+                              <UserMinus className="h-3 w-3 mr-1" />
+                              Beenden
+                            </Button>
+                          </div>
+                        ))
+                      )}
+
+                      {zustaendigFuer === b.id ? (
+                        <div className="bg-white border rounded p-2 space-y-2">
+                          <UserPicker
+                            users={waehlbar}
+                            searchQuery={zustaendigSuche}
+                            onSearchChange={setZustaendigSuche}
+                            onSelectUser={(u) => handleAddZustaendigkeit(b, u)}
+                            searchTestId={`zustaendig-search-${b.id}`}
+                            rowTestIdPrefix={`zustaendig-user-${b.id}`}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setZustaendigFuer(null);
+                              setZustaendigSuche('');
+                            }}
+                          >
+                            Abbrechen
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={savingZustaendigkeit}
+                          onClick={() => {
+                            setZustaendigFuer(b.id);
+                            setZustaendigSuche('');
+                          }}
+                        >
+                          <UserPlus className="h-3 w-3 mr-1" />
+                          Zuständige Person hinzufügen
+                        </Button>
+                      )}
+
+                      {ehemalige.length > 0 && (
+                        <div className="pt-1 text-xs text-gray-400 space-y-0.5">
+                          <div className="uppercase tracking-wide">Frühere Zuständigkeiten</div>
+                          {ehemalige.map((z) => (
+                            <div key={`${z.user_id}-${z.von}`}>
+                              {z.username} ({formatDatum(z.von)} – {formatDatum(z.bis)})
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>
@@ -1137,25 +1276,8 @@ const UserManagement = () => {
                     <option value="admin">Administrator</option>
                   </select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="new-department">Abteilung</Label>
-                  <select
-                    id="new-department"
-                    value={newDepartmentId}
-                    onChange={(e) => setNewDepartmentId(e.target.value)}
-                    className="w-full p-2 border rounded-md"
-                  >
-                    <option value="">— keine —</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                  {departments.length === 0 && !loadingDepartments && (
-                    <p className="text-xs text-gray-500">
-                      Noch keine Abteilungen angelegt — siehe Karte „Abteilungen" unten.
-                    </p>
-                  )}
-                </div>
+                {/* Kein Bildungsgang-Feld: Zuständigkeiten sind n:m und zeitlich begrenzt und
+                    werden deshalb in der Karte „Bildungsgänge" gepflegt. */}
                 <div className="space-y-2">
                   <Label htmlFor="new-comment">Kommentar (optional)</Label>
                   <Textarea
@@ -1176,7 +1298,6 @@ const UserManagement = () => {
                       setNewPassword('');
                       setNewRole('user');
                       setNewComment('');
-                      setNewDepartmentId('');
                     }}
                   >
                     Abbrechen
@@ -1247,20 +1368,7 @@ const UserManagement = () => {
                     <option value="admin">Administrator</option>
                   </select>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-department">Abteilung</Label>
-                  <select
-                    id="edit-department"
-                    value={editDepartmentId}
-                    onChange={(e) => setEditDepartmentId(e.target.value)}
-                    className="w-full p-2 border rounded-md"
-                  >
-                    <option value="">— keine —</option>
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>{d.name}</option>
-                    ))}
-                  </select>
-                </div>
+                {/* Zuständigkeiten werden in der Karte „Bildungsgänge" gepflegt, siehe Anlegen-Dialog. */}
                 <div className="space-y-2">
                   <Label htmlFor="edit-comment">Kommentar</Label>
                   <Textarea

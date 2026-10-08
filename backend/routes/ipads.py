@@ -33,26 +33,32 @@ from starlette.requests import Request
 # iPad management endpoints
 
 
-async def _claim_pool_ipad_for_user(
-    ipad_id: str, new_owner_id: str, action: str, by_user_id: str, target_user_id: Optional[str] = None
+async def _claim_pool_ipad_for_bildungsgang(
+    ipad_id: str, bildungsgang_id: str, action: str, by_user_id: str
 ) -> Optional[dict]:
     """Atomically move an iPad out of the pool into new_owner_id's inventory.
 
     Only succeeds if the iPad is still in the pool (guards against a double-claim
     race). Returns the pre-update document on success, or None if it was no longer
-    available. `action`/`target_user_id` control the pool_history entry so callers
-    can distinguish a self-claim ("claimed") from an admin-directed one
-    ("assigned_by_admin").
+    available. `action` unterscheidet Selbstabholung ("claimed") von einer durch einen
+    Admin veranlassten Zuweisung ("assigned_by_admin").
+
+    user_id bleibt unberuehrt: es sagt, wer das Geraet angelegt hat, nicht wem es gehoert.
+    Wer die Uebernahme ausgeloest hat, steht in der pool_history.
     """
     now_iso = datetime.now(UTC).isoformat()
-    history_entry = {"action": action, "by": by_user_id, "at": now_iso}
-    if target_user_id:
-        history_entry["target"] = target_user_id
     return await db.ipads.find_one_and_update(
         {"id": ipad_id, "is_in_pool": True},
         {
-            "$set": {"is_in_pool": False, "user_id": new_owner_id, "updated_at": now_iso},
-            "$push": {"pool_history": history_entry},
+            "$set": {"is_in_pool": False, "bildungsgang_id": bildungsgang_id, "updated_at": now_iso},
+            "$push": {
+                "pool_history": {
+                    "action": action,
+                    "by": by_user_id,
+                    "bildungsgang_id": bildungsgang_id,
+                    "at": now_iso,
+                }
+            },
         },
     )
 
@@ -132,9 +138,12 @@ async def get_ipads(request: Request, current_user: dict = Depends(get_current_u
 
 @api_router.post("/ipads/{ipad_id}/claim")
 @limiter.limit("60/minute")
-async def claim_ipad_from_pool(ipad_id: str, request: Request, current_user: dict = Depends(require_admin_user)):
-    """Claim an iPad from the shared pool into own inventory (atomic operation). Admin-only."""
-    result = await _claim_pool_ipad_for_user(ipad_id, current_user["id"], "claimed", current_user["id"])
+async def claim_ipad_from_pool(
+    ipad_id: str, request: Request, payload: Optional[dict] = None, current_user: dict = Depends(require_admin_user)
+):
+    """Geraet aus dem Pool in den eigenen Bildungsgang holen (atomar). Nur Admin."""
+    bildungsgang_id = await resolve_bildungsgang(current_user, (payload or {}).get("bildungsgang_id"))
+    result = await _claim_pool_ipad_for_bildungsgang(ipad_id, bildungsgang_id, "claimed", current_user["id"])
 
     if not result:
         # Either iPad doesn't exist or was already claimed by someone else
@@ -148,33 +157,38 @@ async def claim_ipad_from_pool(ipad_id: str, request: Request, current_user: dic
 
 class BulkClaimRequest(BaseModel):
     ipad_ids: List[str]
+    bildungsgang_id: Optional[str] = None  # noetig, wer fuer mehrere zustaendig ist
 
 
-class AdminAssignToUserRequest(BaseModel):
+class AdminAssignToBildungsgangRequest(BaseModel):
     ipad_ids: List[str]
-    target_user_id: str
+    bildungsgang_id: str
 
 
-@api_router.post("/admin/ipads/assign-to-user")
+@api_router.post("/admin/ipads/assign-to-bildungsgang")
 @limiter.limit("30/minute")
-async def admin_assign_ipads_to_user(
-    payload: AdminAssignToUserRequest, request: Request, current_user: dict = Depends(require_admin_user)
+async def admin_assign_ipads_to_bildungsgang(
+    payload: AdminAssignToBildungsgangRequest, request: Request, current_user: dict = Depends(require_admin_user)
 ):
-    """Admin-only: Assign one or more pool iPads to a specific user."""
+    """Poolgeraete einem Bildungsgang zuschlagen (nur Admin).
+
+    Hiess frueher assign-to-user. Geraete gehoeren der Einheit, nicht der Person: wer sie
+    betreut, wechselt, der Bildungsgang nicht. Eine Uebergabe an eine Person zeigte nach
+    deren Ausscheiden auf ein totes Konto.
+    """
     if not payload.ipad_ids:
         raise HTTPException(status_code=400, detail="Keine iPads ausgewählt")
 
-    # Verify target user exists
-    target_user = await db.users.find_one({"id": payload.target_user_id})
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Ziel-Benutzer nicht gefunden")
+    bildungsgang = await db.bildungsgaenge.find_one({"id": payload.bildungsgang_id})
+    if not bildungsgang:
+        raise HTTPException(status_code=404, detail="Bildungsgang nicht gefunden")
 
     success = []
     failed = []
 
     for ipad_id in payload.ipad_ids:
-        result = await _claim_pool_ipad_for_user(
-            ipad_id, payload.target_user_id, "assigned_by_admin", current_user["id"], payload.target_user_id
+        result = await _claim_pool_ipad_for_bildungsgang(
+            ipad_id, payload.bildungsgang_id, "assigned_by_admin", current_user["id"]
         )
         if result:
             success.append(result.get("itnr"))
@@ -185,7 +199,7 @@ async def admin_assign_ipads_to_user(
         "success_count": len(success),
         "failed_count": len(failed),
         "assigned_itnrs": success,
-        "target_username": target_user.get("username"),
+        "bildungsgang_name": bildungsgang["name"],
     }
 
 
@@ -194,11 +208,11 @@ async def admin_assign_ipads_to_user(
 async def batch_assign_import(
     request: Request,
     file: UploadFile = File(...),
-    target_user_id: str = Form(...),
+    bildungsgang_id: str = Form(...),
     current_user: dict = Depends(require_admin_user),
 ):
     """
-    Admin-only: Upload a list of ITNr/SNr and assign each iPad to target_user_id.
+    Admin-only: Upload a list of ITNr/SNr and assign each iPad to a Bildungsgang.
 
     Per row (matched globally by ITNr, atomically so concurrent runs can't create
     duplicate ITNr records for a brand-new device):
@@ -207,10 +221,10 @@ async def batch_assign_import(
     - Found, not in pool: left untouched (already owned by someone) - the current
       owner is reported so the admin can see who already has it.
     """
-    target_user = await db.users.find_one({"id": target_user_id})
-    if not target_user:
-        raise HTTPException(status_code=404, detail="Ziel-Benutzer nicht gefunden")
-    target_username = target_user.get("username")
+    bildungsgang = await db.bildungsgaenge.find_one({"id": bildungsgang_id})
+    if not bildungsgang:
+        raise HTTPException(status_code=404, detail="Bildungsgang nicht gefunden")
+    bildungsgang_name = bildungsgang["name"]
 
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="Nur Excel-Dateien (.xlsx, .xls) sind erlaubt")
@@ -224,8 +238,9 @@ async def batch_assign_import(
     default_pencil = global_settings.get("pencil", "ohne Apple Pencil") if global_settings else "ohne Apple Pencil"
 
     # Pre-load usernames so "already assigned to X" can be reported without N+1 queries.
-    user_map = {u["id"]: u.get("username", "?") async for u in db.users.find({}, {"id": 1, "username": 1})}
-    user_map[target_user_id] = target_username
+    # Wem ein bereits vergebenes Geraet gehoert, ist jetzt eine Frage des Bildungsgangs -
+    # "liegt schon bei GYM" ist fuer die Rueckmeldung brauchbarer als ein Kontoname.
+    bg_map = {b["id"]: b["name"] async for b in db.bildungsgaenge.find({}, {"id": 1, "name": 1})}
 
     rows_out = []
 
@@ -255,7 +270,8 @@ async def batch_assign_import(
         # return_document=BEFORE lets us tell "we just created it" (None) apart from
         # "it already existed" (the pre-update document) with a single round-trip.
         new_ipad = iPad(
-            user_id=target_user_id,
+            user_id=current_user["id"],  # angelegt von
+            bildungsgang_id=bildungsgang_id,
             itnr=itnr,
             snr=snr,
             typ=default_ipad_typ,
@@ -263,7 +279,12 @@ async def batch_assign_import(
             status="ok",
             is_in_pool=False,
             pool_history=[
-                {"action": "created_and_assigned_by_admin", "by": current_user["id"], "target": target_user_id, "at": now_iso}
+                {
+                    "action": "created_and_assigned_by_admin",
+                    "by": current_user["id"],
+                    "bildungsgang_id": bildungsgang_id,
+                    "at": now_iso,
+                }
             ],
         )
         existing = await db.ipads.find_one_and_update(
@@ -280,14 +301,14 @@ async def batch_assign_import(
                     "itnr": itnr,
                     "snr": snr,
                     "outcome": "created",
-                    "assigned_to": target_username,
+                    "assigned_to": bildungsgang_name,
                     "note": None,
                     "at": now_iso,
                 }
             )
         elif existing.get("is_in_pool"):
-            result = await _claim_pool_ipad_for_user(
-                existing["id"], target_user_id, "assigned_by_admin", current_user["id"], target_user_id
+            result = await _claim_pool_ipad_for_bildungsgang(
+                existing["id"], bildungsgang_id, "assigned_by_admin", current_user["id"]
             )
             if result:
                 rows_out.append(
@@ -296,7 +317,7 @@ async def batch_assign_import(
                         "itnr": itnr,
                         "snr": snr,
                         "outcome": "from_pool",
-                        "assigned_to": target_username,
+                        "assigned_to": bildungsgang_name,
                         "note": None,
                         "at": now_iso,
                     }
@@ -314,15 +335,15 @@ async def batch_assign_import(
                     }
                 )
         else:
-            owner_username = user_map.get(existing.get("user_id"), "Unbekannt")
+            owner_name = bg_map.get(existing.get("bildungsgang_id"), "ohne Bildungsgang")
             rows_out.append(
                 {
                     "row": row_number,
                     "itnr": itnr,
                     "snr": snr,
                     "outcome": "already_assigned",
-                    "assigned_to": owner_username,
-                    "note": f"Bereits zugeordnet zu {owner_username}",
+                    "assigned_to": owner_name,
+                    "note": f"Bereits zugeordnet zu {owner_name}",
                     "at": now_iso,
                 }
             )
@@ -334,7 +355,7 @@ async def batch_assign_import(
             f"{counts['from_pool']} aus Pool zugeordnet, {counts['created']} neu erstellt & zugeordnet, "
             f"{counts['already_assigned']} bereits vorhanden (unverändert)"
         ),
-        "target_username": target_username,
+        "bildungsgang_name": bildungsgang_name,
         "summary": {
             "from_pool_count": counts["from_pool"],
             "created_count": counts["created"],
@@ -356,8 +377,11 @@ async def bulk_claim_ipads(payload: BulkClaimRequest, request: Request, current_
     success = []
     failed = []
 
+    bildungsgang_id = await resolve_bildungsgang(current_user, payload.bildungsgang_id)
     for ipad_id in payload.ipad_ids:
-        result = await _claim_pool_ipad_for_user(ipad_id, current_user["id"], "claimed", current_user["id"])
+        result = await _claim_pool_ipad_for_bildungsgang(
+            ipad_id, bildungsgang_id, "claimed", current_user["id"]
+        )
         if result:
             success.append(result.get("itnr"))
         else:

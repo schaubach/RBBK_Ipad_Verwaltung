@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../../api';
 import StudentDetailViewer from '../students/StudentDetailViewer';
 import IPadDetailViewer from '../ipads/IPadDetailViewer';
+import { BildungsgangSelect } from '../shared/BildungsgangSelect';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
@@ -14,11 +15,17 @@ import { toast } from 'sonner';
 import { Upload, FileText, Download, Trash2, Search, Link, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, AlertTriangle } from 'lucide-react';
 
 const ContractsManagement = () => {
+  // Diese Ansicht bekommt keine Props aus App.js; Name und Rolle liegen seit dem Login
+  // im localStorage und entscheiden nur darüber, welche Bildungsgänge zur Auswahl stehen.
+  const username = localStorage.getItem('username') || '';
+  const isAdmin = localStorage.getItem('userRole') === 'admin';
+
   const [contracts, setContracts] = useState([]);
   const [availableAssignments, setAvailableAssignments] = useState([]);
   const [allAssignments, setAllAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadBildungsgangId, setUploadBildungsgangId] = useState('');
 
   // Selection
   const [selectedContracts, setSelectedContracts] = useState([]);
@@ -90,6 +97,12 @@ const ContractsManagement = () => {
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
       formData.append('files', files[i]);
+    }
+    // Zählt nur für Verträge, die sich keiner Zuordnung zuweisen lassen - zugeordnete erben
+    // den Bildungsgang ihrer Zuordnung. Leer bleibt das Feld bewusst, wenn keine Auswahl
+    // nötig war: dann ergänzt das Backend den einen zuständigen Bildungsgang selbst.
+    if (uploadBildungsgangId) {
+      formData.append('bildungsgang_id', uploadBildungsgangId);
     }
 
     setUploading(true);
@@ -472,7 +485,15 @@ const ContractsManagement = () => {
             PDF oder Bilder hochladen (bis zu 50 Dateien)
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          <BildungsgangSelect
+            value={uploadBildungsgangId}
+            onChange={setUploadBildungsgangId}
+            username={username}
+            isAdmin={isAdmin}
+            label="Bildungsgang für nicht zuordenbare Verträge"
+            id="upload-bildungsgang"
+          />
           <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-400 transition-colors">
             <Input
               type="file"
