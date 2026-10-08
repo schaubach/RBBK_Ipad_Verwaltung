@@ -20,7 +20,6 @@ from core.security import (
     get_current_user,
     get_ipad_filter,
     get_user_filter,
-    is_admin,
     validate_resource_ownership,
 )
 from core.validators import validate_uploaded_file
@@ -61,25 +60,36 @@ async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
 
     for student in unassigned_students:
         now_iso = datetime.now(UTC).isoformat()
-        student_owner_id = student["user_id"]
+        student_bildungsgang_id = student.get("bildungsgang_id")
+
+        # Ohne Bildungsgang gibt es nichts zu erben. Die Zuordnung waere anschliessend fuer
+        # niemanden sichtbar, weil die Sichtbarkeit am bildungsgang_id haengt - lieber
+        # ueberspringen und melden, als einen Datensatz anzulegen, den hinterher keiner findet.
+        if not student_bildungsgang_id:
+            details.append(
+                f"{student['sus_vorn']} {student['sus_nachn']} übersprungen: keinem Bildungsgang zugeordnet"
+            )
+            continue
 
         # We need an assignment ID first so we can assign atomically
         assignment = Assignment(
-            user_id=student_owner_id,
+            user_id=current_user["id"],  # angelegt von
+            bildungsgang_id=student_bildungsgang_id,
             student_id=student["id"],
             ipad_id="temp",
             itnr="temp",
             student_name=f"{student['sus_vorn']} {student['sus_nachn']}",
         )
 
-        # Atomically find and claim an available iPad OWNED BY THE SAME USER as the student.
-        # Scoped per-student (not a single shared filter) so that when an admin triggers this
-        # across all tenants, two different teachers' inventories never get cross-wired - the
-        # resulting assignment.user_id (= student_owner_id) must always match the claimed iPad's
-        # existing owner, or the assignment becomes invisible/undeletable to its real owner.
+        # Atomically find and claim an available iPad OF THE SAME BILDUNGSGANG as the student.
+        # Die Zuordnung erbt den Bildungsgang des Schuelers, also darf auch nur ein Geraet
+        # desselben Bildungsgangs beansprucht werden: sonst verschwindet ein Geraet aus einem
+        # fremden Bestand, ohne dass es dort jemand bemerkt. Pro Schueler gefiltert (nicht ueber
+        # einen gemeinsamen Filter), damit ein Admin-Lauf ueber alle Bildungsgaenge die Bestaende
+        # nicht quer verdrahtet. Poolgeraete bleiben aussen vor - die werden bewusst einzeln geholt.
         ipad = await db.ipads.find_one_and_update(
             {
-                "user_id": student_owner_id,
+                "bildungsgang_id": student_bildungsgang_id,
                 "current_assignment_id": None,
                 "status": "ok",
                 "is_in_pool": {"$ne": True},
@@ -88,8 +98,19 @@ async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
         )
 
         if not ipad:
-            # No more available iPads
-            break
+            # Kein freies Geraet IN DIESEM Bildungsgang. Frueher stand hier break, und das war
+            # richtig: ein Nicht-Admin sah nur seinen einen Bestand, also gab es danach ohnehin
+            # nichts mehr zu tun. Seit eine Person fuer mehrere Bildungsgaenge zustaendig sein
+            # kann, mischt die Schuelerliste mehrere Bestaende - ein Abbruch uebergeht dann alle
+            # folgenden Schueler der anderen Bildungsgaenge, und zwar lautlos.
+            details.append(
+                {
+                    "student": f"{student.get('sus_vorn', '')} {student.get('sus_nachn', '')}".strip(),
+                    "status": "übersprungen",
+                    "grund": "kein freies iPad im Bildungsgang dieses Schülers",
+                }
+            )
+            continue
 
         # Update assignment with actual iPad data
         assignment.ipad_id = ipad["id"]
@@ -143,14 +164,35 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
             raise HTTPException(status_code=400, detail="iPad ist bereits zugewiesen")
 
         was_in_pool = ipad.get("is_in_pool", False)
+
+        # Die Zuordnung erbt den Bildungsgang des Schuelers - ohne einen solchen gibt es nichts
+        # zu erben, und der Datensatz waere hinterher fuer niemanden sichtbar.
+        student_bildungsgang_id = student.get("bildungsgang_id")
+        if not student_bildungsgang_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Dieser Schüler ist keinem Bildungsgang zugeordnet. "
+                "Bitte den Schüler zuerst einem Bildungsgang zuordnen.",
+            )
+
+        # Schueler und Geraet muessen zum selben Bildungsgang gehoeren. Ein Geraet aus fremdem
+        # Bestand auszugeben, entzoege es dort der Verwaltung, ohne dass es jemand bemerkt.
+        # Poolgeraete sind ausgenommen: sie gehoeren keinem Bildungsgang und gehen mit der
+        # Ausgabe in den des Schuelers ueber.
+        if not was_in_pool and ipad.get("bildungsgang_id") != student_bildungsgang_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Dieses iPad gehört zu einem anderen Bildungsgang als der Schüler. "
+                "Bitte ein Gerät aus dem Bildungsgang des Schülers wählen.",
+            )
+
         now_iso = datetime.now(UTC).isoformat()
 
-        # Create assignment (without contract). user_id follows the STUDENT's owner, not the
-        # acting user - otherwise an admin assigning on someone else's behalf would create an
-        # assignment invisible to (and undeletable by) the actual owner (get_user_filter /
-        # validate_resource_ownership both scope on assignment.user_id).
+        # Create assignment (without contract). Die Zuordnung gehoert dem Bildungsgang des
+        # Schuelers; user_id haelt nur noch fest, wer sie angelegt hat.
         assignment = Assignment(
-            user_id=student["user_id"],
+            user_id=current_user["id"],  # angelegt von
+            bildungsgang_id=student_bildungsgang_id,
             student_id=student["id"],
             ipad_id=ipad["id"],
             itnr=ipad["itnr"],
@@ -163,17 +205,23 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
 
         if was_in_pool:
             update_doc["$set"]["is_in_pool"] = False
-            # Ownership goes to the student's owner (not the acting admin) - same reasoning as
-            # the assignment's user_id above.
-            update_doc["$set"]["user_id"] = student["user_id"]
+            # Mit der Ausgabe geht das Poolgeraet in den Bestand des Schueler-Bildungsgangs
+            # ueber, dort wird es ab jetzt verwaltet. user_id bleibt unangetastet - es sagt
+            # nur noch, wer das Geraet angelegt hat.
+            update_doc["$set"]["bildungsgang_id"] = student_bildungsgang_id
             update_doc["$push"] = {"pool_history": {"action": "claimed", "by": current_user["id"], "at": now_iso}}
             query = {"id": request.ipad_id, "is_in_pool": True, "current_assignment_id": None}
         else:
-            # Admins may assign any owned iPad (regardless of owner);
-            # regular users are already scoped to their own iPads by get_ipad_filter above.
-            query = {"id": request.ipad_id, "current_assignment_id": None}
-            if not is_admin(current_user):
-                query["user_id"] = current_user["id"]
+            # Der Bildungsgang wird im atomaren Claim erneut geprueft: zwischen Lesen und
+            # Schreiben kann das Geraet in den Pool gegangen oder umgehaengt worden sein.
+            # Fuer Admins gilt das genauso - sie duerfen jeden Bestand bedienen, aber nicht
+            # quer ueber Bildungsgaenge hinweg.
+            query = {
+                "id": request.ipad_id,
+                "current_assignment_id": None,
+                "bildungsgang_id": student_bildungsgang_id,
+                "is_in_pool": {"$ne": True},
+            }
 
         claim_result = await db.ipads.find_one_and_update(query, update_doc)
 
@@ -333,9 +381,23 @@ async def upload_contract_for_assignment(
                 {"$set": {"is_active": False, "updated_at": datetime.now(UTC).isoformat()}},
             )
 
-        # Create new contract
+        # Create new contract. Der Vertrag gehoert dem Bildungsgang seiner Zuordnung - geerbt,
+        # nicht neu bestimmt: wer fuer mehrere Bildungsgaenge zustaendig ist, wuerde sonst beim
+        # Hochladen den Vertrag vom Schueler weg in einen anderen Bestand schieben.
+        # Ohne Bildungsgang entstuende ein Vertrag, den ausser Admins niemand mehr sieht - und
+        # Vertrags-PDFs gibt es nirgends sonst. Die Nachbarpfade dieser Datei lehnen denselben
+        # Fall ab, statt ihn durchzureichen.
+        if not assignment.get("bildungsgang_id"):
+            raise HTTPException(
+                status_code=400,
+                detail="Diese Zuordnung gehört noch keinem Bildungsgang. Bitte zuerst den "
+                "Bildungsgang der Zuordnung setzen, sonst wäre der Vertrag anschließend "
+                "für niemanden auffindbar.",
+            )
+
         new_contract = Contract(
-            user_id=current_user["id"],
+            user_id=current_user["id"],  # angelegt von
+            bildungsgang_id=assignment["bildungsgang_id"],
             assignment_id=assignment_id,
             itnr=assignment["itnr"],
             student_name=assignment["student_name"],
@@ -581,7 +643,7 @@ async def get_filtered_assignments(
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
 
-        # Build filter query for students (with user filter!)
+        # Filter fuer Schueler, ueber die Bildungsgaenge des Aufrufers
         student_filter = user_filter.copy()
         if sus_vorn:
             student_filter["sus_vorn"] = {"$regex": re.escape(sus_vorn), "$options": "i"}
@@ -597,7 +659,7 @@ async def get_filtered_assignments(
             assignment_filter["itnr"] = {"$regex": re.escape(itnr), "$options": "i"}
 
         if sus_vorn or sus_nachn or sus_kl:
-            # Get matching students (filtered by user_id!)
+            # Schueler, gefiltert ueber die Bildungsgaenge des Aufrufers
             students = await db.students.find(student_filter).to_list(length=None)
             student_ids = [s["id"] for s in students]
 
@@ -608,7 +670,7 @@ async def get_filtered_assignments(
             # Add student filter to assignment filter
             assignment_filter["student_id"] = {"$in": student_ids}
 
-        # Get assignments matching all filters (filtered by user_id!)
+        # Zuordnungen, gefiltert ueber die Bildungsgaenge des Aufrufers
         assignments = await db.assignments.find(assignment_filter).to_list(length=None)
 
         # Safe parsing

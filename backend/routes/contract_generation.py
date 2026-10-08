@@ -69,7 +69,7 @@ async def generate_contracts(
                 assignment_filter["itnr"] = {"$regex": re.escape(itnr), "$options": "i"}
 
             if sus_vorn or sus_nachn or sus_kl:
-                # Get matching students (filtered by user_id!)
+                # Get matching students (filtered by Bildungsgang!)
                 students = await db.students.find(student_filter).to_list(length=None)
                 student_ids = [s["id"] for s in students]
 
@@ -79,7 +79,7 @@ async def generate_contracts(
                 # Add student filter to assignment filter
                 assignment_filter["student_id"] = {"$in": student_ids}
 
-            # Get assignments matching all filters (filtered by user_id!)
+            # Get assignments matching all filters (filtered by Bildungsgang!)
             assignments = await db.assignments.find(assignment_filter).to_list(length=None)
 
         if not assignments:
@@ -88,10 +88,22 @@ async def generate_contracts(
         # Prepare data for contract generation
         contract_data = []
         for assignment in assignments:
+            # Beide Nachschlaege sind mitgefiltert, obwohl die Zuordnung bereits geprueft ist:
+            # ein Vertrag traegt die vollstaendige Anschrift von Schueler und Erziehungs-
+            # berechtigten. Zeigt eine Zuordnung aus Altbestaenden auf einen Datensatz eines
+            # anderen Bildungsgangs, darf daraus kein Vertrag mit fremden Daten entstehen.
+            # Gefiltert wird ueber den Bildungsgang DER ZUORDNUNG, nicht ueber den des
+            # Aufrufers: fuer einen Admin ist user_filter leer, die Zusicherung oben griffe
+            # dann ausgerechnet dort nicht, wo sie gebraucht wird.
+            herkunft = (
+                {"bildungsgang_id": assignment["bildungsgang_id"]}
+                if assignment.get("bildungsgang_id")
+                else user_filter
+            )
             # Get student data
-            student = await db.students.find_one({"id": assignment["student_id"]})
+            student = await db.students.find_one({"id": assignment["student_id"], **herkunft})
             # Get iPad data
-            ipad = await db.ipads.find_one({"id": assignment["ipad_id"]})
+            ipad = await db.ipads.find_one({"id": assignment["ipad_id"], **herkunft})
 
             if student and ipad:
                 # Format Geburtstag to DD.MM.YYYY

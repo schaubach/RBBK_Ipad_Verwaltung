@@ -18,8 +18,10 @@ from core.mongo import prepare_for_mongo
 from core.router import api_router
 from core.security import (
     get_current_user,
+    get_ipad_filter,
     get_user_filter,
     is_admin,
+    resolve_bildungsgang,
 )
 from core.validators import is_contract_validated, read_excel_upload, safe_str, validate_uploaded_file
 from fastapi import Depends, File, Form, HTTPException, UploadFile
@@ -113,6 +115,8 @@ EXPORT_COLUMNS: List[str] = [
     # Vertrag
     "Vertrag vorhanden",
     "Vertrag validiert",
+    # Zugehörigkeit
+    "Bildungsgang",
 ]
 
 
@@ -125,6 +129,7 @@ def _build_assignment_row(
     ipad_typ_default: str = "",
     pencil_default: str = "",
     selected_columns: Optional[List[str]] = None,
+    bildungsgang_names: Optional[Dict[str, str]] = None,
 ) -> dict:
     """Build a single Excel row covering student + iPad + assignment columns.
 
@@ -140,10 +145,20 @@ def _build_assignment_row(
             settings) used when the iPad document itself has no `typ`
             or `pencil` populated.
         selected_columns: when given, only those keys are returned.
+        bildungsgang_names: ``{id: name}`` lookup for the Bildungsgang-Spalte.
     """
     contract = None
     if assignment and assignment.get("contract_id"):
         contract = contracts_by_id.get(assignment["contract_id"])
+
+    # Die Zeile gehört einem Bildungsgang, nicht der Person, die sie angelegt hat - deshalb
+    # steht hier der Bildungsgang und kein Benutzername. Schüler zuerst, denn eine Zeile ohne
+    # iPad hat trotzdem eine Zugehörigkeit; Poolgeräte haben keine und bleiben leer.
+    bildungsgang = ""
+    for record in (student, ipad, assignment):
+        if record and record.get("bildungsgang_id"):
+            bildungsgang = (bildungsgang_names or {}).get(record["bildungsgang_id"], "")
+            break
 
     pencil = ""
     typ = ""
@@ -185,6 +200,8 @@ def _build_assignment_row(
         # Vertrag
         "Vertrag vorhanden": "Ja" if contract else "Nein",
         "Vertrag validiert": "Ja" if is_contract_validated(contract) else "Nein",
+        # Zugehörigkeit
+        "Bildungsgang": bildungsgang,
     }
 
     if selected_columns is None:
@@ -247,7 +264,19 @@ EXPORT_COLUMN_GROUPS = {
         "Vertrag vorhanden",
         "Vertrag validiert",
     ],
+    "bildungsgang": [
+        "Bildungsgang",
+    ],
 }
+
+
+async def _load_bildungsgang_names() -> Dict[str, str]:
+    """``{id: name}`` für die Bildungsgang-Spalte der Exporte.
+
+    Komplett geladen statt je Zeile nachgeschlagen: es gibt eine Handvoll Bildungsgänge,
+    aber tausende Exportzeilen.
+    """
+    return {b["id"]: b.get("name", "") async for b in db.bildungsgaenge.find({}, {"id": 1, "name": 1})}
 
 
 @api_router.get("/exports/columns")
@@ -261,7 +290,10 @@ async def get_export_columns(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/imports/inventory")
 async def import_inventory(
-    file: UploadFile = File(...), import_to_pool: bool = Form(False), current_user: dict = Depends(get_current_user)
+    file: UploadFile = File(...),
+    import_to_pool: bool = Form(False),
+    bildungsgang_id: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Import complete inventory list with iPads and student assignments from Excel file.
@@ -276,9 +308,18 @@ async def import_inventory(
 
     Non-admin users may only import students - any ITNr/iPad columns in their file are
     ignored (counted in ipad_rows_ignored), general iPad import is admin-only.
+
+    Der gesamte Lauf gehört EINEM Bildungsgang (optional ``bildungsgang_id``, sonst der
+    Zuständigkeit entnommen).
     """
     if import_to_pool and not is_admin(current_user):
         raise HTTPException(status_code=403, detail="Nur Admins dürfen iPads in den Pool importieren")
+
+    # Ein Importlauf gehört genau einem Bildungsgang, deshalb einmal vorab bestimmt und nicht
+    # je Zeile: eine Rückfrage mitten im Lauf gäbe es nicht, die Datei wäre dann schon halb
+    # importiert. Vor dem Einlesen der Datei, damit eine fehlende Auswahl sofort auffällt.
+    # Poolgeräte liegen zentral und gehören keinem Bildungsgang.
+    import_bildungsgang_id = None if import_to_pool else await resolve_bildungsgang(current_user, bildungsgang_id)
 
     try:
         # Load global settings for default values
@@ -306,6 +347,7 @@ async def import_inventory(
         # Counters for different operations
         ipads_created = 0
         ipads_skipped = 0
+        ipads_claimed_from_pool = 0  # aus dem Pool geholt statt neu angelegt
         students_created = 0
         students_skipped = 0
         students_only_created = 0  # Students without iPad
@@ -365,8 +407,10 @@ async def import_inventory(
                             imported_pencil = safe_str(row.get("Pencil", ""))
                             imported_modell = safe_str(row.get("Modell", "")) or None
 
+                            # Poolgeräte bekommen bewusst keinen bildungsgang_id - sie gehören
+                            # erst dem Bildungsgang, der sie aus dem Pool holt.
                             new_ipad = iPad(
-                                user_id=current_user["id"],
+                                user_id=current_user["id"],  # angelegt von
                                 itnr=itnr,
                                 snr=safe_str(row.get("SNr", "")),
                                 typ=imported_typ if imported_typ else default_ipad_typ,
@@ -389,10 +433,52 @@ async def import_inventory(
                             ipads_created += 1
                             ipad_already_assigned = False
                     else:
-                        # Check if iPad already exists for this user
-                        existing_ipad = await db.ipads.find_one({"itnr": itnr, "user_id": current_user["id"]})
+                        # Dublettenprüfung je Bildungsgang: dieselbe ITNr in einem anderen
+                        # Bildungsgang ist ein anderes Gerät und völlig in Ordnung.
+                        #
+                        # Poolgeräte müssen hier mitgesucht werden, obwohl sie keinen
+                        # Bildungsgang tragen: sonst legt ein Bestandsimport, der eine im Pool
+                        # liegende ITNr enthält, ein ZWEITES Gerät mit derselben Nummer an -
+                        # das Poolgerät bleibt unberührt liegen und wird nie geholt. Genau
+                        # diese Lage entsteht hier regelmäßig, weil der Pool zentral befüllt
+                        # und der Bestand danach je Bildungsgang importiert wird.
+                        existing_ipad = await db.ipads.find_one(
+                            {
+                                "itnr": itnr,
+                                "$or": [
+                                    {"bildungsgang_id": import_bildungsgang_id, "is_in_pool": {"$ne": True}},
+                                    {"is_in_pool": True},
+                                ],
+                            }
+                        )
 
-                        if existing_ipad:
+                        if existing_ipad and existing_ipad.get("is_in_pool"):
+                            # Im Pool gefunden: dem importierenden Bildungsgang zuschlagen,
+                            # statt daneben eine Dublette anzulegen. Ein Gerät gleichzeitig als
+                            # Poolbestand UND als zugeordnet zu führen, bringt beide Ansichten
+                            # dauerhaft auseinander.
+                            await db.ipads.update_one(
+                                {"id": existing_ipad["id"]},
+                                {
+                                    "$set": {
+                                        "bildungsgang_id": import_bildungsgang_id,
+                                        "is_in_pool": False,
+                                        "updated_at": datetime.now(UTC).isoformat(),
+                                    },
+                                    "$push": {
+                                        "pool_history": {
+                                            "action": "claimed_by_import",
+                                            "by": current_user["id"],
+                                            "bildungsgang_id": import_bildungsgang_id,
+                                            "at": datetime.now(UTC).isoformat(),
+                                        }
+                                    },
+                                },
+                            )
+                            ipad_id = existing_ipad["id"]
+                            ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
+                            ipads_claimed_from_pool += 1
+                        elif existing_ipad:
                             ipads_skipped += 1
                             ipad_id = existing_ipad["id"]
                             ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
@@ -409,7 +495,8 @@ async def import_inventory(
                             imported_modell = safe_str(row.get("Modell", "")) or None
 
                             new_ipad = iPad(
-                                user_id=current_user["id"],
+                                user_id=current_user["id"],  # angelegt von
+                                bildungsgang_id=import_bildungsgang_id,
                                 itnr=itnr,
                                 snr=safe_str(row.get("SNr", "")),
                                 typ=imported_typ if imported_typ else default_ipad_typ,
@@ -435,9 +522,14 @@ async def import_inventory(
                         student_id = student_cache[cache_key]
                         students_skipped += 1
                     else:
-                        # Check if student already exists for this user (by name only for 1:n)
+                        # Dublettenprüfung je Bildungsgang (by name only for 1:n) - derselbe
+                        # Name in einem anderen Bildungsgang ist eine andere Person.
                         existing_student = await db.students.find_one(
-                            {"sus_vorn": sus_vorn, "sus_nachn": sus_nachn, "user_id": current_user["id"]}
+                            {
+                                "sus_vorn": sus_vorn,
+                                "sus_nachn": sus_nachn,
+                                "bildungsgang_id": import_bildungsgang_id,
+                            }
                         )
 
                         if existing_student:
@@ -446,7 +538,8 @@ async def import_inventory(
                         else:
                             # Create new student with proper NaN handling
                             new_student = Student(
-                                user_id=current_user["id"],
+                                user_id=current_user["id"],  # angelegt von
+                                bildungsgang_id=import_bildungsgang_id,
                                 sname=safe_str(row.get("Sname", "")),
                                 sus_vorn=sus_vorn,
                                 sus_nachn=sus_nachn,
@@ -510,8 +603,11 @@ async def import_inventory(
                                 except:
                                     pass  # Use current datetime if parsing fails
 
+                            # Die Zuordnung erbt den Bildungsgang von Schüler und iPad - beide
+                            # wurden oben in genau diesem Bildungsgang gesucht bzw. angelegt.
                             new_assignment = Assignment(
-                                user_id=current_user["id"],
+                                user_id=current_user["id"],  # angelegt von
+                                bildungsgang_id=import_bildungsgang_id,
                                 ipad_id=ipad_id,
                                 student_id=student_id,
                                 itnr=itnr,
@@ -562,6 +658,8 @@ async def import_inventory(
             parts.append(f"{ipads_created} iPads erstellt")
         if ipads_skipped > 0:
             parts.append(f"{ipads_skipped} iPads übersprungen")
+        if ipads_claimed_from_pool:
+            parts.append(f"{ipads_claimed_from_pool} iPads aus dem Pool übernommen")
         if students_created > 0:
             parts.append(f"{students_created} Schüler erstellt")
         if students_skipped > 0:
@@ -586,6 +684,7 @@ async def import_inventory(
             "total_processed": total_processed,
             "ipads_created": ipads_created,
             "ipads_skipped": ipads_skipped,
+            "ipads_claimed_from_pool": ipads_claimed_from_pool,
             "students_created": students_created,
             "students_skipped": students_skipped,
             "students_only_created": students_only_created,
@@ -823,7 +922,9 @@ async def export_inventory(
         if sus_kl:
             student_filter["sus_kl"] = {"$regex": re.escape(sus_kl), "$options": "i"}
 
-        ipad_filter = user_filter.copy()
+        # iPads über den Pool-bewussten Filter: ein in den Pool gegebenes Gerät behält seinen
+        # bildungsgang_id, stünde also sonst im Export, obwohl die Ansicht es nicht mehr führt.
+        ipad_filter = await get_ipad_filter(current_user)
         if itnr:
             ipad_filter["itnr"] = {"$regex": re.escape(itnr), "$options": "i"}
 
@@ -842,6 +943,8 @@ async def export_inventory(
 
         # Get all active assignments (filtered by user)
         all_assignments = await db.assignments.find({**user_filter, "is_active": True}).to_list(length=None)
+
+        bildungsgang_names = await _load_bildungsgang_names()
 
         # Preload contracts for assignments (for "Vertrag vorhanden" / "Vertrag validiert" columns)
         assignment_ids_with_contract = [a.get("contract_id") for a in all_assignments if a.get("contract_id")]
@@ -882,6 +985,7 @@ async def export_inventory(
                     ipad_typ_default=ipad_typ,
                     pencil_default=pencil,
                     selected_columns=selected_columns,
+                    bildungsgang_names=bildungsgang_names,
                 )
             )
 
@@ -898,6 +1002,7 @@ async def export_inventory(
                             ipad_typ_default=ipad_typ,
                             pencil_default=pencil,
                             selected_columns=selected_columns,
+                            bildungsgang_names=bildungsgang_names,
                         )
                     )
 
@@ -914,6 +1019,7 @@ async def export_inventory(
                             ipad_typ_default=ipad_typ,
                             pencil_default=pencil,
                             selected_columns=selected_columns,
+                            bildungsgang_names=bildungsgang_names,
                         )
                     )
 
@@ -982,14 +1088,14 @@ async def export_assignments(
         assignment_filter["itnr"] = {"$regex": re.escape(itnr), "$options": "i"}
 
     if sus_vorn or sus_nachn or sus_kl:
-        # Get matching students (filtered by user_id!)
+        # Get matching students (filtered by user filter!)
         students = await db.students.find(student_filter).to_list(length=None)
         student_ids = [s["id"] for s in students]
 
         # Add student filter to assignment filter
         assignment_filter["student_id"] = {"$in": student_ids}
 
-    # Get assignments matching all filters (filtered by user_id!)
+    # Get assignments matching all filters (filtered by user filter!)
     assignments = await db.assignments.find(assignment_filter).to_list(length=None)
 
     # Preload contracts for the assignment set (for Vertrag-Spalten)
@@ -998,6 +1104,8 @@ async def export_assignments(
     if contract_ids:
         contracts = await db.contracts.find({"id": {"$in": contract_ids}}).to_list(length=None)
         contracts_by_id = {c["id"]: c for c in contracts}
+
+    bildungsgang_names = await _load_bildungsgang_names()
 
     export_data = []
     for assignment in assignments:
@@ -1013,6 +1121,7 @@ async def export_assignments(
                     ipad_typ_default=ipad_typ_default,
                     pencil_default=pencil_default,
                     selected_columns=selected_columns,
+                    bildungsgang_names=bildungsgang_names,
                 )
             )
 
@@ -1070,6 +1179,8 @@ async def export_selected_assignments(
         contracts = await db.contracts.find({"id": {"$in": contract_ids}}).to_list(length=None)
         contracts_by_id = {c["id"]: c for c in contracts}
 
+    bildungsgang_names = await _load_bildungsgang_names()
+
     # Build export data
     export_data = []
     for assignment in assignments:
@@ -1085,6 +1196,7 @@ async def export_selected_assignments(
                     ipad_typ_default=ipad_typ_default,
                     pencil_default=pencil_default,
                     selected_columns=selected_columns,
+                    bildungsgang_names=bildungsgang_names,
                 )
             )
 

@@ -7,7 +7,7 @@ import io
 import os
 import re
 from datetime import UTC, datetime
-from typing import List
+from typing import List, Optional
 
 import PyPDF2
 from core.config import (
@@ -20,10 +20,11 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_user_filter,
+    resolve_bildungsgang,
     validate_resource_ownership,
 )
 from core.validators import validate_uploaded_file
-from fastapi import Depends, File, HTTPException, UploadFile
+from fastapi import Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from models.contract import Contract
 from pydantic import BaseModel
@@ -32,8 +33,16 @@ from starlette.requests import Request
 
 @api_router.post("/contracts/upload-multiple")
 async def upload_multiple_contracts(
-    files: List[UploadFile] = File(...), current_user: dict = Depends(get_current_user)
+    files: List[UploadFile] = File(...),
+    bildungsgang_id: Optional[str] = Form(None),
+    current_user: dict = Depends(get_current_user),
 ):
+    """Vertraege stapelweise hochladen; zugeordnete erben den Bildungsgang ihrer Zuordnung.
+
+    bildungsgang_id greift nur fuer Vertraege, die sich keiner Zuordnung zuweisen lassen -
+    die haben kein Elternobjekt, von dem sie erben koennten. Ohne diese Angabe koennte ein
+    Admin (zustaendig fuer nichts) solche Vertraege gar nicht ablegen.
+    """
     results = []
     processed_count = 0
     unassigned_count = 0
@@ -111,7 +120,14 @@ async def upload_multiple_contracts(
 
                     # Create contract with all 3 references
                     contract = Contract(
-                        user_id=current_user["id"],
+                        user_id=current_user["id"],  # angelegt von
+                        # Der Vertrag folgt der Zuordnung, nicht der hochladenden Person: wer
+                        # mehrere Bildungsgaenge betreut, risse den Vertrag sonst vom Schueler los.
+                        # Rueckfall auf den Schueler wie im Pfad weiter unten - trifft ein Admin
+                        # auf eine noch nicht gewanderte Zuordnung, entstuende sonst ein Vertrag
+                        # ohne Bildungsgang, den anschliessend niemand ausser Admins findet.
+                        bildungsgang_id=assignment.get("bildungsgang_id")
+                        or (student_data or {}).get("bildungsgang_id"),
                         assignment_id=assignment["id"],
                         ipad_id=assignment.get("ipad_id"),
                         student_id=assignment.get("student_id"),
@@ -186,7 +202,12 @@ async def upload_multiple_contracts(
 
                                 # Create contract with all 3 references
                                 contract = Contract(
-                                    user_id=current_user["id"],
+                                    user_id=current_user["id"],  # angelegt von
+                                    # Wie oben: Zugehoerigkeit wird geerbt. Der Schueler aus dem
+                                    # $lookup dient als Rueckfall fuer Altbestand ohne
+                                    # bildungsgang_id an der Zuordnung.
+                                    bildungsgang_id=assignment.get("bildungsgang_id")
+                                    or student_data.get("bildungsgang_id"),
                                     assignment_id=assignment["id"],
                                     ipad_id=assignment.get("ipad_id"),
                                     student_id=assignment.get("student_id"),
@@ -216,8 +237,12 @@ async def upload_multiple_contracts(
                                 continue
 
             # Create unassigned contract
+            # Hier gibt es keine Zuordnung, von der geerbt werden koennte - der Bildungsgang
+            # muss bestimmt werden. Die Rueckfrage von resolve_bildungsgang trifft bewusst nur
+            # diese eine Datei: bereits zugeordnete Vertraege desselben Uploads bleiben gespeichert.
             contract = Contract(
-                user_id=current_user["id"],
+                user_id=current_user["id"],  # angelegt von
+                bildungsgang_id=await resolve_bildungsgang(current_user, bildungsgang_id),
                 filename=file.filename,
                 file_data=contents,
                 form_fields=form_fields,
@@ -232,6 +257,10 @@ async def upload_multiple_contracts(
                 {"filename": file.filename, "status": "unassigned", "message": "Contract saved as unassigned"}
             )
 
+        except HTTPException as e:
+            # Diese Meldungen (z.B. "Bitte einen Bildungsgang auswaehlen: ...") sagen, was zu tun
+            # ist - sie duerfen nicht als "Error: 400: ..." unkenntlich gemacht werden.
+            results.append({"filename": file.filename, "status": "error", "message": e.detail})
         except Exception as e:
             results.append({"filename": file.filename, "status": "error", "message": f"Error: {str(e)}"})
 
@@ -385,9 +414,12 @@ async def assign_contract_to_assignment(
 
     # Check contract limit for student
     if student_id:
-        user_filter = await get_user_filter(current_user)
+        # Bewusst OHNE Aufruferfilter: gezaehlt wird, wie viele Vertraege dieser Schueler hat,
+        # nicht wie viele davon der Aufrufer sehen darf. Der Zugriff ist eine Zeile vorher
+        # bereits geprueft; mit Filter zaehlten Altbestaende ohne Bildungsgang nicht mit, und
+        # die Obergrenze liesse sich dadurch ueberschreiten.
         existing_contracts = await db.contracts.count_documents(
-            {**user_filter, "student_id": student_id, "is_active": True}
+            {"student_id": student_id, "is_active": True}
         )
 
         if existing_contracts >= MAX_CONTRACTS_PER_STUDENT:
@@ -397,20 +429,24 @@ async def assign_contract_to_assignment(
             )
 
     # Update contract with all 3 references
-    await db.contracts.update_one(
-        {"id": contract_id},
-        {
-            "$set": {
-                "assignment_id": assignment_id,
-                "ipad_id": ipad_id,
-                "student_id": student_id,
-                "itnr": assignment["itnr"],
-                "student_name": assignment["student_name"],
-                "is_active": True,
-                "updated_at": datetime.now(UTC).isoformat(),
-            }
-        },
-    )
+    contract_updates = {
+        "assignment_id": assignment_id,
+        "ipad_id": ipad_id,
+        "student_id": student_id,
+        "itnr": assignment["itnr"],
+        "student_name": assignment["student_name"],
+        "is_active": True,
+        "updated_at": datetime.now(UTC).isoformat(),
+    }
+
+    # Mit der Zuordnung zieht der Vertrag auch in deren Bildungsgang um - sonst haengt ein von
+    # einer fuer mehrere Bildungsgaenge zustaendigen Person abgelegter Vertrag im falschen Bestand.
+    # Hat die Zuordnung (Altbestand) keinen, bleibt die bisherige Zugehoerigkeit stehen, statt
+    # den Vertrag auf None zu setzen und damit fuer alle ausser Admins verschwinden zu lassen.
+    if assignment.get("bildungsgang_id"):
+        contract_updates["bildungsgang_id"] = assignment["bildungsgang_id"]
+
+    await db.contracts.update_one({"id": contract_id}, {"$set": contract_updates})
 
     # Update assignment with contract reference
     await db.assignments.update_one({"id": assignment_id}, {"$set": {"contract_id": contract_id}})
