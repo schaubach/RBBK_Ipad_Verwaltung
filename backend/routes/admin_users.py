@@ -200,119 +200,89 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
 
 @api_router.delete("/admin/users/{user_id}/complete")
 async def delete_user_complete(user_id: str, current_user: dict = Depends(get_current_user)):
-    """
-    PERMANENTLY delete a user and ALL their data (admin only)
-    WARNING: This action is IRREVERSIBLE!
-    Deletes: User account, iPads, Students, Assignments, Contracts
+    """Benutzerkonto endgültig entfernen (nur Admin).
+
+    Loescht NUR das Konto. Geraete, Schueler, Zuordnungen und Vertraege gehoeren dem
+    Bildungsgang, nicht der Person - sie bleiben und sind fuer die kuenftig Zustaendigen
+    unveraendert erreichbar.
+
+    Vorher loeschte dieser Endpunkt alles, was die Person je angelegt hatte. Beim Ausscheiden
+    einer Kollegin verschwand damit der halbe Geraetebestand eines Bildungsgangs mitsamt
+    Schuelerdaten und Vertrags-PDFs, die es nirgends sonst gibt. Genau dagegen ist der ganze
+    Umbau gerichtet; hier waere er sonst wirkungslos.
+
+    Laufende Zustaendigkeiten werden beendet, nicht geloescht - der Zugriff endet sofort,
+    die Historie bleibt nachvollziehbar.
     """
     require_admin(current_user)
 
-    # Get user to delete
     target_user = await db.users.find_one({"id": user_id})
     if not target_user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    # Prevent self-deletion
     if user_id == current_user["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
 
-    # Count resources before deletion
-    ipads_count = await db.ipads.count_documents({"user_id": user_id, "is_in_pool": False})
-    pool_ipads_count = await db.ipads.count_documents({"user_id": user_id, "is_in_pool": True})
-    students_count = await db.students.count_documents({"user_id": user_id})
-    assignments_count = await db.assignments.count_documents({"user_id": user_id})
-    contracts_count = await db.contracts.count_documents({"user_id": user_id})
+    # Was diese Person angelegt hat - bleibt erhalten, wird nur berichtet.
+    erstellt = {
+        "ipads": await db.ipads.count_documents({"user_id": user_id}),
+        "students": await db.students.count_documents({"user_id": user_id}),
+        "assignments": await db.assignments.count_documents({"user_id": user_id}),
+        "contracts": await db.contracts.count_documents({"user_id": user_id}),
+    }
 
-    # Cascading delete: Delete all user's data
-    try:
-        # Delete assignments first (references iPads and Students)
-        await db.assignments.delete_many({"user_id": user_id})
+    # Laufende Zustaendigkeiten beenden statt loeschen
+    jetzt = datetime.now(UTC).isoformat()
+    beendet = await db.zustaendigkeiten.update_many(
+        {"user_id": user_id, "bis": None}, {"$set": {"bis": jetzt}}
+    )
 
-        # Delete contracts
-        await db.contracts.delete_many({"user_id": user_id})
+    await db.users.delete_one({"id": user_id})
 
-        # Delete iPads owned by user (NOT in pool)
-        await db.ipads.delete_many({"user_id": user_id, "is_in_pool": False})
-
-        # Pool iPads imported by this user: release ownership (keep in pool, user_id=null)
-        if pool_ipads_count > 0:
-            await db.ipads.update_many(
-                {"user_id": user_id, "is_in_pool": True},
-                {"$set": {"user_id": None, "updated_at": datetime.now(UTC).isoformat()}},
-            )
-
-        # Delete students
-        await db.students.delete_many({"user_id": user_id})
-
-        # Finally, delete the user account
-        await db.users.delete_one({"id": user_id})
-
-        return {
-            "message": f"User '{target_user['username']}' and all associated data have been permanently deleted",
-            "deleted_user_id": user_id,
-            "deleted_username": target_user["username"],
-            "deleted_resources": {
-                "ipads": ipads_count,
-                "pool_ipads_orphaned": pool_ipads_count,
-                "students": students_count,
-                "assignments": assignments_count,
-                "contracts": contracts_count,
-            },
-            "warning": "This action was IRREVERSIBLE. All data has been permanently removed.",
-        }
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error during deletion process: {str(e)}. Some data may have been partially deleted.",
-        )
+    return {
+        "message": f"Benutzerkonto '{target_user['username']}' wurde gelöscht.",
+        "zustaendigkeiten_beendet": beendet.modified_count,
+        "daten_erhalten": erstellt,
+        "hinweis": "Von dieser Person angelegte Datensätze bleiben bei ihrem Bildungsgang erhalten.",
+    }
 
 
 @api_router.post("/admin/cleanup-orphaned-data")
 async def cleanup_orphaned_data(current_user: dict = Depends(get_current_user)):
-    """
-    Cleanup orphaned data (iPads, Students, etc.) from deleted users (admin only)
-    This removes data that belongs to non-existent users
+    """Datensaetze finden, deren Bildungsgang nicht mehr existiert (nur Admin).
+
+    Meldet nur, loescht nichts. Frueher loeschte dieser Endpunkt alles, dessen user_id zu
+    keinem existierenden Konto gehoerte - nach dem Umbau waeren das die Datensaetze, deren
+    ERSTELLER geloescht wurde, obwohl sie einem lebenden Bildungsgang gehoeren. Ein Klick
+    haette damit den Bestand eines Bildungsgangs vernichtet.
+
+    Da delete_bildungsgang das Loeschen verweigert, solange Daten daranhaengen, sollte diese
+    Pruefung normalerweise nichts finden. Findet sie doch etwas, ist das ein Hinweis auf eine
+    unvollstaendige Wanderung - und dann will man es sehen, nicht wegraeumen.
+
+    Pool-Geraete haben absichtlich keinen Bildungsgang und gelten hier nicht als verwaist.
     """
     require_admin(current_user)
 
-    try:
-        # Get all existing user IDs
-        existing_users = await db.users.find({}, {"id": 1}).to_list(length=None)
-        existing_user_ids = {user["id"] for user in existing_users}
+    gueltige = {b["id"] async for b in db.bildungsgaenge.find({}, {"id": 1})}
 
-        # Find orphaned iPads
-        all_ipads = await db.ipads.find({}, {"id": 1, "user_id": 1, "itnr": 1}).to_list(length=None)
-        orphaned_ipads = [ipad for ipad in all_ipads if ipad["user_id"] not in existing_user_ids]
-        orphaned_ipad_ids = [ipad["id"] for ipad in orphaned_ipads]
+    befunde = {}
+    for coll, pool_ausnahme in [("ipads", True), ("students", False), ("assignments", False), ("contracts", False)]:
+        query = {"bildungsgang_id": {"$nin": list(gueltige)}}
+        if pool_ausnahme:
+            query["is_in_pool"] = {"$ne": True}
+        treffer = await db[coll].find(query, {"id": 1, "bildungsgang_id": 1, "user_id": 1}).to_list(length=50)
+        gesamt = await db[coll].count_documents(query)
+        if gesamt:
+            befunde[coll] = {"anzahl": gesamt, "beispiele": [t.get("id") for t in treffer[:5]]}
 
-        # Find orphaned Students
-        all_students = await db.students.find({}, {"id": 1, "user_id": 1}).to_list(length=None)
-        orphaned_students = [s for s in all_students if s["user_id"] not in existing_user_ids]
-        orphaned_student_ids = [s["id"] for s in orphaned_students]
-
-        # Delete orphaned data
-        deleted_ipads = await db.ipads.delete_many({"id": {"$in": orphaned_ipad_ids}})
-        deleted_students = await db.students.delete_many({"id": {"$in": orphaned_student_ids}})
-        deleted_assignments = await db.assignments.delete_many({"user_id": {"$nin": list(existing_user_ids)}})
-        deleted_contracts = await db.contracts.delete_many({"user_id": {"$nin": list(existing_user_ids)}})
-
-        return {
-            "message": "Orphaned data cleanup completed",
-            "deleted_resources": {
-                "ipads": deleted_ipads.deleted_count,
-                "students": deleted_students.deleted_count,
-                "assignments": deleted_assignments.deleted_count,
-                "contracts": deleted_contracts.deleted_count,
-            },
-            "details": {
-                "orphaned_ipad_itnrs": [ipad["itnr"] for ipad in orphaned_ipads[:10]],  # Show first 10
-                "total_orphaned_ipads": len(orphaned_ipads),
-            },
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error during cleanup: {str(e)}")
+    return {
+        "message": "Keine verwaisten Datensätze gefunden."
+        if not befunde
+        else "Verwaiste Datensätze gefunden - bitte prüfen, es wurde nichts gelöscht.",
+        "befunde": befunde,
+        "hinweis": "Dieser Endpunkt meldet nur. Löschen erfolgt bewusst von Hand, "
+        "nachdem geklärt ist, wohin die Daten gehören.",
+    }
 
 
 @api_router.post("/admin/users/{user_id}/reset-password")

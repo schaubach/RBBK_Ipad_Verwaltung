@@ -166,17 +166,19 @@ async def resolve_bildungsgang(user: dict, explicit_id: Optional[str] = None) ->
             return explicit_id
         raise HTTPException(status_code=403, detail="Für diesen Bildungsgang sind Sie nicht zuständig.")
 
-    if is_admin(user):
-        raise HTTPException(
-            status_code=400,
-            detail="Bitte einen Bildungsgang auswählen. Als Administrator gibt es keine Vorauswahl, "
-            "damit nichts versehentlich im falschen Bestand landet.",
-        )
-
+    # Die Zustaendigkeit bestimmt die Vorauswahl - fuer alle gleich. Admin-Sein erweitert nur,
+    # wohin geschrieben werden DARF, es ist keine Ausnahme von dieser Regel. Ein Admin, der
+    # genau einen Bildungsgang betreut, arbeitet damit so beiläufig wie jeder andere.
     if len(verfuegbar) == 1:
         return verfuegbar[0]
 
     if not verfuegbar:
+        if is_admin(user):
+            raise HTTPException(
+                status_code=400,
+                detail="Bitte einen Bildungsgang auswählen. Dieses Konto betreut selbst keinen, "
+                "deshalb gibt es keine Vorauswahl - damit nichts versehentlich im falschen Bestand landet.",
+            )
         raise HTTPException(
             status_code=400,
             detail="Sie sind derzeit für keinen Bildungsgang zuständig und können deshalb nichts anlegen. "
