@@ -3,12 +3,13 @@ import api from '../../api';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
+import { Textarea } from '../ui/textarea';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Alert, AlertDescription } from '../ui/alert';
 import { toast } from 'sonner';
-import { Users, Trash2, Shield, Edit, Plus, AlertTriangle, Download, History, Lock, Unlock, Server, KeyRound, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
+import { Users, Building2, Trash2, Shield, Edit, Plus, AlertTriangle, Download, History, Lock, Unlock, Server, KeyRound, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 
 import { downloadBlob } from '../../utils/download';
 const UserManagement = () => {
@@ -28,9 +29,21 @@ const UserManagement = () => {
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
+  const [newComment, setNewComment] = useState('');
+  const [newDepartmentId, setNewDepartmentId] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // Abteilungen (eigene Sammlung, vom Admin gepflegt)
+  const [departments, setDepartments] = useState([]);
+  const [loadingDepartments, setLoadingDepartments] = useState(true);
+  const [newDepartmentName, setNewDepartmentName] = useState('');
+  const [newDepartmentDescription, setNewDepartmentDescription] = useState('');
+  const [savingDepartment, setSavingDepartment] = useState(false);
+  const [editingDepartment, setEditingDepartment] = useState(null);
+
   // Edit user form state
+  const [editComment, setEditComment] = useState('');
+  const [editDepartmentId, setEditDepartmentId] = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [editPasswordConfirm, setEditPasswordConfirm] = useState('');
   const [editRole, setEditRole] = useState('user');
@@ -110,6 +123,64 @@ const UserManagement = () => {
     }
   };
 
+  const loadDepartments = async () => {
+    setLoadingDepartments(true);
+    try {
+      const response = await api.get('/departments');
+      setDepartments(response.data);
+    } catch (error) {
+      console.error('Failed to load departments:', error);
+    } finally {
+      setLoadingDepartments(false);
+    }
+  };
+
+  const handleSaveDepartment = async (e) => {
+    e.preventDefault();
+    if (!newDepartmentName.trim()) {
+      toast.error('Bitte einen Namen angeben');
+      return;
+    }
+    setSavingDepartment(true);
+    try {
+      if (editingDepartment) {
+        await api.put(`/departments/${editingDepartment.id}`, {
+          name: newDepartmentName,
+          description: newDepartmentDescription
+        });
+        toast.success('Abteilung gespeichert');
+      } else {
+        await api.post('/departments', {
+          name: newDepartmentName,
+          description: newDepartmentDescription
+        });
+        toast.success('Abteilung angelegt');
+      }
+      setNewDepartmentName('');
+      setNewDepartmentDescription('');
+      setEditingDepartment(null);
+      await loadDepartments();
+      await loadUsers();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || 'Fehler beim Speichern der Abteilung');
+    } finally {
+      setSavingDepartment(false);
+    }
+  };
+
+  const handleDeleteDepartment = async (department) => {
+    if (!window.confirm(`Abteilung "${department.name}" wirklich löschen?`)) return;
+    try {
+      const response = await api.delete(`/departments/${department.id}`);
+      toast.success(response.data.message);
+      await loadDepartments();
+    } catch (error) {
+      // Das Backend verweigert das Löschen, solange noch Benutzer zugeordnet sind, und
+      // nennt sie namentlich - diese Meldung ist hilfreicher als ein generischer Text.
+      toast.error(error.response?.data?.detail || 'Fehler beim Löschen der Abteilung');
+    }
+  };
+
   const loadPreRestoreBackups = async () => {
     setLoadingPreRestoreBackups(true);
     try {
@@ -165,6 +236,7 @@ const UserManagement = () => {
 
   useEffect(() => {
     loadUsers();
+    loadDepartments();
     loadPreRestoreBackups();
     loadBackupEncryption();
     loadServerBackups();
@@ -259,14 +331,19 @@ const UserManagement = () => {
       await api.post('/admin/users', {
         username: newUsername,
         password: newPassword,
-        role: newRole
+        role: newRole,
+        comment: newComment,
+        department_id: newDepartmentId
       });
       toast.success(`Benutzer ${newUsername} erfolgreich erstellt!`);
       setShowCreateDialog(false);
       setNewUsername('');
       setNewPassword('');
       setNewRole('user');
+      setNewComment('');
+      setNewDepartmentId('');
       await loadUsers();
+      await loadDepartments();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler beim Erstellen des Benutzers');
       console.error('User creation error:', error);
@@ -294,7 +371,11 @@ const UserManagement = () => {
     try {
       const updateData = {
         role: editRole,
-        is_active: editIsActive
+        is_active: editIsActive,
+        // Immer mitschicken: das Backend unterscheidet "nicht gesendet" von "ausdruecklich
+        // leer", nur so laesst sich ein Kommentar oder eine Zuordnung wieder entfernen.
+        comment: editComment,
+        department_id: editDepartmentId
       };
 
       if (editPassword) {
@@ -452,6 +533,8 @@ const UserManagement = () => {
     setSelectedUser(user);
     setEditRole(user.role);
     setEditIsActive(user.is_active);
+    setEditComment(user.comment || '');
+    setEditDepartmentId(user.department_id || '');
     setEditPassword('');
     setEditPasswordConfirm('');
     setShowEditDialog(true);
@@ -508,6 +591,8 @@ const UserManagement = () => {
                   <TableRow>
                     <TableHead>Benutzername</TableHead>
                     <TableHead>Rolle</TableHead>
+                    <TableHead>Abteilung</TableHead>
+                    <TableHead>Kommentar</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Erstellt von</TableHead>
                     <TableHead>Erstellt am</TableHead>
@@ -522,6 +607,16 @@ const UserManagement = () => {
                         <Badge className={user.role === 'admin' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}>
                           {user.role === 'admin' ? 'Administrator' : 'Benutzer'}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {user.department_name
+                          ? <Badge className="bg-purple-100 text-purple-800">{user.department_name}</Badge>
+                          : <span className="text-gray-400 text-sm">—</span>}
+                      </TableCell>
+                      <TableCell className="max-w-xs">
+                        {user.comment
+                          ? <span className="text-sm text-gray-700 whitespace-pre-wrap break-words">{user.comment}</span>
+                          : <span className="text-gray-400 text-sm">—</span>}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col gap-1">
@@ -640,6 +735,104 @@ const UserManagement = () => {
                 </Button>
               </div>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Abteilungen: eigene Sammlung, damit eine Umbenennung die Zuordnungen nicht verliert */}
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Building2 className="h-5 w-5" />
+            Abteilungen
+          </CardTitle>
+          <CardDescription>
+            Abteilungen anlegen, umbenennen und löschen. Benutzer lassen sich einer Abteilung zuordnen.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form onSubmit={handleSaveDepartment} className="grid grid-cols-1 md:grid-cols-[1fr_2fr_auto] gap-3 items-end">
+            <div className="space-y-1">
+              <Label htmlFor="department-name">Name</Label>
+              <Input
+                id="department-name"
+                value={newDepartmentName}
+                onChange={(e) => setNewDepartmentName(e.target.value)}
+                placeholder="z.B. Technik"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="department-description">Beschreibung (optional)</Label>
+              <Input
+                id="department-description"
+                value={newDepartmentDescription}
+                onChange={(e) => setNewDepartmentDescription(e.target.value)}
+                placeholder="kurze Erläuterung"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button type="submit" disabled={savingDepartment} className="bg-gradient-to-r from-ipad-teal to-ipad-blue">
+                {savingDepartment ? 'Speichert...' : editingDepartment ? 'Speichern' : 'Anlegen'}
+              </Button>
+              {editingDepartment && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setEditingDepartment(null);
+                    setNewDepartmentName('');
+                    setNewDepartmentDescription('');
+                  }}
+                >
+                  Abbrechen
+                </Button>
+              )}
+            </div>
+          </form>
+
+          {loadingDepartments ? (
+            <div className="text-center py-4">Lade Abteilungen...</div>
+          ) : departments.length === 0 ? (
+            <div className="text-sm text-gray-500">Noch keine Abteilungen angelegt.</div>
+          ) : (
+            <ul className="space-y-1">
+              {departments.map((d) => (
+                <li key={d.id} className="flex items-center justify-between bg-gray-50 border rounded px-3 py-2">
+                  <div className="min-w-0">
+                    <span className="font-medium">{d.name}</span>
+                    <span className="text-gray-400 text-sm ml-2">
+                      {d.user_count === 1 ? '1 Benutzer' : `${d.user_count} Benutzer`}
+                    </span>
+                    {d.description && (
+                      <div className="text-sm text-gray-600 truncate">{d.description}</div>
+                    )}
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      title="Abteilung bearbeiten"
+                      onClick={() => {
+                        setEditingDepartment(d);
+                        setNewDepartmentName(d.name);
+                        setNewDepartmentDescription(d.description || '');
+                      }}
+                    >
+                      <Edit className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      title={d.user_count > 0 ? 'Erst die zugeordneten Benutzer umhängen' : 'Abteilung löschen'}
+                      className="hover:bg-red-50 hover:text-red-600"
+                      onClick={() => handleDeleteDepartment(d)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
           )}
         </CardContent>
       </Card>
@@ -944,6 +1137,35 @@ const UserManagement = () => {
                     <option value="admin">Administrator</option>
                   </select>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-department">Abteilung</Label>
+                  <select
+                    id="new-department"
+                    value={newDepartmentId}
+                    onChange={(e) => setNewDepartmentId(e.target.value)}
+                    className="w-full p-2 border rounded-md"
+                  >
+                    <option value="">— keine —</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                  {departments.length === 0 && !loadingDepartments && (
+                    <p className="text-xs text-gray-500">
+                      Noch keine Abteilungen angelegt — siehe Karte „Abteilungen" unten.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-comment">Kommentar (optional)</Label>
+                  <Textarea
+                    id="new-comment"
+                    value={newComment}
+                    onChange={(e) => setNewComment(e.target.value)}
+                    placeholder="z.B. Zuständigkeit, Vertretung, Hinweise"
+                    rows={3}
+                  />
+                </div>
                 <div className="flex gap-2 justify-end">
                   <Button
                     type="button"
@@ -953,6 +1175,8 @@ const UserManagement = () => {
                       setNewUsername('');
                       setNewPassword('');
                       setNewRole('user');
+                      setNewComment('');
+                      setNewDepartmentId('');
                     }}
                   >
                     Abbrechen
@@ -1022,6 +1246,30 @@ const UserManagement = () => {
                     <option value="user">Benutzer</option>
                     <option value="admin">Administrator</option>
                   </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-department">Abteilung</Label>
+                  <select
+                    id="edit-department"
+                    value={editDepartmentId}
+                    onChange={(e) => setEditDepartmentId(e.target.value)}
+                    className="w-full p-2 border rounded-md"
+                  >
+                    <option value="">— keine —</option>
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-comment">Kommentar</Label>
+                  <Textarea
+                    id="edit-comment"
+                    value={editComment}
+                    onChange={(e) => setEditComment(e.target.value)}
+                    placeholder="Leer lassen, um den Kommentar zu entfernen"
+                    rows={3}
+                  />
                 </div>
                 <div className="flex items-center space-x-2">
                   <input

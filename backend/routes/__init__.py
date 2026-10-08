@@ -14,6 +14,7 @@ from routes import (  # noqa: F401
     contract_generation,
     contracts,
     data_protection,
+    departments,
     imports_exports,
     ipads,
     settings,

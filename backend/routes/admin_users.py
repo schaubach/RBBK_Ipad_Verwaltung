@@ -29,6 +29,40 @@ from starlette.requests import Request
 
 
 # Admin User Management Endpoints
+def _parse_dt(value, fallback=None):
+    """Mongo liefert Zeitstempel je nach Schreibweg als Text oder als datetime."""
+    if value is None:
+        return fallback
+    return datetime.fromisoformat(value) if isinstance(value, str) else value
+
+
+async def _user_response(user: dict, dept_names: dict = None) -> UserResponse:
+    """UserResponse aus einem Mongo-Dokument, inklusive aufgeloestem Abteilungsnamen.
+
+    ``dept_names`` erlaubt dem Listenendpunkt, die Namen einmal vorab zu laden, statt pro
+    Benutzer eine eigene Abfrage abzusetzen.
+    """
+    dept_id = user.get("department_id")
+    if dept_id and dept_names is None:
+        dept = await db.departments.find_one({"id": dept_id}, {"name": 1})
+        dept_name = dept["name"] if dept else None
+    else:
+        dept_name = (dept_names or {}).get(dept_id)
+    return UserResponse(
+        id=user["id"],
+        username=user["username"],
+        role=user.get("role", "user"),
+        is_active=user.get("is_active", True),
+        force_password_change=user.get("force_password_change", False),
+        comment=user.get("comment"),
+        department_id=dept_id,
+        department_name=dept_name,
+        created_by=user.get("created_by"),
+        created_at=_parse_dt(user["created_at"]),
+        updated_at=_parse_dt(user.get("updated_at"), _parse_dt(user["created_at"])),
+    )
+
+
 @api_router.post("/admin/users", response_model=UserResponse)
 async def create_user(user_data: UserCreate, current_user: dict = Depends(get_current_user)):
     """Create a new user (admin only)"""
@@ -51,6 +85,12 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
     if user_data.role not in ["admin", "user"]:
         raise HTTPException(status_code=400, detail="Role must be 'admin' or 'user'")
 
+    # Abteilung muss es geben - sonst entstuende ein Verweis ins Leere, der sich
+    # spaeter nur noch per Datenbankzugriff aufklaeren liesse.
+    department_id = (user_data.department_id or "").strip() or None
+    if department_id and not await db.departments.find_one({"id": department_id}):
+        raise HTTPException(status_code=400, detail="Die gewählte Abteilung existiert nicht.")
+
     # Create new user
     hashed_password = get_password_hash(user_data.password)
     new_user = User(
@@ -58,6 +98,8 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
         password_hash=hashed_password,
         role=user_data.role,
         is_active=True,
+        comment=(user_data.comment or "").strip() or None,
+        department_id=department_id,
         created_by=current_user["id"],
     )
 
@@ -65,16 +107,7 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
     await db.users.insert_one(user_dict)
 
     # Return user response without password_hash
-    return UserResponse(
-        id=new_user.id,
-        username=new_user.username,
-        role=new_user.role,
-        is_active=new_user.is_active,
-        force_password_change=new_user.force_password_change,
-        created_by=new_user.created_by,
-        created_at=new_user.created_at,
-        updated_at=new_user.updated_at,
-    )
+    return await _user_response(await db.users.find_one({"id": new_user.id}))
 
 
 @api_router.get("/admin/users", response_model=List[UserResponse])
@@ -84,24 +117,11 @@ async def list_users(request: Request, current_user: dict = Depends(get_current_
     require_admin(current_user)
 
     users = await db.users.find().to_list(length=None)
-
-    return [
-        UserResponse(
-            id=user["id"],
-            username=user["username"],
-            role=user.get("role", "user"),
-            is_active=user.get("is_active", True),
-            force_password_change=user.get("force_password_change", False),
-            created_by=user.get("created_by"),
-            created_at=datetime.fromisoformat(user["created_at"])
-            if isinstance(user["created_at"], str)
-            else user["created_at"],
-            updated_at=datetime.fromisoformat(user["updated_at"])
-            if isinstance(user.get("updated_at"), str)
-            else user.get("updated_at", user["created_at"]),
-        )
-        for user in users
-    ]
+    # Abteilungsnamen einmal laden statt einmal pro Benutzer
+    dept_names = {
+        d["id"]: d["name"] for d in await db.departments.find({}, {"id": 1, "name": 1}).to_list(length=None)
+    }
+    return [await _user_response(user, dept_names) for user in users]
 
 
 @api_router.put("/admin/users/{user_id}", response_model=UserResponse)
@@ -134,26 +154,21 @@ async def update_user(user_id: str, user_data: UserUpdate, current_user: dict = 
     if user_data.is_active is not None:
         update_dict["is_active"] = user_data.is_active
 
+    # Kommentar: ein mitgeschickter Leerstring loescht ihn, ein fehlendes Feld laesst ihn stehen.
+    if user_data.comment is not None:
+        update_dict["comment"] = user_data.comment.strip() or None
+
+    # Abteilung: ebenso - Leerstring entfernt die Zuordnung, ein Wert muss existieren.
+    if user_data.department_id is not None:
+        department_id = user_data.department_id.strip() or None
+        if department_id and not await db.departments.find_one({"id": department_id}):
+            raise HTTPException(status_code=400, detail="Die gewählte Abteilung existiert nicht.")
+        update_dict["department_id"] = department_id
+
     # Update user
     await db.users.update_one({"id": user_id}, {"$set": update_dict})
 
-    # Get updated user
-    updated_user = await db.users.find_one({"id": user_id})
-
-    return UserResponse(
-        id=updated_user["id"],
-        username=updated_user["username"],
-        role=updated_user.get("role", "user"),
-        is_active=updated_user.get("is_active", True),
-        force_password_change=updated_user.get("force_password_change", False),
-        created_by=updated_user.get("created_by"),
-        created_at=datetime.fromisoformat(updated_user["created_at"])
-        if isinstance(updated_user["created_at"], str)
-        else updated_user["created_at"],
-        updated_at=datetime.fromisoformat(updated_user["updated_at"])
-        if isinstance(updated_user.get("updated_at"), str)
-        else updated_user.get("updated_at", updated_user["created_at"]),
-    )
+    return await _user_response(await db.users.find_one({"id": user_id}))
 
 
 @api_router.delete("/admin/users/{user_id}")
