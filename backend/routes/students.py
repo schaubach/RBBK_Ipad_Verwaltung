@@ -140,9 +140,14 @@ async def get_student_details(request: Request, student_id: str, current_user: d
     # Get assignment history
     assignment_history = await db.assignments.find({"student_id": student_id}, {"_id": 0}).to_list(length=None)
 
-    # Get contracts related to this student via student_id (new way) or student_name/assignment_id (legacy)
+    # Get contracts related to this student via student_id (new way) or student_name/assignment_id (legacy).
+    # Der Besitzerfilter ist zwingend: die Namenssuche verknuepft ueber "Vorname Nachname", und
+    # derselbe Name existiert in verschiedenen Bestaenden. Ohne ihn liefert die Detailseite eines
+    # gleichnamigen Schuelers die Vertragsdaten eines fremden Bestands mit.
+    user_filter = await get_user_filter(current_user)
     contracts = await db.contracts.find(
         {
+            **user_filter,
             "$or": [
                 {"student_id": student_id},
                 {
@@ -152,7 +157,7 @@ async def get_student_details(request: Request, student_id: str, current_user: d
                     }
                 },
                 {"assignment_id": {"$in": [a["id"] for a in assignment_history]}},
-            ]
+            ],
         },
         {"_id": 0, "file_data": 0},  # Exclude _id and file_data
     ).to_list(length=None)

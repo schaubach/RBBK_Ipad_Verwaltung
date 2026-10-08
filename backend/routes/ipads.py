@@ -16,6 +16,7 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_ipad_filter,
+    get_user_filter,
     require_admin_user,
 )
 from core.validators import read_excel_upload, safe_str, validate_uploaded_file
@@ -600,8 +601,15 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
     # Get all assignments (active and inactive)
     assignments = await db.assignments.find({"ipad_id": ipad_id}).to_list(length=None)
 
-    # Get all contracts for this iPad via ipad_id (new) or itnr (legacy)
-    contracts = await db.contracts.find({"$or": [{"ipad_id": ipad_id}, {"itnr": ipad["itnr"]}]}).to_list(length=None)
+    # Get all contracts for this iPad via ipad_id (new) or itnr (legacy).
+    # Der Besitzerfilter ist zwingend: die ITNr ist nur je Besitzer eindeutig (siehe create_ipad),
+    # dieselbe Nummer existiert also legitim mehrfach. Ohne ihn liefert die Geraetehistorie die
+    # form_fields eines fremden Vertrags - darin stehen Anschrift des Schuelers sowie Namen und
+    # Anschriften beider Erziehungsberechtigten.
+    user_filter = await get_user_filter(current_user)
+    contracts = await db.contracts.find(
+        {**user_filter, "$or": [{"ipad_id": ipad_id}, {"itnr": ipad["itnr"]}]}
+    ).to_list(length=None)
 
     # Parse data safely
     try:
