@@ -106,21 +106,43 @@ async def require_admin_user(current_user: dict = Depends(get_current_user)) -> 
     return current_user
 
 
+async def get_responsible_bildungsgang_ids(user: dict) -> list:
+    """Die Bildungsgänge, für die diese Person DERZEIT zuständig ist (bis is None).
+
+    Einzige Stelle, an der aus Zuständigkeits-Datensätzen Zugriff wird. Endet eine
+    Zuständigkeit, endet damit der Zugriff - die Daten bleiben beim Bildungsgang.
+    """
+    cursor = db.zustaendigkeiten.find({"user_id": user["id"], "bis": None}, {"bildungsgang_id": 1})
+    return [z["bildungsgang_id"] async for z in cursor]
+
+
 async def get_user_filter(user: dict) -> dict:
-    """MongoDB filter scoping queries to the user's resources (admin = unfiltered)."""
+    """MongoDB filter scoping queries to the caller's Bildungsgänge (admin = unfiltered).
+
+    Wer für nichts zuständig ist, bekommt einen Filter, der NICHTS trifft - nicht etwa einen
+    leeren Filter, der alles träfe. Das ist der Unterschied zwischen "sieht nichts" und
+    "sieht alles", und er hängt an einer einzigen Zeile.
+    """
     if is_admin(user):
         return {}
-    return {"user_id": user["id"]}
+    return {"bildungsgang_id": {"$in": await get_responsible_bildungsgang_ids(user)}}
 
 
 async def get_ipad_filter(user: dict) -> dict:
-    """iPad filter: admins see everything (incl. pool); regular users see only their
-    own non-pool iPads. Pool iPads keep the importer's user_id, so this explicitly
-    excludes is_in_pool rather than reusing get_user_filter, otherwise a user who
-    once imported into the pool would still see their own old pool iPads."""
+    """iPad filter: admins see everything (incl. pool); regular users see only the non-pool
+    iPads of the Bildungsgänge they are currently responsible for.
+
+    Die is_in_pool-Klausel ist nicht kosmetisch: ein in den Pool gegebenes Gerät behält seinen
+    bildungsgang_id (siehe release_ipad_to_pool). Ohne diese Klausel taucht jedes je in den Pool
+    gegebene Gerät wieder im Bestand des Bildungsgangs auf und liesse sich dort ausgeben,
+    obwohl die zentrale Verwaltung es als Poolbestand führt.
+    """
     if is_admin(user):
         return {}
-    return {"user_id": user["id"], "is_in_pool": {"$ne": True}}
+    return {
+        "bildungsgang_id": {"$in": await get_responsible_bildungsgang_ids(user)},
+        "is_in_pool": {"$ne": True},
+    }
 
 
 async def validate_resource_ownership(resource_type: str, resource_id: str, user: dict):
@@ -142,7 +164,8 @@ async def validate_resource_ownership(resource_type: str, resource_id: str, user
     if not resource:
         raise HTTPException(status_code=404, detail=f"{resource_type.capitalize()} not found")
 
-    if resource.get("user_id") != user["id"]:
+    # Zugehörigkeit prüfen, nicht Urheberschaft: user_id trägt nur noch "angelegt von".
+    if resource.get("bildungsgang_id") not in await get_responsible_bildungsgang_ids(user):
         raise HTTPException(status_code=403, detail="Access denied to this resource")
 
     return True
