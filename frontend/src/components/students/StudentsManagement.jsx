@@ -541,6 +541,9 @@ const StudentsManagement = () => {
       if (studentKlasseFilter) params.append('sus_kl', studentKlasseFilter);
       if (studentItnrFilter) params.append('itnr', studentItnrFilter);
       if (columns && columns.length > 0) params.append('columns', columns.join(','));
+      // Der Export folgt der Ansicht: wer auf einen Bildungsgang eingeengt hat, will
+      // nicht stillschweigend alles in der Datei vorfinden.
+      if (ansichtBildungsgang) params.append('bildungsgang_id', ansichtBildungsgang);
 
       let url;
       if (assignedFilter === 'assigned') {
@@ -741,7 +744,9 @@ const StudentsManagement = () => {
             <div className="text-center py-8">Lade Schüler...</div>
           ) : students.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
-              Keine Schüler vorhanden. Laden Sie zuerst eine Excel-Datei hoch.
+              {ansichtBildungsgang
+                  ? 'In diesem Bildungsgang sind keine Schüler erfasst.'
+                  : 'Keine Schüler vorhanden. Laden Sie zuerst eine Excel-Datei hoch.'}
             </div>
           ) : (
             <div className="overflow-x-auto">

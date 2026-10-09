@@ -20,6 +20,7 @@ from core.security import (
     get_current_user,
     get_ipad_filter,
     get_user_filter,
+    mit_ansicht,
     is_admin,
     resolve_bildungsgang,
 )
@@ -868,6 +869,7 @@ async def export_inventory(
     sus_nachn: Optional[str] = None,
     sus_kl: Optional[str] = None,
     itnr: Optional[str] = None,
+    bildungsgang_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user),
 ):
     """Export complete data backup: all students, all iPads, and all assignments (1:n support).
@@ -912,7 +914,7 @@ async def export_inventory(
 
     try:
         # Apply user filter - CRITICAL for RBAC!
-        user_filter = await get_user_filter(current_user)
+        user_filter = mit_ansicht(await get_user_filter(current_user), bildungsgang_id)
 
         student_filter = user_filter.copy()
         if sus_vorn:
@@ -924,7 +926,7 @@ async def export_inventory(
 
         # iPads über den Pool-bewussten Filter: ein in den Pool gegebenes Gerät behält seinen
         # bildungsgang_id, stünde also sonst im Export, obwohl die Ansicht es nicht mehr führt.
-        ipad_filter = await get_ipad_filter(current_user)
+        ipad_filter = mit_ansicht(await get_ipad_filter(current_user), bildungsgang_id)
         if itnr:
             ipad_filter["itnr"] = {"$regex": re.escape(itnr), "$options": "i"}
 

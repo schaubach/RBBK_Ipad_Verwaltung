@@ -743,6 +743,9 @@ const IPadsManagement = ({ isAdmin = false }) => {
       if (nachnameFilter) params.append('sus_nachn', nachnameFilter);
       if (klasseFilter) params.append('sus_kl', klasseFilter);
       if (columns && columns.length > 0) params.append('columns', columns.join(','));
+      // Der Export folgt der Ansicht: wer auf einen Bildungsgang eingeengt hat, will
+      // nicht stillschweigend alles in der Datei vorfinden.
+      if (ansichtBildungsgang) params.append('bildungsgang_id', ansichtBildungsgang);
 
       let url;
       if (assignedFilter === 'assigned') {
