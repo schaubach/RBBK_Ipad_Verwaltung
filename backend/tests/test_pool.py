@@ -41,10 +41,38 @@ async def geraet(db, ipad_id, bildungsgang_id, itnr=None, angelegt_von="u_admin"
     })
 
 
-def excel(zeilen):
-    """Eine Importliste als echte .xlsx-Datei - die Route prüft den Dateiinhalt, nicht die Endung."""
+async def geraet_ohne_poolfeld(db, ipad_id, bildungsgang_id, itnr=None, angelegt_von="u_admin"):
+    """Ein Bestandsgerät, dem `is_in_pool` ganz FEHLT - so liegt die Mehrheit des echten Bestands.
+
+    Das Feld kam erst mit dem Pool hinzu; die davor zentral importierten Geräte tragen es bis
+    heute nicht (349 von 430). `geraet` setzt es auf False und geht damit an genau der Lage
+    vorbei, in der jede Abfrage auf {"is_in_pool": False} ins Leere läuft. Deshalb wird hier
+    direkt in die Datenbank geschrieben: über die API entstünde das Feld unvermeidlich.
+    """
+    await db.ipads.insert_one({
+        "id": ipad_id, "bildungsgang_id": bildungsgang_id,
+        "itnr": itnr or f"IT{ipad_id}", "snr": f"SN{ipad_id}", "status": "ok",
+        "user_id": angelegt_von, "pool_history": [], "current_assignment_id": None,
+    })
+
+
+async def einstellungen(db, ipad_typ, pencil):
+    """Die Admin-Vorgaben, aus denen die Route leer gelassene Zellen füllt."""
+    await db.global_settings.insert_one({"type": "app_settings", "ipad_typ": ipad_typ, "pencil": pencil})
+
+
+# Die vollständige Lieferliste, in der Reihenfolge, in der die Spalten in der Datei stehen.
+SPALTEN_VOLL = ("ITNr", "SNr", "Karton", "Pencil", "Typ", "AnschJahr", "Status")
+
+
+def excel(zeilen, spalten=("ITNr", "SNr")):
+    """Eine Importliste als echte .xlsx-Datei - die Route prüft den Dateiinhalt, nicht die Endung.
+
+    `spalten` bleibt per Vorgabe bei ITNr/SNr: so sah die Liste vor dem Ausbau aus, und genau
+    die muss weiterhin dasselbe Ergebnis liefern.
+    """
     puffer = io.BytesIO()
-    pd.DataFrame(zeilen, columns=["ITNr", "SNr"]).to_excel(puffer, index=False)
+    pd.DataFrame(zeilen, columns=list(spalten)).to_excel(puffer, index=False)
     return puffer.getvalue()
 
 
@@ -635,6 +663,640 @@ async def test_uebergabe_wird_auch_bei_bereits_zugeordnetem_geraet_quittiert(wel
     verlauf = await client.get("/api/ipads/g1/history", headers=kopf)
     quittungen = [h for h in verlauf.json()["pool_history"] if h["uebergeben_an"] == "bakenecker"]
     assert quittungen, "Die körperliche Übergabe muss festgehalten werden"
+
+
+# --- Batch-Import: die Stammdaten aus der Lieferliste -------------------------------------
+#
+# Die Lieferliste des Schulträgers ist das erste Dokument, das Karton, Pencil, genauen Typ,
+# Anschaffungsjahr und Status kennt. Sie ist zugleich das älteste: der Bestand wurde seit dem
+# zentralen Import in der App gepflegt. Deshalb füllt sie nur Lücken und überschreibt nie.
+
+
+async def test_lieferliste_legt_das_geraet_mit_allen_angaben_an(welt, client):
+    """Eine noch nie erfasste ITNr bekommt alles mit, was in der Zeile steht."""
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel(
+            [("IT500", "SN500", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "defekt")],
+            spalten=SPALTEN_VOLL,
+        )),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["summary"]["created_count"] == 1
+
+    neu = await welt.ipads.find_one({"itnr": "IT500"})
+    assert neu["karton"] == "K7"
+    assert neu["pencil"] == "mit Apple Pencil"
+    assert neu["typ"] == "Apple iPad 9. Gen, 64 GB"
+    assert neu["ansch_jahr"] == "2024"
+    assert neu["status"] == "defekt"
+
+
+async def test_leere_zellen_fallen_auf_die_einstellungen_zurueck(welt, client):
+    """Eine leere Zelle ist keine Angabe - und darf keinen Leerstring in den Bestand schreiben.
+
+    Typ und Pencil holt sich die Route aus den Admin-Einstellungen, der Status ist "ok".
+    Karton und Anschaffungsjahr haben keine Vorgabe: dort muss None stehen. Ein "" sähe im
+    Bestand aus wie eine gemachte, aber leere Angabe - und wäre nicht mehr nachtragbar, weil
+    die Lieferliste nur füllt, was leer ist.
+    """
+    await einstellungen(welt, ipad_typ="Apple iPad 10. Gen", pencil="mit Apple Pencil")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT500", "SN500", "", "", "", "", "")], spalten=SPALTEN_VOLL)),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+
+    neu = await welt.ipads.find_one({"itnr": "IT500"})
+    assert neu["typ"] == "Apple iPad 10. Gen"
+    assert neu["pencil"] == "mit Apple Pencil"
+    assert neu["status"] == "ok"
+    assert neu["karton"] is None
+    assert neu["ansch_jahr"] is None
+
+
+async def test_lieferliste_ergaenzt_am_poolgeraet_nur_was_fehlt(welt, client):
+    """Beim Griff in den Pool werden Lücken gefüllt - ein vorhandener Typ bleibt stehen.
+
+    In der Liste steht die grobe Sammelbezeichnung, im Bestand die in der App nachgetragene
+    genaue. Die gröbere darf die genauere nicht ersetzen.
+    """
+    await poolgeraet(welt, "g1", itnr="IT100")
+    await welt.ipads.update_one({"id": "g1"}, {"$set": {"typ": "Apple iPad 9. Gen, 64 GB"}})
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel(
+            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad", "2024", "ok")],
+            spalten=SPALTEN_VOLL,
+        )),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "from_pool"
+    assert "ergänzt" in zeile["note"]
+
+    nachher = await welt.ipads.find_one({"id": "g1"})
+    assert nachher["karton"] == "K7"
+    assert nachher["pencil"] == "mit Apple Pencil"
+    assert nachher["ansch_jahr"] == "2024"
+    assert nachher["typ"] == "Apple iPad 9. Gen, 64 GB", "die genauere Angabe aus der App bleibt"
+    assert nachher["bildungsgang_id"] == "bg_meda"
+
+
+async def test_nachlieferung_ergaenzt_im_eigenen_bildungsgang_nur_was_fehlt(welt, client):
+    """Das Gerät gehört MEDA schon - auch dann gilt: füllen, nicht überschreiben."""
+    await geraet(welt, "g1", "bg_meda", itnr="IT100")
+    await welt.ipads.update_one({"id": "g1"}, {"$set": {"karton": "K1"}})
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel(
+            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "ok")],
+            spalten=SPALTEN_VOLL,
+        )),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["rows"][0]["outcome"] == "already_assigned"
+
+    nachher = await welt.ipads.find_one({"id": "g1"})
+    assert nachher["karton"] == "K1", "der in der App gepflegte Karton bleibt"
+    assert nachher["pencil"] == "mit Apple Pencil"
+    assert nachher["typ"] == "Apple iPad 9. Gen, 64 GB"
+    assert nachher["ansch_jahr"] == "2024"
+
+
+async def test_nachlieferung_erreicht_auch_geraete_ohne_poolfeld(welt, client):
+    """Der Normalfall des echten Bestands: `is_in_pool` fehlt dem Gerät ganz.
+
+    Das ist kein Randfall, sondern die Mehrheit - das Feld kam erst mit dem Pool hinzu. Eine
+    Abfrage auf {"is_in_pool": False} findet ein fehlendes Feld nicht: die Nachlieferung lief
+    für diese Geräte ins Leere, trug nichts nach, quittierte nichts und meldete die Zeile
+    obendrein als Fehler. Gefragt werden muss nach {"$ne": True}.
+    """
+    await geraet_ohne_poolfeld(welt, "g1", "bg_meda", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel(
+            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "ok")],
+            spalten=SPALTEN_VOLL,
+        )),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "already_assigned", zeile
+    assert "quittiert" in zeile["note"], zeile["note"]
+    assert antwort.json()["summary"]["quittiert_count"] == 1
+
+    nachher = await welt.ipads.find_one({"id": "g1"})
+    assert nachher["karton"] == "K7"
+    assert nachher["pencil"] == "mit Apple Pencil"
+    assert nachher["typ"] == "Apple iPad 9. Gen, 64 GB"
+    assert nachher["ansch_jahr"] == "2024"
+    assert nachher["bildungsgang_id"] == "bg_meda", "am Besitz ändert sich nichts"
+
+    verlauf = await client.get("/api/ipads/g1/history", headers=kopf)
+    assert verlauf.status_code == 200, verlauf.text
+    quittungen = [h for h in verlauf.json()["pool_history"] if h["uebergeben_an"] == "bakenecker"]
+    assert quittungen, "die körperliche Übergabe muss auch hier festgehalten werden"
+    assert quittungen[-1]["bildungsgang_name"] == "MEDA"
+    assert frisch(quittungen[-1]["at"])
+
+
+async def test_fremder_bildungsgang_bekommt_keine_stammdaten(welt, client):
+    """Im fremden Bestand wird nichts angefasst - auch keine harmlos wirkende Typangabe.
+
+    Hinter einer ITNr in einer fremden Liste steckt meist ein Zahlendreher. Die Stammdaten
+    landeten dann unsichtbar bei einem Bildungsgang, der die Lieferung nie bekommen hat.
+    """
+    await geraet(welt, "g1", "bg_gym", itnr="IT100")
+    vorher = await welt.ipads.find_one({"id": "g1"})
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel(
+            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "defekt")],
+            spalten=SPALTEN_VOLL,
+        )),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "already_assigned"
+    assert zeile["assigned_to"] == "GYM"
+
+    assert await welt.ipads.find_one({"id": "g1"}) == vorher, "kein einziges Feld darf sich geändert haben"
+
+
+async def test_fremdes_geraet_behaelt_anleger_und_historie(welt, client):
+    """Auch die Historie bleibt unberührt: es gab keine Übergabe, also gibt es keine Quittung."""
+    await geraet(welt, "g1", "bg_gym", itnr="IT100", angelegt_von="u_wieners")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel(
+            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "ok")],
+            spalten=SPALTEN_VOLL,
+        )),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+
+    nachher = await welt.ipads.find_one({"id": "g1"})
+    assert nachher["user_id"] == "u_wieners"
+    assert nachher["pool_history"] == []
+
+
+async def test_abweichende_snr_wird_gemeldet_statt_uebernommen(welt, client):
+    """Zwei Seriennummern unter einer ITNr heißen vertauschte Hardware oder einen Zahlendreher.
+
+    Beides klärt nur, wer die Geräte vor sich hat - die Route entscheidet es nicht still.
+    """
+    await poolgeraet(welt, "g1", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT100", "SN999")])),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "from_pool"
+    assert "SNg1" in zeile["note"] and "SN999" in zeile["note"], zeile["note"]
+
+    assert (await welt.ipads.find_one({"id": "g1"}))["snr"] == "SNg1"
+
+
+async def test_leere_snr_im_bestand_wird_ergaenzt(welt, client):
+    """Fehlt die Seriennummer im Bestand, ist die Liste die bessere Quelle - sie wird übernommen."""
+    await poolgeraet(welt, "g1", itnr="IT100")
+    await welt.ipads.update_one({"id": "g1"}, {"$set": {"snr": ""}})
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT100", "SN100")])),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert "SNr" in antwort.json()["rows"][0]["note"]
+
+    assert (await welt.ipads.find_one({"id": "g1"}))["snr"] == "SN100"
+
+
+async def test_unbekannter_status_wird_zu_ok_und_gemeldet(welt, client):
+    """Ein Tippfehler in der Status-Spalte darf das Gerät nicht aus der Lieferung werfen.
+
+    Es wird angelegt, der Status auf "ok" gesetzt - und die Zeile sagt, dass nachgesehen
+    werden muss.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT500", "SN500", "kaputt")], spalten=("ITNr", "SNr", "Status"))),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "created"
+    assert "kaputt" in zeile["note"], zeile["note"]
+
+    assert (await welt.ipads.find_one({"itnr": "IT500"}))["status"] == "ok"
+
+
+async def test_unbekannter_status_wird_auch_am_vorhandenen_geraet_gemeldet(welt, client):
+    """"kaputt" in der Liste ist der Grund, warum jemand das Gerät ansehen soll.
+
+    Am Bestand ändert die Spalte bei einem vorhandenen Gerät nichts - gerade deshalb muss die
+    Zeile sagen, dass dort etwas stand, das sie nicht deuten konnte. Gemeldet wurde der
+    ungedeutete Wert bisher nur beim NEU angelegten Gerät; bei allen schon erfassten
+    verschwand er stillschweigend.
+    """
+    await poolgeraet(welt, "g1", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT100", "SNg1", "kaputt")], spalten=("ITNr", "SNr", "Status"))),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "from_pool"
+    assert "kaputt" in zeile["note"], zeile["note"]
+
+    assert (await welt.ipads.find_one({"id": "g1"}))["status"] == "ok", "der Bestand bleibt stehen"
+
+
+async def test_liste_aus_itnr_und_snr_wirkt_wie_vor_dem_ausbau(welt, client):
+    """Der Rückwärtsgang: die alten Listen ohne Stammdatenspalten müssen unverändert laufen.
+
+    Nicht genannte Felder bleiben None. Stünde dort "", wäre die Spalte für immer belegt -
+    eine spätere Lieferliste könnte sie nicht mehr nachtragen.
+    """
+    await einstellungen(welt, ipad_typ="Apple iPad 10. Gen", pencil="ohne Apple Pencil")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT500", "SN500")])),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["rows"][0]["note"] is None
+
+    neu = await welt.ipads.find_one({"itnr": "IT500"})
+    assert neu["snr"] == "SN500"
+    assert neu["typ"] == "Apple iPad 10. Gen"
+    assert neu["pencil"] == "ohne Apple Pencil"
+    assert neu["status"] == "ok"
+    assert neu["karton"] is None
+    assert neu["ansch_jahr"] is None
+
+
+async def test_anschaffungsjahr_als_zahl_bleibt_eine_jahreszahl(welt, client):
+    """Excel liefert Zahlenspalten als Fließkommazahl - aus 2024 würde sonst "2024.0".
+
+    Die zweite Zeile mit leerer Zelle ist kein Beiwerk: erst sie macht die Spalte in der Datei
+    zu einer Fließkommaspalte, und genau so kommt die echte Liste herein. Ihr leeres Feld muss
+    dabei None bleiben, nicht "nan".
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel(
+            [("IT500", "SN500", 2024), ("IT501", "SN501", "")], spalten=("ITNr", "SNr", "AnschJahr")
+        )),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+
+    assert (await welt.ipads.find_one({"itnr": "IT500"}))["ansch_jahr"] == "2024"
+    assert (await welt.ipads.find_one({"itnr": "IT501"}))["ansch_jahr"] is None
+
+
+async def test_seriennummer_als_zahl_bleibt_ohne_nachkommastelle(welt, client):
+    """Eine rein numerische SNr kommt als Fließkommazahl herein - "123456789.0" wäre falsch.
+
+    Dieselbe Falle wie beim Anschaffungsjahr, nur folgenschwerer: unter der verfälschten
+    Nummer findet niemand das Gerät wieder, und auf dem Leihvertrag steht sie gedruckt. Die
+    zweite Zeile mit leerer Zelle macht die Spalte in der Datei überhaupt erst zu einer
+    Fließkommaspalte - genau so kommt die echte Liste herein.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT500", 123456789), ("IT501", "")])),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+
+    assert (await welt.ipads.find_one({"itnr": "IT500"}))["snr"] == "123456789"
+
+
+# --- Die Vorlage für den Upload ----------------------------------------------------------
+#
+# Vorlage und Upload sind ein Paar: was die eine ausgibt, muss die andere lesen. Laufen sie
+# auseinander, füllt jemand gewissenhaft eine Spalte aus, die niemand mehr liest.
+
+
+def vorlage_lesen(inhalt: bytes) -> pd.DataFrame:
+    """Die heruntergeladene Vorlage so einlesen, wie der Upload sie läse."""
+    return pd.read_excel(io.BytesIO(inhalt))
+
+
+# Eine Beispielnummer ist als Beispiel erkennbar, wenn sie sich selbst als eine ausweist -
+# daran und an nichts anderem. Andersherum zu prüfen, also gegen die Form echter Nummern
+# ("IT" und dahinter Ziffern), hat genau hier versagt: "IT-001" trug einen Bindestrich und
+# kam deshalb an diesem Muster vorbei, obwohl es der Wert war, vor dem die Prüfung schützen
+# sollte. Sie konnte danach nicht mehr fehlschlagen, gleich was in der Vorlage stand.
+BEISPIEL_WOERTER = ("beispiel", "muster", "example", "sample", "dummy")
+
+
+def als_beispiel_erkennbar(nummer: str) -> bool:
+    """Weist die Nummer sich in einer Lieferliste selbst als Beispiel aus?"""
+    return any(wort in nummer.casefold() for wort in BEISPIEL_WOERTER)
+
+
+# Die Werte, an denen die Prüfung nachweislich anschlägt. Der Test unten führt sie mit,
+# damit der Nachweis nicht bloß behauptet bleibt: "IT-001" stand wirklich in der Vorlage,
+# "IT001" und "IT 001" sind dieselbe Nummer in anderer Schreibweise, "IT-0815" eine
+# beliebige weitere, und "001" zeigt, dass auch eine Nummer ohne Präfix nicht durchkommt.
+# Setzt jemand die Beispielwerte auf einen dieser Werte, wird der Test rot.
+NUMMERN_OHNE_BEISPIELCHARAKTER = ("IT-001", "IT001", "IT 001", "IT-0815", "001")
+
+
+async def test_admin_bekommt_die_vorlage_zum_batch_upload(welt, client):
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.get("/api/admin/ipads/batch-assign-template", headers=kopf)
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.headers["content-type"] == EXCEL_TYP
+    assert antwort.content, "die Vorlage darf nicht leer sein"
+
+
+async def test_lehrkraft_bekommt_die_vorlage_nicht(welt, client):
+    """Die Vorlage ist so beschränkt wie der Upload - sonst wäre die Beschränkung nur Zierde."""
+    kopf = await anmelden(client, "schaubach")
+
+    antwort = await client.get("/api/admin/ipads/batch-assign-template", headers=kopf)
+    assert antwort.status_code == 403
+
+
+async def test_die_vorlage_fuehrt_genau_die_spalten_des_uploads(welt, client):
+    """Der eigentliche Zweck dieses Tests: er bricht, wenn Vorlage und Upload auseinanderlaufen.
+
+    Verglichen wird gegen SPALTEN_VOLL - dieselbe Liste, mit der die Upload-Tests oben ihre
+    Dateien bauen. Bekommt der Upload eine Spalte dazu, ohne dass die Vorlage sie ausgibt
+    (oder umgekehrt), fällt genau hier auf, dass die ausgefüllte Vorlage nicht mehr das
+    liefert, was sie verspricht. Die Reihenfolge gehört dazu: die Vorlage soll sich lesen
+    lassen wie die Lieferliste des Trägers.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.get("/api/admin/ipads/batch-assign-template", headers=kopf)
+    assert antwort.status_code == 200, antwort.text
+    assert list(vorlage_lesen(antwort.content).columns) == list(SPALTEN_VOLL)
+
+
+async def test_die_zweite_beispielzeile_enthaelt_nur_die_itnr(welt, client):
+    """Die karge zweite Zeile ist Absicht, keine halb vergessene.
+
+    Sie sagt dem Admin, was die Vorlage sonst nirgends sagt: außer der ITNr muss nichts
+    ausgefüllt werden. Wer sie "vervollständigt", nimmt der Vorlage genau die Auskunft, die
+    den meisten Listen die Arbeit erspart.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.get("/api/admin/ipads/batch-assign-template", headers=kopf)
+    assert antwort.status_code == 200, antwort.text
+
+    zeile = vorlage_lesen(antwort.content).iloc[1]
+    assert str(zeile["ITNr"]).strip(), "die ITNr ist die eine Angabe, die stehen muss"
+    gefuellt = [spalte for spalte in SPALTEN_VOLL if spalte != "ITNr" and not pd.isna(zeile[spalte])]
+    assert gefuellt == [], f"diese Zellen müssen leer bleiben: {gefuellt}"
+
+
+async def test_die_beispielnummern_sind_als_beispiel_erkennbar(welt, client):
+    """Die unverändert hochgeladene Vorlage darf nicht wie eine echte Lieferliste aussehen.
+
+    Geprüft wird die Absicht, nicht eine bestimmte Zeichenkette: jede Beispielnummer muss
+    sich selbst als Beispiel ausweisen. Ob in der Vorlage "BEISPIEL-1" oder "MUSTER-A"
+    steht, ist gleichgültig. "IT-001" war es nicht: wer die Vorlage unverändert hochlud,
+    legte zwei Geistergeräte an, die anschließend niemand mehr als Beispielzeilen erkannte.
+
+    Die erste Schleife ist der Nachweis, dass die Prüfung überhaupt anschlagen KANN. Der
+    Vorgänger prüfte gegen die Form echter Nummern und ging an "IT-001" vorbei - er war
+    immer grün, gleich was in der Vorlage stand, und damit schlimmer als gar keiner.
+    """
+    kopf = await anmelden(client, "admin")
+
+    for nummer in NUMMERN_OHNE_BEISPIELCHARAKTER:
+        assert not als_beispiel_erkennbar(nummer), f"{nummer} dürfte hier nicht durchgehen"
+
+    antwort = await client.get("/api/admin/ipads/batch-assign-template", headers=kopf)
+    assert antwort.status_code == 200, antwort.text
+
+    nummern = [str(wert).strip() for wert in vorlage_lesen(antwort.content)["ITNr"]]
+    assert len(nummern) == 2, nummern
+    for nummer in nummern:
+        assert nummer, "eine leere Beispielnummer wäre keine Vorlage"
+        assert als_beispiel_erkennbar(nummer), f"{nummer} ist in einer Liste nicht als Beispiel zu erkennen"
+
+
+async def test_die_unveraendert_hochgeladene_vorlage_legt_kein_geraet_an(welt, client):
+    """Die Vorlage auszuprobieren heißt, sie herunterzuladen und wieder hochzuladen.
+
+    Genau das legte bis vor kurzem zwei Geräte an, die es nie gab. Erkennbar unecht zu sein
+    reicht nicht - der Upload muss dieselben Nummern kennen und solche Zeilen überspringen.
+
+    Deshalb wird die Vorlage hier über den Endpunkt geholt und unverändert weitergereicht,
+    nicht von Hand nachgebaut: nur so prüft der Test die Kopplung, um die es geht. Zwei
+    getrennt gepflegte Listen liefen auseinander, ohne dass eine nachgebaute Datei das je
+    bemerkt hätte.
+
+    Beispielzeilen zählen nicht als Fehler: unter "ungültig / Fehler" geführt schickten sie
+    den Admin auf die Suche nach einem Problem, das es nicht gibt.
+    """
+    kopf = await anmelden(client, "admin")
+
+    vorlage = await client.get("/api/admin/ipads/batch-assign-template", headers=kopf)
+    assert vorlage.status_code == 200, vorlage.text
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(vorlage.content, name="batch_zuordnung_vorlage.xlsx"),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+
+    daten = antwort.json()
+    assert [zeile["outcome"] for zeile in daten["rows"]] == ["beispielzeile", "beispielzeile"], daten["rows"]
+
+    zusammenfassung = daten["summary"]
+    assert zusammenfassung["beispielzeile_count"] == 2
+    assert zusammenfassung["created_count"] == 0
+    assert zusammenfassung["invalid_rows"] == 0, "eine Beispielzeile ist kein Mangel der Liste"
+    assert zusammenfassung["error_count"] == 0
+    assert await welt.ipads.count_documents({}) == 0, "die Vorlage darf kein Gerät hinterlassen"
+
+
+# --- Beim Anlegen und Bearbeiten: gekürzt speichern, leeren Typ auffüllen -----------------
+
+
+async def test_itnr_mit_leerzeichen_wird_gekuerzt_gespeichert(welt, client):
+    """Ein Leerzeichen am Rand macht das Gerät unauffindbar, ohne dass man es sieht.
+
+    In der Liste ist " IT900" von jeder anderen Nummer nicht zu unterscheiden - gesucht wird
+    aber nach der Nummer, gespeichert war Leerzeichen plus Nummer. Der Excel-Import kürzt seit
+    jeher, das Eingabeformular tat es nicht.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/ipads",
+        json={"itnr": "  IT900  ", "snr": " SN900 ", "bildungsgang_id": "bg_meda"},
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["itnr"] == "IT900"
+    assert antwort.json()["snr"] == "SN900"
+    assert await welt.ipads.count_documents({"itnr": "IT900"}) == 1
+
+
+async def test_ausleihe_datum_wird_beim_anlegen_gekuerzt(welt, client):
+    """Dasselbe Leerzeichen, dieselbe Folge - nur fällt sie beim Datum noch später auf.
+
+    " 2026-09-01" ist in jeder Ansicht von "2026-09-01" nicht zu unterscheiden, aber jeder
+    Vergleich und jede Sortierung über das Feld sieht einen anderen Wert. Die ITNr darüber
+    wurde gekürzt, das Datum daneben nicht.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/ipads",
+        json={
+            "itnr": "IT900",
+            "snr": "SN900",
+            "ausleihe_datum": "  2026-09-01  ",
+            "bildungsgang_id": "bg_meda",
+        },
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["ausleihe_datum"] == "2026-09-01"
+    assert (await welt.ipads.find_one({"itnr": "IT900"}))["ausleihe_datum"] == "2026-09-01"
+
+
+async def test_anlegen_mit_erfundenem_status_wird_abgelehnt(welt, client):
+    """Was das Bearbeiten zurückweist, darf das Anlegen nicht herstellen können.
+
+    "kaputt" klingt richtig und steht nicht im Katalog (ok/defekt/gestohlen). Angelegt
+    wurde es gespeichert - und das Gerät ließ sich anschließend nicht mehr bearbeiten, ohne
+    dass jemand den erfundenen Status bemerkt und mitkorrigiert hätte.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/ipads",
+        json={"itnr": "IT900", "snr": "SN900", "status": "kaputt", "bildungsgang_id": "bg_meda"},
+        headers=kopf,
+    )
+    assert antwort.status_code == 400, antwort.text
+    assert "Status" in antwort.json()["detail"]
+    assert await welt.ipads.count_documents({}) == 0, "das Gerät darf gar nicht erst entstehen"
+
+
+async def test_typ_aus_lauter_leerzeichen_bekommt_die_vorgabe(welt, client):
+    """Ein mit der Leertaste "geleertes" Feld ist für jeden Leser leer - also auch hier.
+
+    Gekürzt wird vor der Prüfung auf leer. Sonst gälte " " als ausgefüllt, die Vorgabe griffe
+    nicht, und im Bestand stünde ein Typ, den keine Ansicht anzeigen kann.
+    """
+    await einstellungen(welt, ipad_typ="Apple iPad 10. Gen", pencil="ohne Apple Pencil")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/ipads",
+        json={"itnr": "IT900", "snr": "SN900", "typ": "   ", "bildungsgang_id": "bg_meda"},
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["typ"] == "Apple iPad 10. Gen"
+
+
+async def test_vorgabe_aus_lauter_leerzeichen_ist_keine_vorgabe(welt, client):
+    """Auch die Einstellung selbst kann mit der Leertaste "gefüllt" sein.
+
+    Dann trüge ab diesem Moment jedes neu angelegte Gerät " " als Typ - und zwar genau
+    dort, wo der leere Typ eigentlich aufgefangen wird. Welche Bezeichnung stattdessen
+    einspringt, ist zweitrangig; sie muss nur etwas sein, das eine Ansicht anzeigen kann.
+    """
+    await einstellungen(welt, ipad_typ="   ", pencil="ohne Apple Pencil")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/ipads",
+        json={"itnr": "IT900", "snr": "SN900", "bildungsgang_id": "bg_meda"},
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    typ = antwort.json()["typ"]
+    assert typ.strip(), f"für jeden Leser ein leerer Typ: {typ!r}"
+    assert (await welt.ipads.find_one({"itnr": "IT900"}))["typ"] == typ
+
+
+async def test_geleerter_typ_faellt_beim_bearbeiten_auf_die_vorgabe_zurueck(welt, client):
+    """Auch das Leeren führt auf die Vorgabe zurück, nicht auf ein leeres Feld.
+
+    Solange ein leerer Typ im Bestand stehen bleiben konnte, beantwortete ihn jede Ansicht
+    anders: der Export setzte die Vorgabe ein, die Vertragsvorbereitung meldete "Typ fehlt",
+    die Detailansicht zeigte "N/A". Ist das Feld nie leer, stellt sich die Frage nicht mehr.
+    """
+    await einstellungen(welt, ipad_typ="Apple iPad 10. Gen", pencil="ohne Apple Pencil")
+    await geraet(welt, "g1", "bg_meda", itnr="IT100")
+    await welt.ipads.update_one({"id": "g1"}, {"$set": {"typ": "Apple iPad 9. Gen, 64 GB"}})
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.put("/api/ipads/g1", json={"typ": ""}, headers=kopf)
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["ipad"]["typ"] == "Apple iPad 10. Gen"
+
+    assert (await welt.ipads.find_one({"id": "g1"}))["typ"] == "Apple iPad 10. Gen"
 
 
 # --- Empfänger ist Pflicht ---------------------------------------------------------------

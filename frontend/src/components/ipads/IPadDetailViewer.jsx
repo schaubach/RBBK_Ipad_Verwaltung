@@ -220,16 +220,6 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="modell">Modell</Label>
-                    <Input
-                      id="modell"
-                      value={editedIpad.modell || ''}
-                      onChange={(e) => handleInputChange('modell', e.target.value)}
-                      placeholder="z.B. iPad 9. Gen"
-                      data-testid="ipad-modell-input"
-                    />
-                  </div>
-                  <div>
                     <Label htmlFor="pencil">Pencil</Label>
                     <Input
                       id="pencil"
@@ -285,7 +275,6 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
                   <div><strong>ITNr:</strong> {ipad.itnr}</div>
                   <div><strong>SNr:</strong> {ipad.snr || 'N/A'}</div>
                   <div><strong>Typ:</strong> {ipad.typ || 'N/A'}</div>
-                  <div><strong>Modell:</strong> {ipad.modell || 'N/A'}</div>
                   <div><strong>Pencil:</strong> {ipad.pencil || 'N/A'}</div>
                   <div><strong>Karton:</strong> {ipad.karton || 'N/A'}</div>
                   <div><strong>Status:</strong>

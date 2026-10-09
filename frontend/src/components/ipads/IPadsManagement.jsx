@@ -108,7 +108,6 @@ const IPadsManagement = ({ isAdmin = false }) => {
     itnr: '',
     snr: '',
     typ: '',
-    modell: '',
     pencil: '',
     status: 'ok',
     is_in_pool: false
@@ -277,6 +276,21 @@ const IPadsManagement = ({ isAdmin = false }) => {
     }
   };
 
+  // Die Vorlage nennt die gelesenen Spalten beim Namen - sicherer, als sie aus der
+  // Beschreibung abzutippen, wo ein Tippfehler die ganze Spalte stillschweigend verwirft.
+  const handleBatchImportTemplateDownload = async () => {
+    try {
+      const response = await api.get('/admin/ipads/batch-assign-template', { responseType: 'blob' });
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      downloadBlob(blob, 'batch_zuordnung_vorlage.xlsx');
+      toast.success('Vorlage heruntergeladen');
+    } catch {
+      toast.error('Vorlage konnte nicht heruntergeladen werden');
+    }
+  };
+
   const handleBatchImportSubmit = async () => {
     if (!batchImportTargetBildungsgang || !batchImportEmpfaenger || !batchImportFile) return;
     setBatchImportSubmitting(true);
@@ -289,13 +303,30 @@ const IPadsManagement = ({ isAdmin = false }) => {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       const { summary } = res.data;
-      toast.info(`Übergabe an ${res.data.uebergeben_an} festgehalten`);
+      // Eine Quittung entsteht nur dort, wo das Backend auch wirklich schreibt: neu angelegt,
+      // aus dem Pool geholt oder im eigenen Bildungsgang quittiert. Gehören alle Zeilen
+      // fremden Bildungsgängen, bleibt jedes Gerät unberührt — dann wäre eine festgehaltene
+      // Übergabe schlicht erfunden, und der Empfänger stünde für Geräte gerade, die er nie
+      // bekommen hat.
+      const uebergebeneGeraete =
+        summary.from_pool_count + summary.created_count + summary.quittiert_count;
+      if (uebergebeneGeraete > 0) {
+        toast.info(`Übergabe von ${uebergebeneGeraete} Gerät(en) an ${res.data.uebergeben_an} festgehalten`);
+      } else {
+        toast.info('Keine Übergabe festgehalten - kein Gerät wurde zugeordnet oder quittiert');
+      }
       toast.success(
         `${summary.from_pool_count} aus Pool zugeordnet, ${summary.created_count} neu erstellt & zugeordnet, ` +
-        `${summary.already_assigned_count} bereits vorhanden (unverändert)`
+        `${summary.quittiert_count} im Bildungsgang quittiert, ` +
+        `${summary.fremder_bildungsgang_count} fremder Bildungsgang (unverändert)`
       );
       if (summary.error_count > 0) toast.warning(`${summary.error_count} Fehler - Details im Log`);
       if (summary.invalid_rows > 0) toast.warning(`${summary.invalid_rows} Zeile(n) ohne ITNr übersprungen`);
+      // Kein Mangel der Liste, nur bedeutungslos: wer die Vorlage zum Ausprobieren
+      // unverändert hochlädt, soll sehen, dass sie bewusst nicht gezählt wurde.
+      if (summary.beispielzeile_count > 0) {
+        toast.info(`${summary.beispielzeile_count} Beispielzeile(n) der Vorlage übersprungen`);
+      }
       setBatchImportResult(res.data);
       setBatchImportDialogOpen(false);
       setBatchImportResultDialogOpen(true);
@@ -310,20 +341,39 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const BATCH_IMPORT_OUTCOME_LABELS = {
     from_pool: 'Aus Pool zugeordnet',
     created: 'Neu erstellt & zugeordnet',
-    already_assigned: 'Bereits vorhanden (unverändert)',
+    already_assigned: 'Bereits zugeordnet',
+    beispielzeile: 'Beispielzeile der Vorlage (übersprungen)',
     invalid_row: 'Ungültige Zeile (ITNr fehlt)',
     error: 'Fehler'
   };
 
+  // Das Backend meldet zwei gegensätzliche Fälle unter demselben outcome "already_assigned":
+  // im eigenen Bildungsgang werden leere Felder ergänzt und die Übergabe quittiert, im
+  // fremden bleibt das Gerät unberührt. Auseinander hält sie der gemeldete Besitzer - steht
+  // dort der Ziel-Bildungsgang, wurde geschrieben. Nur der andere Fall ist "unverändert".
+  const batchImportErgebnisText = (r, zielBildungsgang) => {
+    if (r.outcome === 'already_assigned') {
+      return r.assigned_to === zielBildungsgang
+        ? 'Im Bildungsgang (Übergabe quittiert)'
+        : 'Fremder Bildungsgang (unverändert)';
+    }
+    return BATCH_IMPORT_OUTCOME_LABELS[r.outcome] || r.outcome;
+  };
+
   const downloadBatchImportCsv = () => {
     if (!batchImportResult) return;
-    const { target_username, summary, rows } = batchImportResult;
+    const { bildungsgang_name, uebergeben_an, summary, rows } = batchImportResult;
+    // Beide Angaben gehören in den Kopf: die Geräte gehören dem Bildungsgang, entgegen-
+    // genommen hat sie eine Person. Genau das soll das Protokoll später belegen können.
     const headerLines = [
       '# Batch-Zuordnung Log',
-      `# Ziel-Person: ${target_username}`,
+      `# Ziel-Bildungsgang: ${bildungsgang_name}`,
+      `# Übergeben an: ${uebergeben_an}`,
       `# Aus Pool zugeordnet: ${summary.from_pool_count}`,
       `# Neu erstellt & zugeordnet: ${summary.created_count}`,
-      `# Bereits vorhanden (keine Änderung): ${summary.already_assigned_count}`,
+      `# Bereits im Bildungsgang (Übergabe quittiert): ${summary.quittiert_count}`,
+      `# Fremder Bildungsgang (unverändert): ${summary.fremder_bildungsgang_count}`,
+      `# Beispielzeilen der Vorlage: ${summary.beispielzeile_count ?? 0}`,
       `# Ungültige Zeilen: ${summary.invalid_rows}`,
       `# Fehler: ${summary.error_count}`,
       '#'
@@ -338,14 +388,17 @@ const IPadsManagement = ({ isAdmin = false }) => {
     const tableRows = rows.map(r => [
       csvEscape(r.itnr),
       csvEscape(r.snr),
-      csvEscape(BATCH_IMPORT_OUTCOME_LABELS[r.outcome] || r.outcome),
+      csvEscape(batchImportErgebnisText(r, bildungsgang_name)),
       csvEscape(r.assigned_to || ''),
       csvEscape(r.note || ''),
       csvEscape(r.at ? new Date(r.at).toLocaleString('de-DE') : '')
     ].join(';'));
     const csvContent = [...headerLines, tableHeader, ...tableRows].join('\r\n');
     const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    downloadBlob(blob, `batch_zuordnung_log_${target_username}.csv`);
+    // Der Bildungsgang ist immer gefüllt und sagt beim späteren Suchen mehr als eine laufende
+    // Nummer; Leer- und Sonderzeichen würden den Dateinamen auseinanderreißen.
+    const dateiname = bildungsgang_name.replace(/[^A-Za-z0-9ÄÖÜäöüß-]+/g, '_');
+    downloadBlob(blob, `batch_zuordnung_log_${dateiname}.csv`);
   };
 
   // Release confirmation dialog
@@ -575,7 +628,6 @@ const IPadsManagement = ({ isAdmin = false }) => {
       itnr: '',
       snr: '',
       typ: globalSettings.ipad_typ || 'Apple iPad',
-      modell: '',
       pencil: globalSettings.pencil || 'ohne Apple Pencil',
       status: 'ok',
       is_in_pool: false
@@ -1425,11 +1477,11 @@ const IPadsManagement = ({ isAdmin = false }) => {
               <div className="grid gap-2">
                 <Label htmlFor="typ">
                   Typ
-                  <span className="text-xs text-gray-500 ml-2">(Standard aus Einstellungen)</span>
+                  <span className="text-xs text-gray-500 ml-2">(leer = Vorgabe aus den Einstellungen)</span>
                 </Label>
                 <Input
                   id="typ"
-                  placeholder="z.B. iPad Pro 11"
+                  placeholder="z.B. Apple iPad oder Apple iPad 9. Gen, 64 GB"
                   value={newIPadData.typ}
                   onChange={(e) => setNewIPadData({...newIPadData, typ: e.target.value})}
                 />
@@ -1446,19 +1498,6 @@ const IPadsManagement = ({ isAdmin = false }) => {
                   onChange={(e) => setNewIPadData({...newIPadData, pencil: e.target.value})}
                 />
               </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="modell">
-                Modell
-                <span className="text-xs text-gray-500 ml-2">(optional)</span>
-              </Label>
-              <Input
-                id="modell"
-                placeholder="z.B. iPad 9. Gen"
-                value={newIPadData.modell}
-                onChange={(e) => setNewIPadData({...newIPadData, modell: e.target.value})}
-                data-testid="create-modell-input"
-              />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="status">Status</Label>
@@ -1710,7 +1749,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
       {/* Admin: Assign Pool iPad to User Dialog */}
       <AlertDialog open={assignToUserDialogOpen} onOpenChange={setAssignToUserDialogOpen}>
-        <AlertDialogContent data-testid="assign-to-user-dialog">
+        <AlertDialogContent className="max-w-2xl max-h-[90vh] flex flex-col" data-testid="assign-to-user-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>Pool-iPads zuweisen</AlertDialogTitle>
             <AlertDialogDescription>
@@ -1718,7 +1757,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
               an eine Person übergeben. Beides wird mit Datum in der Gerätehistorie festgehalten.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
             <div>
               <Label className="mb-2 block">
                 1. Bildungsgang
@@ -1769,16 +1808,37 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
       {/* Admin: Batch-Zuordnung per Datei-Upload */}
       <AlertDialog open={batchImportDialogOpen} onOpenChange={setBatchImportDialogOpen}>
-        <AlertDialogContent className="max-w-2xl" data-testid="batch-import-dialog">
+        <AlertDialogContent className="max-w-2xl max-h-[90vh] flex flex-col" data-testid="batch-import-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>Batch-Zuordnung per Datei</AlertDialogTitle>
-            <AlertDialogDescription>
-              Excel-Datei mit Spalten <strong>ITNr</strong> (Pflicht) und <strong>SNr</strong> (optional) hochladen.
-              Pro Zeile wird automatisch entschieden: aus dem Pool holen &amp; zuweisen, neu anlegen &amp; zuweisen,
-              oder unverändert lassen, falls bereits einer anderen Person zugeordnet.
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  Excel-Datei mit den Geräten hochladen. Pflicht ist allein die <strong>ITNr</strong>;
+                  SNr, Karton, Pencil, Typ, AnschJahr und Status sind freiwillig. Beim Status werden
+                  nur <strong>ok</strong>, <strong>defekt</strong> und <strong>gestohlen</strong>{' '}
+                  gedeutet; jeder andere Wert wird im Protokoll gemeldet.
+                </p>
+                <p>
+                  Pro Zeile wird entschieden: aus dem Pool holen &amp; zuweisen, neu anlegen &amp;
+                  zuweisen, die Übergabe quittieren, wenn das Gerät schon <strong>diesem</strong>{' '}
+                  Bildungsgang gehört, oder nichts tun, wenn es einem <strong>anderen</strong>{' '}
+                  gehört.
+                </p>
+                <p>
+                  Bei einem <strong>neuen</strong> Gerät greifen für Typ und Pencil die Vorgaben aus
+                  den Einstellungen, wenn die Zellen leer bleiben.
+                </p>
+                <p>
+                  Bei einem Gerät aus dem Pool oder aus <strong>diesem</strong> Bildungsgang werden
+                  nur leere Felder ergänzt; vorhandene Werte und der Status bleiben unangetastet, und
+                  eine abweichende SNr wird gemeldet statt übernommen. An Geräten{' '}
+                  <strong>anderer</strong> Bildungsgänge wird nichts geändert.
+                </p>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
             <div>
               <Label className="mb-2 block">1. Ziel-Bildungsgang auswählen{batchImportTargetBildungsgang && (
                 <span className="font-normal text-green-700"> — ausgewählt: <strong>{batchImportTargetBildungsgang.name}</strong></span>
@@ -1815,7 +1875,19 @@ const IPadsManagement = ({ isAdmin = false }) => {
               />
             </div>
             <div>
-              <Label className="mb-2 block">3. Datei hochladen</Label>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <Label>3. Datei hochladen</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBatchImportTemplateDownload}
+                  data-testid="batch-import-template-btn"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Vorlage herunterladen
+                </Button>
+              </div>
               <Input
                 type="file"
                 accept=".xlsx,.xls"
@@ -1845,7 +1917,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
             <AlertDialogDescription asChild>
               <div>
                 {batchImportResult && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 text-sm">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-2 text-sm">
                     <div className="p-2 bg-violet-50 rounded border border-violet-200">
                       <div className="font-semibold text-violet-800">{batchImportResult.summary.from_pool_count}</div>
                       <div className="text-violet-700">aus Pool zugeordnet</div>
@@ -1854,14 +1926,27 @@ const IPadsManagement = ({ isAdmin = false }) => {
                       <div className="font-semibold text-green-800">{batchImportResult.summary.created_count}</div>
                       <div className="text-green-700">neu erstellt &amp; zugeordnet</div>
                     </div>
+                    {/* Getrennt, weil es zwei verschiedene Dinge sind: hier wurden Stammdaten
+                        und ein Historieneintrag geschrieben, nebenan gar nichts. */}
+                    <div className="p-2 bg-blue-50 rounded border border-blue-200">
+                      <div className="font-semibold text-blue-800">{batchImportResult.summary.quittiert_count}</div>
+                      <div className="text-blue-700">im Bildungsgang, Übergabe quittiert</div>
+                    </div>
                     <div className="p-2 bg-gray-50 rounded border border-gray-200">
-                      <div className="font-semibold text-gray-800">{batchImportResult.summary.already_assigned_count}</div>
-                      <div className="text-gray-700">bereits vorhanden</div>
+                      <div className="font-semibold text-gray-800">{batchImportResult.summary.fremder_bildungsgang_count}</div>
+                      <div className="text-gray-700">fremder Bildungsgang, unverändert</div>
                     </div>
                     <div className="p-2 bg-red-50 rounded border border-red-200">
                       <div className="font-semibold text-red-800">{batchImportResult.summary.invalid_rows + batchImportResult.summary.error_count}</div>
                       <div className="text-red-700">ungültig / Fehler</div>
                     </div>
+                    {/* Nur wenn es sie gibt - im Regelfall bleibt das Raster bei fünf Kacheln. */}
+                    {batchImportResult.summary.beispielzeile_count > 0 && (
+                      <div className="p-2 bg-amber-50 rounded border border-amber-200">
+                        <div className="font-semibold text-amber-800">{batchImportResult.summary.beispielzeile_count}</div>
+                        <div className="text-amber-700">Beispielzeilen übersprungen</div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1884,7 +1969,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                     <TableRow key={idx} data-testid={`batch-import-result-row-${idx}`}>
                       <TableCell>{r.itnr}</TableCell>
                       <TableCell>{r.snr}</TableCell>
-                      <TableCell>{BATCH_IMPORT_OUTCOME_LABELS[r.outcome] || r.outcome}</TableCell>
+                      <TableCell>{batchImportErgebnisText(r, batchImportResult.bildungsgang_name)}</TableCell>
                       <TableCell>{r.assigned_to || '-'}</TableCell>
                       <TableCell>{r.note || '-'}</TableCell>
                     </TableRow>

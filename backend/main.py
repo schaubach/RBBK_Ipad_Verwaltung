@@ -15,7 +15,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.cors import CORSMiddleware
 
-from core.config import client, limiter
+from core.config import client, db, limiter
 from core.middleware import SecurityHeadersMiddleware
 from core.router import api_router
 import routes  # noqa: F401  (import side-effect: registers all endpoints on api_router)
@@ -45,6 +45,31 @@ app.add_middleware(
 @app.on_event("startup")
 async def start_backup_scheduler():
     asyncio.create_task(backup_scheduler_loop())
+
+
+@app.on_event("startup")
+async def create_indexes():
+    """Die ITNr bezeichnet ein Stueck Hardware und ist schulweit eindeutig - das schreibt der
+    Index in die Datenbank, statt es nur in der Anwendung zu pruefen.
+
+    Der Batch-Upload verlaesst sich darauf: sein atomares ``$setOnInsert`` schliesst das
+    Wettrennen zweier gleichzeitiger Laeufe um dieselbe neue ITNr nur, wenn die zweite
+    Einfuegung an diesem Index scheitert. Ohne ihn legen beide das Geraet an.
+
+    Laesst der Index sich nicht anlegen - praktisch immer wegen Dubletten aus der Zeit davor -,
+    laeuft die Anwendung trotzdem weiter. Ein Deploy auf eine unsaubere Datenbank darf nicht
+    die ganze Verwaltung stillstellen; die Meldung im Log sagt, was zu bereinigen ist, und bis
+    dahin bleibt es beim alten Zustand.
+    """
+    try:
+        await db.ipads.create_index("itnr", unique=True, name="itnr_eindeutig")
+    except Exception as e:
+        logger.error(
+            "Eindeutiger Index auf ipads.itnr konnte nicht angelegt werden: %s - vermutlich "
+            "gibt es doppelte ITNr im Bestand. Bitte bereinigen und neu starten; bis dahin "
+            "koennen zwei gleichzeitige Batch-Laeufe dieselbe ITNr doppelt anlegen.",
+            e,
+        )
 
 
 @app.on_event("shutdown")

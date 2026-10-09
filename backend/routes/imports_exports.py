@@ -33,6 +33,17 @@ from models.assignment import (
 from models.ipad import iPad
 from models.student import Student
 from pydantic import BaseModel
+# Aus dem Batch-Upload geliehen statt nachgebaut: beide Importe erkennen ein Geraet an seiner
+# ITNr wieder, also muessen sie aus derselben Zelle dieselbe Nummer lesen. Nur _zelle raeumt
+# Excels Float-Darstellung weg ("123456.0"); mit safe_str allein waere dieselbe Nummer je nach
+# Import eine andere, und aus einem Geraet wuerden zwei - seit dem eindeutigen Index
+# itnr_eindeutig nicht einmal mehr das, sondern ein harter Fehler mitten im Lauf. An dieser
+# Schule sind die Nummern alphanumerisch, der Fall tritt also heute nicht auf; die Zusage
+# "zwei Importe, eine Nummer" soll aber nicht davon abhaengen.
+# Dasselbe Argument gilt fuer _vorgabe_ipad_typ: eine zweite Kopie des Rueckfalls
+# "Apple iPad" liefe frueher oder spaeter auseinander.
+# (Sachlich gehoeren beide neben safe_str in core/validators.py; dort stehen sie noch nicht.)
+from routes.ipads import _vorgabe_ipad_typ, _zelle
 from starlette.requests import Request
 
 # ---------------------------------------------------------------------------
@@ -108,7 +119,7 @@ EXPORT_COLUMNS: List[str] = [
     "ITNr",
     "SNr",
     "Typ",
-    "Modell",
+    "Karton",
     "Status",
     "AnschJahr",
     "AusleiheDatum",
@@ -193,7 +204,7 @@ def _build_assignment_row(
         "ITNr": ipad.get("itnr", "") if ipad else "",
         "SNr": ipad.get("snr", "") if ipad else "",
         "Typ": typ,
-        "Modell": (ipad.get("modell") or "") if ipad else "",
+        "Karton": (ipad.get("karton") or "") if ipad else "",
         "Status": ipad.get("status", "ok") if ipad else "",
         "AnschJahr": ipad.get("ansch_jahr", "") if ipad else "",
         "AusleiheDatum": _format_iso_date(assignment.get("assigned_at")) if assignment else "",
@@ -255,7 +266,7 @@ EXPORT_COLUMN_GROUPS = {
         "ITNr",
         "SNr",
         "Typ",
-        "Modell",
+        "Karton",
         "Status",
         "AnschJahr",
         "AusleiheDatum",
@@ -287,6 +298,21 @@ async def get_export_columns(current_user: dict = Depends(get_current_user)):
         "columns": EXPORT_COLUMNS,
         "groups": EXPORT_COLUMN_GROUPS,
     }
+
+
+def _safe_jahr(value) -> str:
+    """Anschaffungsjahr als Ganzzahl-String aus einer Excel-Zelle.
+
+    Eine Jahresspalte kommt aus Excel regelmäßig als float64 an. Ungeprüft stünde
+    danach "2024.0" im Bestand - und damit auch auf dem Leihvertrag.
+    """
+    jahr = safe_str(value)
+    try:
+        return str(int(float(jahr)))
+    except (ValueError, OverflowError):
+        # Alles, was keine Zahl ist, bleibt wie eingetragen - lieber ein ungewöhnlicher
+        # Wert im Bestand als ein stillschweigend geleertes Feld.
+        return jahr
 
 
 @api_router.post("/imports/inventory")
@@ -325,7 +351,13 @@ async def import_inventory(
     try:
         # Load global settings for default values
         global_settings = await db.global_settings.find_one({"type": "app_settings"})
-        default_ipad_typ = global_settings.get("ipad_typ", "Apple iPad") if global_settings else "Apple iPad"
+        # Ueber _vorgabe_ipad_typ und nicht ueber .get("ipad_typ", "Apple iPad"): der
+        # Vorgabewert fing nur die FEHLENDE Einstellung ab, nicht die leere. Ist das Feld in
+        # den Einstellungen leer gelassen, lieferte .get brav "" - und der Import legte
+        # Geraete ganz ohne Typ an, die anschliessend jede Ansicht anders beantwortet
+        # (Export setzt die Vorgabe ein, Vertragsvorbereitung meldet "Typ fehlt", Detail
+        # zeigt "N/A"). Der Batch-Upload faengt das laengst ab.
+        default_ipad_typ = await _vorgabe_ipad_typ()
         default_pencil = global_settings.get("pencil", "ohne Apple Pencil") if global_settings else "ohne Apple Pencil"
 
         # Validate file type
@@ -364,8 +396,10 @@ async def import_inventory(
 
         for index, row in df.iterrows():
             try:
-                # Extract data from row
-                itnr = safe_str(row.get("ITNr", ""))
+                # Extract data from row. ITNr und SNr ueber _zelle, wie im Batch-Upload - siehe
+                # den Kommentar am Import. Die leere Zelle bleibt hier "", nicht None: alles
+                # Weitere prueft mit bool(itnr) und schreibt den Wert unveraendert ins Geraet.
+                itnr = _zelle(row, "ITNr") or ""
                 sus_vorn = safe_str(row.get("SuSVorn", ""))
                 sus_nachn = safe_str(row.get("SuSNachn", ""))
                 sus_kl = safe_str(row.get("SuSKl", ""))
@@ -406,18 +440,18 @@ async def import_inventory(
 
                             imported_typ = safe_str(row.get("Typ", ""))
                             imported_pencil = safe_str(row.get("Pencil", ""))
-                            imported_modell = safe_str(row.get("Modell", "")) or None
+                            imported_karton = safe_str(row.get("Karton", "")) or None
 
                             # Poolgeräte bekommen bewusst keinen bildungsgang_id - sie gehören
                             # erst dem Bildungsgang, der sie aus dem Pool holt.
                             new_ipad = iPad(
                                 user_id=current_user["id"],  # angelegt von
                                 itnr=itnr,
-                                snr=safe_str(row.get("SNr", "")),
+                                snr=_zelle(row, "SNr") or "",
                                 typ=imported_typ if imported_typ else default_ipad_typ,
                                 pencil=imported_pencil if imported_pencil else default_pencil,
-                                modell=imported_modell,
-                                ansch_jahr=safe_str(row.get("AnschJahr", "")),
+                                karton=imported_karton,
+                                ansch_jahr=_safe_jahr(row.get("AnschJahr", "")),
                                 status=ipad_status,
                                 is_in_pool=True,
                                 pool_history=[
@@ -497,17 +531,17 @@ async def import_inventory(
                             # Use global settings as defaults if fields are empty
                             imported_typ = safe_str(row.get("Typ", ""))
                             imported_pencil = safe_str(row.get("Pencil", ""))
-                            imported_modell = safe_str(row.get("Modell", "")) or None
+                            imported_karton = safe_str(row.get("Karton", "")) or None
 
                             new_ipad = iPad(
                                 user_id=current_user["id"],  # angelegt von
                                 bildungsgang_id=import_bildungsgang_id,
                                 itnr=itnr,
-                                snr=safe_str(row.get("SNr", "")),
+                                snr=_zelle(row, "SNr") or "",
                                 typ=imported_typ if imported_typ else default_ipad_typ,
                                 pencil=imported_pencil if imported_pencil else default_pencil,
-                                modell=imported_modell,
-                                ansch_jahr=safe_str(row.get("AnschJahr", "")),
+                                karton=imported_karton,
+                                ansch_jahr=_safe_jahr(row.get("AnschJahr", "")),
                                 status=ipad_status,
                             )
 
@@ -709,7 +743,17 @@ async def import_inventory(
 
 
 # iPad-related template columns - dropped from the student-only (non-admin) template.
-TEMPLATE_IPAD_COLUMNS = ["Pencil", "ITNr", "SNr", "Typ", "Status", "AnschJahr", "AusleiheDatum", "Rückgabe"]
+TEMPLATE_IPAD_COLUMNS = [
+    "Pencil",
+    "ITNr",
+    "SNr",
+    "Typ",
+    "Karton",
+    "Status",
+    "AnschJahr",
+    "AusleiheDatum",
+    "Rückgabe",
+]
 
 
 @api_router.get("/imports/template")
@@ -747,7 +791,8 @@ async def download_import_template(current_user: dict = Depends(get_current_user
                 "Pencil": "ohne Apple Pencil",
                 "ITNr": "IT-001",
                 "SNr": "SN-12345",
-                "Typ": "Apple iPad",
+                "Typ": "Apple iPad 9. Gen, 64 GB",
+                "Karton": "K-12",
                 "Status": "ok",
                 "AnschJahr": "2024",
                 "AusleiheDatum": "15.09.2024",
@@ -776,7 +821,8 @@ async def download_import_template(current_user: dict = Depends(get_current_user
                 "Pencil": "mit Apple Pencil",
                 "ITNr": "IT-002",
                 "SNr": "SN-67890",
-                "Typ": "Apple iPad Pro",
+                "Typ": "Apple iPad Pro 11 Zoll",
+                "Karton": "K-07",
                 "Status": "ok",
                 "AnschJahr": "2024",
                 "AusleiheDatum": "20.09.2024",
@@ -806,6 +852,7 @@ async def download_import_template(current_user: dict = Depends(get_current_user
                 "ITNr": "",
                 "SNr": "",
                 "Typ": "",
+                "Karton": "",
                 "Status": "",
                 "AnschJahr": "",
                 "AusleiheDatum": "",
@@ -835,6 +882,7 @@ async def download_import_template(current_user: dict = Depends(get_current_user
                 "ITNr": "IT-003",
                 "SNr": "SN-11111",
                 "Typ": "Apple iPad",
+                "Karton": "K-03",
                 "Status": "defekt",
                 "AnschJahr": "2023",
                 "AusleiheDatum": "",
@@ -844,7 +892,11 @@ async def download_import_template(current_user: dict = Depends(get_current_user
 
         df = pd.DataFrame(template_data)
         if not is_admin(current_user):
-            df = df[df["SuSVorn"] != ""].drop(columns=TEMPLATE_IPAD_COLUMNS).drop_duplicates()
+            # errors="ignore": kommt eine Spalte zu TEMPLATE_IPAD_COLUMNS dazu, steht aber in
+            # keiner der Beispielzeilen, wirft drop sonst KeyError - die Vorlage antwortete
+            # dann jeder Lehrkraft mit 500, waehrend Admins sie weiter bekaemen. Ein Fehler,
+            # der genau die Haelfte der Nutzer trifft und keinem Test auffaellt.
+            df = df[df["SuSVorn"] != ""].drop(columns=TEMPLATE_IPAD_COLUMNS, errors="ignore").drop_duplicates()
 
         # Create Excel file in memory
         output = io.BytesIO()

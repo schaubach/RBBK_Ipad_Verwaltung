@@ -16,8 +16,9 @@ class iPad(BaseModel):
     snr: str
     karton: Optional[str] = None
     pencil: Optional[str] = None
+    # Einzige Geraetebezeichnung, so genau wie bekannt: "Apple iPad" oder
+    # "Apple iPad 9. Gen, 64 GB". Leer heisst: Vorgabe aus den Admin-Einstellungen.
     typ: Optional[str] = None
-    modell: Optional[str] = None
     ansch_jahr: Optional[str] = None
     ausleihe_datum: Optional[str] = None
     status: str = "ok"  # ok, defekt, gestohlen
