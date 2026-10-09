@@ -112,25 +112,15 @@ echo "  🚀 Starte Deployment..."
 echo "════════════════════════════════════════════════════════"
 echo ""
 
-# Schritt 1: Container stoppen
-echo "🛑 [1/5] Stoppe alle Container..."
-$DOCKER_COMPOSE_CMD down
-echo "✅ Container gestoppt"
-echo ""
-
-# Schritt 2: Cleanup
-echo "🗑️  [2/5] Cleanup..."
-if [ "$BUILD_FRONTEND" = true ]; then
-    docker rm -f ipad_frontend_build 2>/dev/null && echo "   ✅ Frontend-Container gelöscht" || echo "   ⚠️  Frontend-Container existierte nicht"
-    docker volume rm config_frontend_build 2>/dev/null && echo "   ✅ Frontend-Volume gelöscht" || echo "   ⚠️  Frontend-Volume existierte nicht"
-fi
-if [ "$BUILD_BACKEND" = true ]; then
-    docker rm -f ipad_backend 2>/dev/null && echo "   ✅ Backend-Container gelöscht" || echo "   ⚠️  Backend-Container existierte nicht"
-fi
-echo ""
-
-# Schritt 3: Build
-echo "🔨 [3/5] Baue Container..."
+# Schritt 1: Build - BEVOR irgendetwas gestoppt wird.
+#
+# Frueher wurde erst heruntergefahren, dann das Frontend-Volume geloescht und erst danach
+# gebaut. Ein fehlgeschlagener Build hinterliess damit eine gestoppte Anwendung OHNE
+# Frontend - die Seite war weg, bis jemand den Build repariert hatte. Ein Buildfehler ist
+# aber der Normalfall beim Entwickeln (ein Tippfehler genuegt), und er darf den laufenden
+# Betrieb nicht mitreissen. Jetzt laeuft die alte Fassung unberuehrt weiter, bis eine neue
+# fertig gebaut vorliegt.
+echo "🔨 [1/5] Baue Container (Anwendung laeuft dabei weiter)..."
 
 if [ "$BUILD_BACKEND" = true ]; then
     echo "   📦 Baue Backend..."
@@ -143,7 +133,7 @@ if [ "$BUILD_BACKEND" = true ]; then
     fi
 
     if [ $? -ne 0 ]; then
-        echo "❌ Backend-Build fehlgeschlagen!"
+        echo "❌ Backend-Build fehlgeschlagen - die laufende Anwendung ist unberührt."
         exit 1
     fi
     echo "   ✅ Backend erfolgreich gebaut"
@@ -160,7 +150,7 @@ if [ "$BUILD_FRONTEND" = true ]; then
     fi
 
     if [ $? -ne 0 ]; then
-        echo "❌ Frontend-Build fehlgeschlagen!"
+        echo "❌ Frontend-Build fehlgeschlagen - die laufende Anwendung ist unberührt."
         exit 1
     fi
     echo "   ✅ Frontend erfolgreich gebaut"
@@ -169,14 +159,32 @@ fi
 echo "✅ Build abgeschlossen"
 echo ""
 
-# Zertifikat sicherstellen: nginx startet nicht ohne server.crt/server.key, und die
-# liegen bewusst nicht im Repo (privater Schluessel). Ein frischer Clone hat also keines.
+# Zertifikat sicherstellen - ebenfalls VOR dem Stoppen: fehlt es und laesst es sich nicht
+# erzeugen, soll die laufende Anwendung nicht dafuer heruntergefahren worden sein.
 echo "🔐 Pruefe TLS-Zertifikat..."
 if ! bash ../nginx/generate-ssl-cert.sh; then
-    echo "❌ Zertifikat konnte nicht erzeugt werden!"
+    echo "❌ Zertifikat konnte nicht erzeugt werden - die laufende Anwendung ist unberührt."
     exit 1
 fi
 echo ""
+
+# Schritt 2: Container stoppen - erst jetzt, mit fertigem Build in der Hand
+echo "🛑 [2/5] Stoppe alle Container..."
+$DOCKER_COMPOSE_CMD down
+echo "✅ Container gestoppt"
+echo ""
+
+# Schritt 3: Cleanup
+echo "🗑️  [3/5] Cleanup..."
+if [ "$BUILD_FRONTEND" = true ]; then
+    docker rm -f ipad_frontend_build 2>/dev/null && echo "   ✅ Frontend-Container gelöscht" || echo "   ⚠️  Frontend-Container existierte nicht"
+    docker volume rm config_frontend_build 2>/dev/null && echo "   ✅ Frontend-Volume gelöscht" || echo "   ⚠️  Frontend-Volume existierte nicht"
+fi
+if [ "$BUILD_BACKEND" = true ]; then
+    docker rm -f ipad_backend 2>/dev/null && echo "   ✅ Backend-Container gelöscht" || echo "   ⚠️  Backend-Container existierte nicht"
+fi
+echo ""
+
 
 # Schritt 4: Container starten
 echo "🚀 [4/5] Starte alle Container..."
