@@ -311,7 +311,6 @@ const StudentsManagement = () => {
   useEffect(() => {
     loadAvailableIPads();
     loadAssignments();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Lädt die Liste beim Start und nach jedem Umschalten der Ansicht. Die Einengung
@@ -320,7 +319,6 @@ const StudentsManagement = () => {
   // die aktuelle Ansicht bei.
   useEffect(() => {
     loadStudents();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ansichtBildungsgang]);
 
   // Drop selections that fall out of view when a filter changes, so batch

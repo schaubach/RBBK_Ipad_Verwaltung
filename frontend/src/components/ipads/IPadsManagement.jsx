@@ -547,14 +547,12 @@ const IPadsManagement = ({ isAdmin = false }) => {
     loadGlobalSettings();
     loadAssignments();
     loadStudents();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Beim Umschalten der Ansicht neu laden - die Einengung geschieht im Backend, damit
   // die Rechte auch dann gelten, wenn jemand den Parameter von Hand setzt.
   useEffect(() => {
     loadIPads();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ansichtBildungsgang]);
 
   // Drop selections that fall out of view when a filter changes, so batch

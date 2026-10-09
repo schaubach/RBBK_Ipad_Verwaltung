@@ -1,5 +1,16 @@
 """Gemeinsames Fundament für alle Tests.
 
+ACHTUNG - diese Suite prüft das BACKEND. Vor einem Deploy gehört der Frontend-Build
+dazu, denn er läuft durch ESLint und fängt Dinge, die hier niemand sieht:
+
+    docker exec -w /app ipad_backend python -m pytest tests/ -q
+    cd config && docker compose build frontend
+
+Ein reiner Parser-Durchlauf über die JSX-Dateien genügt dafür nicht. Er sagt nur, dass
+die Datei syntaktisch gültig ist - ein Verweis auf eine ESLint-Regel, die das Projekt
+gar nicht kennt, bricht den Build trotzdem ab.
+
+
 Jeder Test läuft gegen eine EIGENE, leere Datenbank, die danach verworfen wird. Das ist
 gegenüber einer geteilten Testdatenbank etwas langsamer, aber Tests können sich dann nicht
 gegenseitig beeinflussen - und ein Test, der nur in bestimmter Reihenfolge besteht, ist
