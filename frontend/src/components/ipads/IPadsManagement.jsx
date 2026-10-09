@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
-import { UserPicker } from '../shared/UserPicker';
+import { BildungsgangPicker } from '../shared/BildungsgangPicker';
 import { BildungsgangSelect } from '../shared/BildungsgangSelect';
 import { useBildungsgaenge } from '../../hooks/useBildungsgaenge';
 import { toast } from 'sonner';
@@ -69,7 +69,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const [batchImportDialogOpen, setBatchImportDialogOpen] = useState(false);
   const [batchImportAllUsers, setBatchImportAllUsers] = useState([]);
   const [batchImportUserSearchQuery, setBatchImportUserSearchQuery] = useState('');
-  const [batchImportTargetUser, setBatchImportTargetUser] = useState(null); // { id, username }
+  const [batchImportTargetBildungsgang, setBatchImportTargetBildungsgang] = useState(null); // { id, name }
   const [batchImportFile, setBatchImportFile] = useState(null);
   const [batchImportSubmitting, setBatchImportSubmitting] = useState(false);
   const [batchImportResultDialogOpen, setBatchImportResultDialogOpen] = useState(false);
@@ -217,14 +217,16 @@ const IPadsManagement = ({ isAdmin = false }) => {
     }
   };
 
-  const handleAssignToUser = async (targetUserId) => {
+  // Geräte gehen an einen Bildungsgang, nicht an eine Person: wer ihn betreut, wechselt,
+  // der Bildungsgang nicht. Eine Zuweisung an ein Konto zeigte nach dessen Ausscheiden ins Leere.
+  const handleAssignToBildungsgang = async (bildungsgangId) => {
     try {
-      const res = await api.post('/admin/ipads/assign-to-user', {
+      const res = await api.post('/admin/ipads/assign-to-bildungsgang', {
         ipad_ids: assignToUserTargetIds,
-        target_user_id: targetUserId
+        bildungsgang_id: bildungsgangId
       });
-      const { success_count, failed_count, target_username } = res.data;
-      if (success_count > 0) toast.success(`${success_count} iPad(s) an ${target_username} zugewiesen`);
+      const { success_count, failed_count, bildungsgang_name } = res.data;
+      if (success_count > 0) toast.success(`${success_count} iPad(s) an ${bildungsgang_name} zugewiesen`);
       if (failed_count > 0) toast.warning(`${failed_count} konnten nicht zugewiesen werden`);
       setAssignToUserDialogOpen(false);
       setAssignToUserTargetIds([]);
@@ -253,12 +255,12 @@ const IPadsManagement = ({ isAdmin = false }) => {
   };
 
   const handleBatchImportSubmit = async () => {
-    if (!batchImportTargetUser || !batchImportFile) return;
+    if (!batchImportTargetBildungsgang || !batchImportFile) return;
     setBatchImportSubmitting(true);
     try {
       const formData = new FormData();
       formData.append('file', batchImportFile);
-      formData.append('target_user_id', batchImportTargetUser.id);
+      formData.append('bildungsgang_id', batchImportTargetBildungsgang.id);
       const res = await api.post('/admin/ipads/batch-assign-import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -1671,16 +1673,16 @@ const IPadsManagement = ({ isAdmin = false }) => {
           <AlertDialogHeader>
             <AlertDialogTitle>iPad(s) an User zuweisen</AlertDialogTitle>
             <AlertDialogDescription>
-              {assignToUserTargetIds.length} Pool-iPad(s) werden dem ausgewählten Benutzer zugewiesen.
+              {assignToUserTargetIds.length} Pool-iPad(s) werden dem ausgewählten Bildungsgang zugewiesen.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <UserPicker
-            users={allUsers}
+          <BildungsgangPicker
+            bildungsgaenge={bildungsgaenge}
             searchQuery={userSearchQuery}
             onSearchChange={setUserSearchQuery}
-            onSelectUser={(u) => handleAssignToUser(u.id)}
-            searchTestId="user-search-input"
-            rowTestIdPrefix="assign-user-row"
+            onSelect={(b) => handleAssignToBildungsgang(b.id)}
+            searchTestId="bildungsgang-search-input"
+            rowTestIdPrefix="assign-bildungsgang-row"
           />
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
@@ -1701,17 +1703,17 @@ const IPadsManagement = ({ isAdmin = false }) => {
           </AlertDialogHeader>
           <div className="space-y-4">
             <div>
-              <Label className="mb-2 block">1. Zielperson auswählen{batchImportTargetUser && (
-                <span className="font-normal text-green-700"> — ausgewählt: <strong>{batchImportTargetUser.username}</strong></span>
+              <Label className="mb-2 block">1. Ziel-Bildungsgang auswählen{batchImportTargetBildungsgang && (
+                <span className="font-normal text-green-700"> — ausgewählt: <strong>{batchImportTargetBildungsgang.name}</strong></span>
               )}</Label>
-              <UserPicker
-                users={batchImportAllUsers}
+              <BildungsgangPicker
+                bildungsgaenge={bildungsgaenge}
                 searchQuery={batchImportUserSearchQuery}
                 onSearchChange={setBatchImportUserSearchQuery}
-                onSelectUser={(u) => setBatchImportTargetUser({ id: u.id, username: u.username })}
-                selectedUserId={batchImportTargetUser?.id ?? null}
-                searchTestId="batch-import-user-search-input"
-                rowTestIdPrefix="batch-import-user-row"
+                onSelect={(b) => setBatchImportTargetBildungsgang({ id: b.id, name: b.name })}
+                selectedId={batchImportTargetBildungsgang?.id ?? null}
+                searchTestId="batch-import-bildungsgang-search-input"
+                rowTestIdPrefix="batch-import-bildungsgang-row"
               />
             </div>
             <div>
@@ -1728,7 +1730,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <Button
               onClick={handleBatchImportSubmit}
-              disabled={!batchImportTargetUser || !batchImportFile || batchImportSubmitting}
+              disabled={!batchImportTargetBildungsgang || !batchImportFile || batchImportSubmitting}
               data-testid="batch-import-submit-btn"
             >
               {batchImportSubmitting ? 'Verarbeite...' : 'Batch-Zuordnung starten'}

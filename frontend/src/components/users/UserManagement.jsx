@@ -84,38 +84,30 @@ const UserManagement = () => {
   // Data protection cleanup
   const [cleaning, setCleaning] = useState(false);
 
+  // Prüft auf Datensätze, deren Bildungsgang nicht mehr existiert. Löscht bewusst nichts:
+  // ein Fund bedeutet eine unvollständige Wanderung, und dann will man ihn sehen, nicht
+  // wegräumen lassen. Früher löschte dieser Knopf alles, dessen Ersteller gelöscht worden
+  // war - also Daten lebender Bildungsgänge.
   const handleCleanupOrphanedData = async () => {
-    const confirmed = window.confirm(
-      'WARNUNG: Verwaiste Daten löschen?\n\n' +
-      'Dies löscht alle iPads, Schüler, Zuordnungen und Verträge,\n' +
-      'die zu gelöschten Benutzern gehören.\n\n' +
-      'Dies ist sicher und macht gelöschte ITNr wieder verfügbar.\n\n' +
-      'Fortfahren?'
-    );
-
-    if (!confirmed) return;
-
     try {
-      toast.info('Cleanup wird ausgeführt...');
-      const response = await api.post('/admin/cleanup-orphaned-data');
+      toast.info('Prüfung läuft...');
+      const { data } = await api.post('/admin/cleanup-orphaned-data');
+      const befunde = data.befunde || {};
+      const eintraege = Object.entries(befunde);
 
-      const { deleted_resources, details } = response.data;
-
-      toast.success(
-        `Cleanup abgeschlossen!\n` +
-        `iPads: ${deleted_resources.ipads}\n` +
-        `Schüler: ${deleted_resources.students}\n` +
-        `Zuordnungen: ${deleted_resources.assignments}\n` +
-        `Verträge: ${deleted_resources.contracts}`
-      );
-
-      if (details.total_orphaned_ipads > 0) {
-        console.log('Gelöschte iPad ITNr:', details.orphaned_ipad_itnrs);
+      if (eintraege.length === 0) {
+        toast.success(data.message || 'Keine verwaisten Datensätze gefunden.');
+      } else {
+        const lesbar = { ipads: 'iPads', students: 'Schüler', assignments: 'Zuordnungen', contracts: 'Verträge' };
+        toast.warning(
+          `${data.message}\n` +
+          eintraege.map(([k, v]) => `${lesbar[k] || k}: ${v.anzahl}`).join('\n')
+        );
+        console.warn('Verwaiste Datensätze:', befunde);
       }
-
     } catch (error) {
       console.error('Cleanup error:', error);
-      toast.error(error.response?.data?.detail || 'Fehler beim Cleanup');
+      toast.error(error.response?.data?.detail || 'Fehler bei der Prüfung');
     }
   };
 
@@ -503,29 +495,11 @@ const UserManagement = () => {
     setShowDeleteConfirmDialog(true);
   };
 
-  const handleDeleteStep1Confirm = async () => {
-    try {
-      const [ipadsRes, studentsRes, assignmentsRes] = await Promise.all([
-        api.get('/ipads'),
-        api.get('/students'),
-        api.get('/assignments')
-      ]);
-
-      const userIpads = ipadsRes.data.filter(i => i.user_id === selectedUser.id);
-      const userStudents = studentsRes.data.filter(s => s.user_id === selectedUser.id);
-      const userAssignments = assignmentsRes.data.filter(a => a.user_id === selectedUser.id);
-
-      selectedUser.resourceCounts = {
-        ipads: userIpads.length,
-        students: userStudents.length,
-        assignments: userAssignments.length
-      };
-
-      setDeleteStep(2);
-    } catch (error) {
-      toast.error('Fehler beim Laden der Ressourcen-Anzahl');
-    }
-  };
+  // Kein Vorab-Zählen mehr: früher wurden hier Datensätze über user_id gezählt und als
+  // "wird gelöscht" angekündigt. user_id heißt inzwischen nur noch "angelegt von", und
+  // gelöscht wird davon ohnehin nichts - die Daten gehören dem Bildungsgang. Die
+  // tatsächlichen Zahlen liefert das Backend in seiner Antwort.
+  const handleDeleteStep1Confirm = () => setDeleteStep(2);
 
   const handleDeleteStep2Confirm = async () => {
     if (deleteConfirmText !== selectedUser.username) {
@@ -535,13 +509,17 @@ const UserManagement = () => {
 
     setDeletingUser(true);
     try {
-      const response = await api.delete(`/admin/users/${selectedUser.id}/complete`);
-      const resources = response.data.deleted_resources || {};
-      let successMsg = response.data.message;
-      if (resources.pool_ipads_orphaned > 0) {
-        successMsg += `. Hinweis: ${resources.pool_ipads_orphaned} Pool-iPad(s) bleiben weiter im Pool verfügbar.`;
+      const { data } = await api.delete(`/admin/users/${selectedUser.id}/complete`);
+      const erhalten = data.daten_erhalten || {};
+      const summe = Object.values(erhalten).reduce((a, b) => a + b, 0);
+      let meldung = data.message;
+      if (data.zustaendigkeiten_beendet) {
+        meldung += ` ${data.zustaendigkeiten_beendet} Zuständigkeit(en) beendet.`;
       }
-      toast.success(successMsg);
+      if (summe > 0) {
+        meldung += ` ${summe} von dieser Person angelegte Datensätze bleiben bei ihrem Bildungsgang.`;
+      }
+      toast.success(meldung);
       setShowDeleteConfirmDialog(false);
       setSelectedUser(null);
       setDeleteConfirmText('');
@@ -605,10 +583,10 @@ const UserManagement = () => {
                 onClick={handleCleanupOrphanedData}
                 variant="outline"
                 className="border-orange-500 text-orange-600 hover:bg-orange-50"
-                title="Verwaiste Daten löschen (iPads von gelöschten Usern)"
+                title="Prüft auf Datensätze, deren Bildungsgang nicht mehr existiert (löscht nichts)"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
-                Cleanup verwaiste Daten
+                Auf verwaiste Daten prüfen
               </Button>
               <Button
                 onClick={() => setShowCreateDialog(true)}
@@ -1492,7 +1470,7 @@ const UserManagement = () => {
               </CardTitle>
               <CardDescription className="text-red-600 font-medium">
                 {deleteStep === 1
-                  ? 'Diese Aktion ist UNWIDERRUFLICH und löscht ALLE Daten!'
+                  ? 'Diese Aktion ist UNWIDERRUFLICH — sie entfernt das Konto, nicht die Daten.'
                   : 'Sind Sie ABSOLUT SICHER? Es gibt KEIN Zurück!'}
               </CardDescription>
             </CardHeader>
@@ -1507,11 +1485,12 @@ const UserManagement = () => {
                         Sie sind dabei, Benutzer "{selectedUser.username}" VOLLSTÄNDIG zu löschen!
                       </div>
                       <div className="space-y-1 text-sm">
-                        <p>Der Benutzer wird PERMANENT gelöscht</p>
-                        <p>ALLE iPads des Benutzers werden gelöscht</p>
-                        <p>ALLE Schüler des Benutzers werden gelöscht</p>
-                        <p>ALLE Zuordnungen werden gelöscht</p>
-                        <p>ALLE Verträge werden gelöscht</p>
+                        <p>Das Benutzerkonto wird PERMANENT gelöscht</p>
+                        <p>Laufende Zuständigkeiten werden beendet — der Zugriff endet sofort</p>
+                        <p className="text-green-800 font-medium pt-1">
+                          iPads, Schüler, Zuordnungen und Verträge bleiben erhalten: sie gehören
+                          dem Bildungsgang, nicht der Person.
+                        </p>
                       </div>
                     </AlertDescription>
                   </Alert>
@@ -1553,17 +1532,18 @@ const UserManagement = () => {
                       <div className="font-bold text-lg mb-3">
                         LETZTE BESTÄTIGUNG ERFORDERLICH
                       </div>
-                      {selectedUser.resourceCounts && (
-                        <div className="bg-white rounded p-3 mb-3">
-                          <p className="font-semibold mb-2">Folgende Daten werden PERMANENT gelöscht:</p>
-                          <ul className="space-y-1 text-sm">
-                            <li><strong>{selectedUser.resourceCounts.ipads}</strong> iPads</li>
-                            <li><strong>{selectedUser.resourceCounts.students}</strong> Schüler</li>
-                            <li><strong>{selectedUser.resourceCounts.assignments}</strong> Zuordnungen</li>
-                            <li>Benutzer-Account: <strong>{selectedUser.username}</strong></li>
-                          </ul>
-                        </div>
-                      )}
+                      <div className="bg-white rounded p-3 mb-3">
+                        <p className="font-semibold mb-2">Gelöscht wird ausschließlich:</p>
+                        <ul className="space-y-1 text-sm">
+                          <li>Benutzerkonto: <strong>{selectedUser.username}</strong></li>
+                        </ul>
+                        {selectedUser.bildungsgaenge?.length > 0 && (
+                          <p className="text-sm text-gray-600 mt-2">
+                            Zuständig für {selectedUser.bildungsgaenge.map(b => b.name).join(', ')} —
+                            diese Zuständigkeit endet, die Daten bleiben.
+                          </p>
+                        )}
+                      </div>
                       <p className="text-sm font-medium">
                         Geben Sie zur Bestätigung den Benutzernamen ein:
                       </p>
