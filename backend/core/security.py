@@ -132,10 +132,11 @@ async def get_ipad_filter(user: dict) -> dict:
     """iPad filter: admins see everything (incl. pool); regular users see only the non-pool
     iPads of the Bildungsgänge they are currently responsible for.
 
-    Die is_in_pool-Klausel ist nicht kosmetisch: ein in den Pool gegebenes Gerät behält seinen
-    bildungsgang_id (siehe release_ipad_to_pool). Ohne diese Klausel taucht jedes je in den Pool
-    gegebene Gerät wieder im Bestand des Bildungsgangs auf und liesse sich dort ausgeben,
-    obwohl die zentrale Verwaltung es als Poolbestand führt.
+    Die is_in_pool-Klausel bleibt, obwohl release_ipad_to_pool den bildungsgang_id inzwischen
+    leert: Geräte, die VOR dieser Änderung freigegeben wurden, tragen ihren alten noch (die
+    Wanderung räumt das auf, Schritt 6b). Bis dahin - und als zweite Verteidigungslinie
+    danach - verhindert die Klausel, dass ein Poolgerät im Bestand eines Bildungsgangs
+    auftaucht und dort ausgegeben wird, obwohl die zentrale Verwaltung es als Pool führt.
     """
     if is_admin(user):
         return {}

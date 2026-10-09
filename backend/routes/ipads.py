@@ -66,6 +66,39 @@ async def _claim_pool_ipad_for_bildungsgang(
     )
 
 
+async def _geraet_mit_itnr(
+    itnr: str, bildungsgang_id: Optional[str], is_in_pool: bool, ausser_id: Optional[str] = None
+) -> Optional[dict]:
+    """Das Geraet, das diese ITNr schon belegt - oder None, wenn sie frei ist.
+
+    Eine ITNr bezeichnet ein Stueck Hardware und ist deshalb SCHULWEIT eindeutig - unabhaengig
+    von Bildungsgang und Pool. Die Alternative (ein eigener Nummernkreis je Bildungsgang) waere
+    denkbar, ist hier aber ausdruecklich nicht gewollt: dieselbe Nummer in zwei Bildungsgaengen
+    bezeichnete zwei verschiedene Geraete, und jede Suche ueber die ITNr - Vertragsabgleich,
+    Inventur, Rueckfrage aus dem Sekretariat - haette ab dann zwei Antworten.
+
+    Die Pruefung gilt fuer Anlegen wie Umbenennen. Ein Endzustand, der sich ueber das Anlegen
+    erreichen laesst, darf beim Korrigieren eines Tippfehlers nicht verboten sein - und
+    umgekehrt; genau dieser Widerspruch bestand hier vorher.
+
+    ``bildungsgang_id`` und ``is_in_pool`` bleiben in der Signatur, weil die Aufrufer sie fuer
+    die Fehlermeldung brauchen (``_itnr_belegt_meldung``), nicht fuer die Regel selbst.
+    """
+    suche = {"itnr": itnr}
+    if ausser_id:
+        suche["id"] = {"$ne": ausser_id}
+    return await db.ipads.find_one(suche)
+
+
+def _itnr_belegt_meldung(itnr: str, vorhanden: dict, is_in_pool: bool) -> str:
+    """Sagt, WO die Nummer schon liegt - sonst sucht der Admin im falschen Bestand."""
+    if vorhanden.get("is_in_pool"):
+        return f"iPad mit ITNr {itnr} liegt bereits im Pool"
+    if is_in_pool:
+        return f"iPad mit ITNr {itnr} existiert bereits (im Pool muss die ITNr global eindeutig sein)"
+    return f"iPad mit ITNr {itnr} existiert bereits"
+
+
 @api_router.post("/ipads", response_model=iPad)
 async def create_ipad(ipad_data: dict, current_user: dict = Depends(require_admin_user)):
     """Manuell ein neues iPad anlegen (nur Admins). Optional: is_in_pool=true für Pool-Anlage.
@@ -85,18 +118,12 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(require_admi
             current_user, ipad_data.get("bildungsgang_id")
         )
 
-        # Pool: global uniqueness check; non-pool: per Bildungsgang
-        if is_in_pool:
-            existing = await db.ipads.find_one({"itnr": ipad_data["itnr"]})
-            if existing:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"iPad mit ITNr {ipad_data['itnr']} existiert bereits (Pool-Import erfordert globale Eindeutigkeit)",
-                )
-        else:
-            existing = await db.ipads.find_one({"itnr": ipad_data["itnr"], "bildungsgang_id": bildungsgang_id})
-            if existing:
-                raise HTTPException(status_code=400, detail=f"iPad mit ITNr {ipad_data['itnr']} existiert bereits")
+        # ITNr je Bildungsgang eindeutig, im Pool global - siehe _geraet_mit_itnr.
+        existing = await _geraet_mit_itnr(ipad_data["itnr"], bildungsgang_id, is_in_pool)
+        if existing:
+            raise HTTPException(
+                status_code=400, detail=_itnr_belegt_meldung(ipad_data["itnr"], existing, is_in_pool)
+            )
 
         # Create iPad object
         ipad = iPad(
@@ -237,8 +264,11 @@ async def batch_assign_import(
     duplicate ITNr records for a brand-new device):
     - Not found: a new iPad is created and directly assigned to the target user.
     - Found, in pool: the iPad is atomically claimed out of the pool and assigned.
-    - Found, not in pool: left untouched (already owned by someone) - the current
-      owner is reported so the admin can see who already has it.
+    - Found, not in pool, already in the target Bildungsgang: ownership stays as it is,
+      aber die koerperliche Uebergabe wird quittiert - eine Nachlieferung an denselben
+      Bildungsgang muss sich spaeter genauso beantworten lassen wie die erste Lieferung.
+    - Found, not in pool, anderer Bildungsgang: left untouched - the current owner is
+      reported so the admin can see who already has it.
     """
     bildungsgang = await db.bildungsgaenge.find_one({"id": bildungsgang_id})
     if not bildungsgang:
@@ -364,6 +394,30 @@ async def batch_assign_import(
                 )
         else:
             owner_name = bg_map.get(existing.get("bildungsgang_id"), "ohne Bildungsgang")
+            note = f"Bereits zugeordnet zu {owner_name}"
+            if existing.get("bildungsgang_id") == bildungsgang_id:
+                # Das Geraet gehoert dem Ziel-Bildungsgang schon: am Besitz aendert sich nichts,
+                # koerperlich uebergeben wird es trotzdem. Ohne diese Quittung bliebe bei einer
+                # Nachlieferung an denselben Bildungsgang offen, wer die Kiste bekommen hat -
+                # und genau dafuer ist der Empfaenger ein Pflichtfeld.
+                # Dieselbe action wie bei den anderen Zeilen des Laufs: die Zuordnung IST
+                # erfolgt, sie war nur schon da.
+                await db.ipads.update_one(
+                    {"id": existing["id"]},
+                    {
+                        "$set": {"updated_at": now_iso},
+                        "$push": {
+                            "pool_history": {
+                                "action": "assigned_by_admin",
+                                "by": current_user["id"],
+                                "bildungsgang_id": bildungsgang_id,
+                                "uebergeben_an": uebergeben_an,
+                                "at": now_iso,
+                            }
+                        },
+                    },
+                )
+                note = f"Bereits zugeordnet zu {owner_name} - Übergabe quittiert"
             rows_out.append(
                 {
                     "row": row_number,
@@ -371,7 +425,7 @@ async def batch_assign_import(
                     "snr": snr,
                     "outcome": "already_assigned",
                     "assigned_to": owner_name,
-                    "note": f"Bereits zugeordnet zu {owner_name}",
+                    "note": note,
                     "at": now_iso,
                 }
             )
@@ -448,8 +502,26 @@ async def release_ipad_to_pool(ipad_id: str, request: Request, current_user: dic
     await db.ipads.update_one(
         {"id": ipad_id},
         {
-            "$set": {"is_in_pool": True, "current_assignment_id": None, "updated_at": now_iso},
-            "$push": {"pool_history": {"action": "released", "by": current_user["id"], "at": now_iso}},
+            "$set": {
+                "is_in_pool": True,
+                # Ein freigegebenes Geraet gehoert niemandem mehr - genau wie ein von Anfang an
+                # im Pool angelegtes. Bliebe der Bildungsgang stehen, erschiene es in dessen
+                # Ansicht weiter als Bestand und liesse sich dort ausgeben, obwohl die zentrale
+                # Verwaltung es als Poolbestand fuehrt. Woher es kam, haelt die pool_history fest.
+                "bildungsgang_id": None,
+                "current_assignment_id": None,
+                "updated_at": now_iso,
+            },
+            "$push": {
+                "pool_history": {
+                    "action": "released",
+                    "by": current_user["id"],
+                    # Der frueher zustaendige Bildungsgang: die einzige Spur, aus welchem
+                    # Bestand das Geraet zurueckkam, nachdem das Feld geleert wurde.
+                    "bildungsgang_id": ipad.get("bildungsgang_id"),
+                    "at": now_iso,
+                }
+            },
         },
     )
 
@@ -569,10 +641,18 @@ async def update_ipad(ipad_id: str, request: IPadUpdateRequest, current_user: di
     # Build update dict with only provided fields
     update_data = {}
     if request.itnr is not None:
-        # Check if ITNr is unique (excluding current iPad)
-        existing = await db.ipads.find_one({"itnr": request.itnr, "id": {"$ne": ipad_id}})
+        # Dieselbe Dublettenregel wie beim Anlegen (siehe _geraet_mit_itnr): je Bildungsgang
+        # eindeutig, im Pool global. Eine global strengere Pruefung verbot hier genau die
+        # Zustaende, die sich ueber das Anlegen ohne Weiteres herstellen lassen - ein
+        # Tippfehler war dann nicht mehr korrigierbar.
+        existing = await _geraet_mit_itnr(
+            request.itnr, ipad.get("bildungsgang_id"), bool(ipad.get("is_in_pool")), ausser_id=ipad_id
+        )
         if existing:
-            raise HTTPException(status_code=400, detail="ITNr bereits vergeben")
+            raise HTTPException(
+                status_code=400,
+                detail=_itnr_belegt_meldung(request.itnr, existing, bool(ipad.get("is_in_pool"))),
+            )
         update_data["itnr"] = request.itnr
     if request.snr is not None:
         update_data["snr"] = request.snr

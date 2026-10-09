@@ -119,16 +119,23 @@ async def upload_multiple_contracts(
                         )
                         continue
 
+                    # Der Vertrag folgt der Zuordnung, nicht der hochladenden Person: wer
+                    # mehrere Bildungsgaenge betreut, risse den Vertrag sonst vom Schueler los.
+                    # Rueckfall auf den Schueler wie im Pfad weiter unten - trifft ein Admin
+                    # auf eine noch nicht gewanderte Zuordnung, entstuende sonst ein Vertrag
+                    # ohne Bildungsgang, den anschliessend niemand ausser Admins findet.
+                    # Der Schueler wird erst hier geladen, weil nur der Rueckfall ihn braucht;
+                    # dieser Pfad findet die Zuordnung ueber die ITNr und nicht ueber einen
+                    # $lookup, hat den Schuelerdatensatz also sonst gar nicht zur Hand.
+                    assignment_bildungsgang_id = assignment.get("bildungsgang_id")
+                    if not assignment_bildungsgang_id and assignment.get("student_id"):
+                        student_data = await db.students.find_one({"id": assignment["student_id"]})
+                        assignment_bildungsgang_id = (student_data or {}).get("bildungsgang_id")
+
                     # Create contract with all 3 references
                     contract = Contract(
                         user_id=current_user["id"],  # angelegt von
-                        # Der Vertrag folgt der Zuordnung, nicht der hochladenden Person: wer
-                        # mehrere Bildungsgaenge betreut, risse den Vertrag sonst vom Schueler los.
-                        # Rueckfall auf den Schueler wie im Pfad weiter unten - trifft ein Admin
-                        # auf eine noch nicht gewanderte Zuordnung, entstuende sonst ein Vertrag
-                        # ohne Bildungsgang, den anschliessend niemand ausser Admins findet.
-                        bildungsgang_id=assignment.get("bildungsgang_id")
-                        or (student_data or {}).get("bildungsgang_id"),
+                        bildungsgang_id=assignment_bildungsgang_id,
                         assignment_id=assignment["id"],
                         ipad_id=assignment.get("ipad_id"),
                         student_id=assignment.get("student_id"),
@@ -350,11 +357,17 @@ async def get_assignments_available_for_contracts(current_user: dict = Depends(g
     ).to_list(length=None)
 
     # Count contracts per student
+    # Bewusst OHNE Aufruferfilter - genau wie assign_contract_to_assignment zaehlt: die
+    # Obergrenze ist eine Eigenschaft des Schuelers, nicht des Betrachters. Mit Filter blieben
+    # Altbestaende ohne Bildungsgang ungezaehlt, der Schueler wuerde weiter zur Auswahl
+    # angeboten und die Zuweisung scheiterte erst danach mit "Maximum erreicht".
+    # Der Zugriff ist bereits geprueft: gezaehlt wird nur fuer Schueler aus Zuordnungen,
+    # die der Aufruferfilter oben durchgelassen hat.
     student_contract_count = {}
     for assignment in assignments:
         student_id = assignment.get("student_id")
         if student_id and student_id not in student_contract_count:
-            count = await db.contracts.count_documents({**user_filter, "student_id": student_id, "is_active": True})
+            count = await db.contracts.count_documents({"student_id": student_id, "is_active": True})
             student_contract_count[student_id] = count
 
     # Filter: Assignment hat keinen Vertrag UND Schüler hat Limit nicht erreicht

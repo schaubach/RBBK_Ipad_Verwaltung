@@ -36,6 +36,11 @@ def _parse_dt(value, fallback=None):
     return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
+# Ersatzdatum fuer Konten ohne Zeitstempel. UserResponse verlangt ein datetime, None geht also
+# nicht; der 1.1.1970 ist als Platzhalter erkennbar und erfindet kein plausibles Anlegedatum.
+OHNE_ZEITSTEMPEL = datetime.fromtimestamp(0, UTC)
+
+
 async def _user_response(user: dict, bg_namen: dict = None, zust: dict = None) -> UserResponse:
     """UserResponse aus einem Mongo-Dokument, mit den DERZEIT zustaendigen Bildungsgaengen.
 
@@ -54,6 +59,11 @@ async def _user_response(user: dict, bg_namen: dict = None, zust: dict = None) -
             b["id"]: b["name"]
             async for b in db.bildungsgaenge.find({"id": {"$in": ids}}, {"id": 1, "name": 1})
         }
+    # Altbestaende und aus Sicherungen zurueckgespielte Konten haben nicht zwingend ein
+    # created_at. Ein hartes user["created_at"] liesse ein einziges solches Dokument die ganze
+    # Benutzerliste abbrechen - der Admin kaeme dann an kein Konto mehr heran, auch nicht an
+    # die unbeschaedigten, und koennte das kaputte erst recht nicht loeschen.
+    angelegt = _parse_dt(user.get("created_at"), _parse_dt(user.get("updated_at"), OHNE_ZEITSTEMPEL))
     return UserResponse(
         id=user["id"],
         username=user["username"],
@@ -63,8 +73,8 @@ async def _user_response(user: dict, bg_namen: dict = None, zust: dict = None) -
         comment=user.get("comment"),
         bildungsgaenge=[{"id": i, "name": bg_namen.get(i, "(unbekannt)")} for i in ids],
         created_by=user.get("created_by"),
-        created_at=_parse_dt(user["created_at"]),
-        updated_at=_parse_dt(user.get("updated_at"), _parse_dt(user["created_at"])),
+        created_at=angelegt,
+        updated_at=_parse_dt(user.get("updated_at"), angelegt),
     )
 
 

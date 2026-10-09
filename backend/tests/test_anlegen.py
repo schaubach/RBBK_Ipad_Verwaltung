@@ -8,8 +8,6 @@ Deshalb prüfen diese Tests nicht nur, DASS etwas angelegt wird, sondern bei jed
 es landet - und bei jeder Ablehnung, dass wirklich nichts geschrieben wurde.
 """
 
-import pytest
-
 from tests.conftest import anmelden
 
 
@@ -243,14 +241,19 @@ async def test_gleiche_itnr_im_selben_bildungsgang_wird_abgelehnt(welt, client):
     assert await welt.ipads.count_documents({"itnr": "IT-100"}) == 1
 
 
-async def test_gleiche_itnr_in_anderem_bildungsgang_ist_erlaubt(welt, client):
-    """Die Eindeutigkeit gilt je Bildungsgang, nicht global: zwei Bildungsgänge führen ihre
-    eigenen Nummernkreise und dürfen sich nicht gegenseitig blockieren."""
+async def test_gleiche_itnr_in_anderem_bildungsgang_wird_abgelehnt(welt, client):
+    """Die ITNr ist SCHULWEIT eindeutig, nicht je Bildungsgang.
+
+    Eine Nummernkreis-Trennung je Bildungsgang wäre denkbar, ist aber nicht gewollt: dieselbe
+    Nummer in zwei Bildungsgängen bezeichnete zwei Geräte, und jede Suche über die ITNr hätte
+    ab dann zwei Antworten.
+    """
     kopf = await anmelden(client, "admin")
     assert (await geraet(client, kopf, itnr="IT-100", bildungsgang_id="bg_meda")).status_code == 200
+
     zweites = await geraet(client, kopf, itnr="IT-100", bildungsgang_id="bg_it")
-    assert zweites.status_code == 200, zweites.text
-    assert zweites.json()["bildungsgang_id"] == "bg_it"
+    assert zweites.status_code == 400, zweites.text
+    assert await welt.ipads.count_documents({"itnr": "IT-100"}) == 1, "Es darf nur ein Gerät geben"
 
 
 async def test_gleicher_name_im_selben_bildungsgang_wird_abgelehnt(welt, client):
@@ -295,36 +298,36 @@ async def test_poolgeraet_verlangt_global_eindeutige_itnr(welt, client):
     assert await welt.ipads.count_documents({"itnr": "IT-200"}) == 1
 
 
-@pytest.mark.xfail(
-    reason="BUG: Die globale ITNr-Prüfung greift nur beim Anlegen INS Pool, nicht umgekehrt. "
-    "Ein Gerät, das im Pool liegt, lässt sich mit derselben ITNr nochmal direkt in einen "
-    "Bildungsgang anlegen - dasselbe physische Gerät steht dann zweimal in der Datenbank.",
-    strict=True,
-)
 async def test_itnr_aus_dem_pool_darf_nicht_nochmal_angelegt_werden(welt, client):
+    """Im Pool belegt die ITNr global - sonst stünde dasselbe Gerät zweimal im Bestand."""
     kopf = await anmelden(client, "admin")
     assert (await geraet(client, kopf, itnr="IT-300", is_in_pool=True)).status_code == 200
     doppelt = await geraet(client, kopf, itnr="IT-300", bildungsgang_id="bg_meda")
     assert doppelt.status_code == 400, "Dasselbe Gerät darf nicht zweimal im Bestand stehen"
 
 
-@pytest.mark.xfail(
-    reason="BUG: Anlegen und Bearbeiten widersprechen sich. Beim Anlegen gilt die ITNr je "
-    "Bildungsgang (IT-100 darf in MEDA und IT existieren), beim Bearbeiten prüft "
-    "update_ipad global ('ITNr bereits vergeben'). Derselbe Endzustand ist über das "
-    "Anlegen erreichbar, über das Korrigieren eines Tippfehlers aber nicht.",
-    strict=True,
-)
 async def test_umbenennen_folgt_derselben_dublettenregel_wie_das_anlegen(welt, client):
+    """Anlegen und Korrigieren müssen dieselbe Regel anwenden.
+
+    Vorher widersprachen sie sich: angelegt wurde je Bildungsgang, geprüft wurde beim Ändern
+    global. Ein Zustand war dadurch über den einen Weg erreichbar und über den anderen nicht.
+    """
     kopf = await anmelden(client, "admin")
     assert (await geraet(client, kopf, itnr="IT-100", bildungsgang_id="bg_meda")).status_code == 200
     zu_korrigieren = await geraet(client, kopf, itnr="IT-900", bildungsgang_id="bg_it")
     assert zu_korrigieren.status_code == 200, zu_korrigieren.text
 
+    # Auf eine schulweit belegte Nummer darf nicht korrigiert werden - wie beim Anlegen.
     korrektur = await client.put(
         f"/api/ipads/{zu_korrigieren.json()['id']}", json={"itnr": "IT-100"}, headers=kopf
     )
-    assert korrektur.status_code == 200, korrektur.text
+    assert korrektur.status_code == 400, korrektur.text
+
+    # Auf eine freie Nummer sehr wohl.
+    freie = await client.put(
+        f"/api/ipads/{zu_korrigieren.json()['id']}", json={"itnr": "IT-901"}, headers=kopf
+    )
+    assert freie.status_code == 200, freie.text
 
 
 # --- Angelegt-von ist keine Zugehörigkeit ----------------------------------------------

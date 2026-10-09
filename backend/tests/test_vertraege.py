@@ -12,7 +12,6 @@ Gerätehistorie bei doppelter ITNr. Beide verknüpfen über Felder, die NICHT ei
 import io
 
 import PyPDF2
-import pytest
 from PyPDF2.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject
 
 from tests.conftest import anmelden
@@ -272,18 +271,8 @@ async def test_upload_in_fremden_bildungsgang_wird_abgelehnt(welt, client):
     assert await welt.contracts.count_documents({}) == 0
 
 
-@pytest.mark.xfail(
-    reason="BUG: routes/contracts.py Zeile 130 greift im ITNr-Pfad auf student_data zu, das dort "
-    "nie gesetzt wird. Hat die gefundene Zuordnung keinen Bildungsgang (Altbestand), schlägt der "
-    "vorgesehene Rückfall auf den Schüler mit UnboundLocalError fehl; der generische except macht "
-    "daraus ein stilles 'error' und der Vertrag geht verloren.",
-    strict=True,
-)
 async def test_zuordnung_aus_altbestand_erbt_den_bildungsgang_des_schuelers(welt, client):
-    """Zuordnung ohne Bildungsgang: der Vertrag soll den des Schülers übernehmen.
-
-    Genau dafür ist der Rückfall im Code vorgesehen und kommentiert - er läuft nur nicht.
-    """
+    """Zuordnung ohne Bildungsgang: der Vertrag soll den des Schülers übernehmen."""
     await schueler(welt, "s_alt", "bg_gym")
     await geraet(welt, "g_alt", "bg_gym", "IT-700")
     await zuordnung(welt, "a_alt", None, "s_alt", "g_alt", "IT-700")
@@ -299,15 +288,8 @@ async def test_zuordnung_aus_altbestand_erbt_den_bildungsgang_des_schuelers(welt
     assert gespeichert["bildungsgang_id"] == "bg_gym"
 
 
-@pytest.mark.xfail(
-    reason="BUG: routes/assignments.py upload_contract_for_assignment umschließt den gesamten "
-    "Rumpf mit 'except Exception -> HTTPException(500)'. Die eigene 400-Meldung ('Zuordnung gehört "
-    "noch keinem Bildungsgang...') wird davon mitgefangen und als 'Error processing contract: 400: "
-    "...' mit Status 500 ausgeliefert - die Anwendung meldet einen Serverfehler statt der "
-    "Handlungsanweisung. Dasselbe trifft die Größen- und Dateityp-Prüfung.",
-    strict=True,
-)
 async def test_zuordnung_ohne_bildungsgang_meldet_fehlende_zugehoerigkeit(welt, client):
+    """Eine bewusst ausgelöste 400 muss als 400 ankommen - sie sagt, was zu tun ist."""
     await schueler(welt, "s_alt", "bg_gym")
     await geraet(welt, "g_alt", "bg_gym", "IT-700")
     await zuordnung(welt, "a_alt", None, "s_alt", "g_alt", "IT-700")
@@ -487,14 +469,8 @@ async def test_schueler_am_limit_wird_nicht_mehr_zur_auswahl_angeboten(welt, cli
     assert [a["assignment_id"] for a in antwort.json()] == ["a_frei"]
 
 
-@pytest.mark.xfail(
-    reason="BUG: routes/contracts.py get_assignments_available_for_contracts zählt die Verträge "
-    "MIT Aufruferfilter, assign_contract_to_assignment bewusst ohne. Ein Schüler, dessen Grenze "
-    "durch einen Vertrag ohne Bildungsgang erreicht ist, wird deshalb weiter zur Auswahl "
-    "angeboten und die Zuweisung scheitert erst danach mit 'Maximum erreicht'.",
-    strict=True,
-)
 async def test_auswahl_beruecksichtigt_auch_unsichtbare_vertraege(welt, client):
+    """Die Auswahl zählt wie die Zuweisung - sonst wird angeboten, was danach scheitert."""
     await schueler(welt, "s_voll", "bg_meda")
     await geraet(welt, "g_voll", "bg_meda", "IT-100")
     await zuordnung(welt, "a_voll", "bg_meda", "s_voll", "g_voll", "IT-100")

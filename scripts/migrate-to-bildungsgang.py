@@ -224,6 +224,19 @@ async def main():
                     await db[coll].update_many(query, {"$set": {"bildungsgang_id": bg_ids[bg]}})
         sag(f"      {username:12} -> {bg:12} {', '.join(zeilen) if zeilen else '(keine Daten)'}")
 
+    # --- 6b. Poolgeräte vom alten Bildungsgang lösen -------------------------
+    # release_ipad_to_pool leert den Bildungsgang erst seit dem Umbau. Geräte, die vorher
+    # freigegeben wurden, tragen ihren alten noch - für einen Admin erscheinen sie damit
+    # weiterhin im Bestand eines Bildungsgangs, dem sie nicht mehr gehören.
+    alt_im_pool = await db.ipads.count_documents({"is_in_pool": True, "bildungsgang_id": {"$ne": None}})
+    sag(f"\n[6b] Poolgeräte mit altem Bildungsgang: {alt_im_pool}")
+    if alt_im_pool and APPLY:
+        await db.ipads.update_many(
+            {"is_in_pool": True, "bildungsgang_id": {"$ne": None}},
+            {"$set": {"bildungsgang_id": None, "updated_at": datetime.now(UTC).isoformat()}},
+        )
+        sag("      gelöst - sie gehören jetzt wie alle Poolgeräte niemandem")
+
     # --- 7. Abgleich ---------------------------------------------------------
     sag("\n[7] Abgleich")
     nachher = {c: await db[c].count_documents({}) for c in SAMMLUNGEN}

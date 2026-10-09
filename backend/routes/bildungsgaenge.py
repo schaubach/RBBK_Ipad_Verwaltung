@@ -45,7 +45,7 @@ async def _zustaendige(bildungsgang_id: str, nur_aktuelle: bool = False) -> List
     query = {"bildungsgang_id": bildungsgang_id}
     if nur_aktuelle:
         query["bis"] = None
-    eintraege = await db.zustaendigkeiten.find(query).sort("von", -1).to_list(length=None)
+    eintraege = await db.zustaendigkeiten.find(query).to_list(length=None)
     user_ids = list({z["user_id"] for z in eintraege})
     namen = {
         u["id"]: u.get("username", "?")
@@ -60,8 +60,15 @@ async def _zustaendige(bildungsgang_id: str, nur_aktuelle: bool = False) -> List
         )
         for z in eintraege
     ]
-    # Aktuelle nach oben, danach nach Beginn absteigend
-    return sorted(personen, key=lambda p: (p.bis is not None, p.von or ""), reverse=False)
+    # Aktuelle nach oben, innerhalb jeder Gruppe der jüngste Beginn zuerst. Zwei stabile
+    # Durchgänge, weil die beiden Schlüssel entgegengesetzte Richtungen haben - in einem
+    # Tupel-Schlüssel liesse sich nur EINE davon umdrehen. Erst der feinere Schlüssel
+    # (Beginn absteigend), dann der gröbere (laufend vor beendet); der zweite Durchgang
+    # lässt die Reihenfolge innerhalb der Gruppen stehen. Beide Richtungen stehen hier
+    # ausdrücklich - die Sortierung hängt an keiner Vorsortierung aus der Datenbank.
+    personen.sort(key=lambda p: p.von or "", reverse=True)
+    personen.sort(key=lambda p: p.bis is not None)
+    return personen
 
 
 async def _to_response(doc: dict) -> BildungsgangResponse:

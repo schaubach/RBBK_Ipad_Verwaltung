@@ -434,24 +434,13 @@ async def import_inventory(
                             ipads_created += 1
                             ipad_already_assigned = False
                     else:
-                        # Dublettenprüfung je Bildungsgang: dieselbe ITNr in einem anderen
-                        # Bildungsgang ist ein anderes Gerät und völlig in Ordnung.
-                        #
-                        # Poolgeräte müssen hier mitgesucht werden, obwohl sie keinen
-                        # Bildungsgang tragen: sonst legt ein Bestandsimport, der eine im Pool
-                        # liegende ITNr enthält, ein ZWEITES Gerät mit derselben Nummer an -
-                        # das Poolgerät bleibt unberührt liegen und wird nie geholt. Genau
-                        # diese Lage entsteht hier regelmäßig, weil der Pool zentral befüllt
-                        # und der Bestand danach je Bildungsgang importiert wird.
-                        existing_ipad = await db.ipads.find_one(
-                            {
-                                "itnr": itnr,
-                                "$or": [
-                                    {"bildungsgang_id": import_bildungsgang_id, "is_in_pool": {"$ne": True}},
-                                    {"is_in_pool": True},
-                                ],
-                            }
-                        )
+                        # Die ITNr ist schulweit eindeutig, also wird schulweit gesucht -
+                        # auch im Pool. Sonst legte ein Bestandsimport, der eine im Pool
+                        # liegende Nummer enthält, ein ZWEITES Gerät damit an; das Poolgerät
+                        # bliebe liegen und würde nie geholt. Genau diese Lage entsteht hier
+                        # regelmäßig, weil der Pool zentral befüllt und der Bestand danach je
+                        # Bildungsgang importiert wird.
+                        existing_ipad = await db.ipads.find_one({"itnr": itnr})
 
                         if existing_ipad and existing_ipad.get("is_in_pool"):
                             # Im Pool gefunden: dem importierenden Bildungsgang zuschlagen,
@@ -479,6 +468,21 @@ async def import_inventory(
                             ipad_id = existing_ipad["id"]
                             ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
                             ipads_claimed_from_pool += 1
+                        elif existing_ipad and existing_ipad.get("bildungsgang_id") != import_bildungsgang_id:
+                            # Schulweit eindeutig heisst: diese Nummer gehört bereits woanders
+                            # hin. Nicht stillschweigend umhängen - der Import kann nicht
+                            # wissen, ob das ein Tippfehler ist oder ein echter Wechsel. Die
+                            # Zeile wird gemeldet und übersprungen, der Bestand bleibt heil.
+                            fremder = await db.bildungsgaenge.find_one(
+                                {"id": existing_ipad.get("bildungsgang_id")}, {"name": 1}
+                            )
+                            errors.append(
+                                f"Zeile {index + 2}: ITNr {itnr} gehört bereits zu "
+                                f"{fremder['name'] if fremder else 'einem anderen Bildungsgang'} "
+                                "- Zeile übersprungen"
+                            )
+                            ipads_skipped += 1
+                            continue
                         elif existing_ipad:
                             ipads_skipped += 1
                             ipad_id = existing_ipad["id"]

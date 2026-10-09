@@ -391,6 +391,19 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
                                 <> an <strong>{entry.target_username}</strong></>
                               )}
                             </div>
+                            {/* Zugehörigkeit und Übergabe sind zwei verschiedene Dinge: das Gerät
+                                gehört dem Bildungsgang, körperlich bekommen hat es eine Person.
+                                Genau diese zweite Angabe ist die Antwort auf "wer hat die Kiste?" */}
+                            {entry.bildungsgang_name && (
+                              <div className="text-gray-700">
+                                Bildungsgang: <strong>{entry.bildungsgang_name}</strong>
+                              </div>
+                            )}
+                            {entry.uebergeben_an && (
+                              <div className="text-green-800">
+                                übergeben an <strong>{entry.uebergeben_an}</strong>
+                              </div>
+                            )}
                           </div>
                           <div className="text-xs text-gray-600 whitespace-nowrap">{date}</div>
                         </div>

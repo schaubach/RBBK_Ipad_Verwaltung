@@ -18,7 +18,6 @@ import io
 from datetime import UTC, datetime
 
 import pandas as pd
-import pytest
 
 from tests.conftest import anmelden
 
@@ -329,12 +328,6 @@ async def test_lehrkraft_darf_nicht_in_den_pool_freigeben(welt, client):
     assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is False
 
 
-@pytest.mark.xfail(
-    reason="release_ipad_to_pool laesst bildungsgang_id stehen. Ein freigegebenes Geraet "
-    "gehoert niemandem mehr, erscheint fuer den Admin aber weiterhin in der Ansicht seines "
-    "frueheren Bildungsgangs - anders als ein von Anfang an im Pool angelegtes Geraet.",
-    strict=True,
-)
 async def test_poolgeraet_erscheint_nicht_in_der_bildungsgang_ansicht(welt, client):
     """Beide Geräte liegen im Pool - also darf keines unter MEDA auftauchen."""
     admin = await anmelden(client, "admin")
@@ -626,13 +619,6 @@ async def test_lehrkraft_darf_keinen_batch_import(welt, client):
     assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is True
 
 
-@pytest.mark.xfail(
-    reason="batch_assign_import quittiert nur Geraete, die neu angelegt oder aus dem Pool "
-    "geholt wurden. Liegt ein Geraet bereits im Ziel-Bildungsgang, bleibt die Uebergabe "
-    "unvermerkt - bei einer Nachlieferung an denselben Bildungsgang ist hinterher nicht "
-    "mehr feststellbar, wer die Geraete bekommen hat.",
-    strict=True,
-)
 async def test_uebergabe_wird_auch_bei_bereits_zugeordnetem_geraet_quittiert(welt, client):
     """Das Gerät gehört MEDA schon - übergeben wird es trotzdem, also muss es in der Historie stehen."""
     await geraet(welt, "g1", "bg_meda", itnr="IT100")

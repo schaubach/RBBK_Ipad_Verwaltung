@@ -471,6 +471,12 @@ async def upload_contract_for_assignment(
             "contract_warning": contract_warning,
         }
 
+    except HTTPException:
+        # Die eigenen Meldungen dieses Pfades (fehlender Bildungsgang, zu grosse oder falsche
+        # Datei) sagen, was zu tun ist. Ohne diese Zeile faengt der generische Block sie mit und
+        # liefert sie als "Error processing contract: 400: ..." mit Status 500 aus - die
+        # Anwendung meldete einen Serverfehler statt der Handlungsanweisung.
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing contract: {str(e)}")
 

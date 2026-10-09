@@ -10,8 +10,6 @@ Die Mengen sind absichtlich realistisch gewählt: ein Fehler, der einen halben B
 fällt bei 124 Geräten auf, bei dreien nicht.
 """
 
-import pytest
-
 from tests.conftest import anmelden
 
 # Ein Vertrag ist ein PDF mit Anschrift des Schülers und Namen beider Erziehungsberechtigten.
@@ -508,12 +506,6 @@ async def test_neues_konto_gleichen_namens_erbt_nichts(welt, client):
     assert await welt.ipads.count_documents({}) == 124
 
 
-@pytest.mark.xfail(
-    raises=KeyError,
-    reason="BUG: _user_response liest user['created_at'] hart. Fehlt der Zeitstempel an EINEM "
-    "Konto, bricht die ganze Benutzerliste ab - der Admin kommt an keinen Benutzer mehr heran, "
-    "auch nicht an die 99 unbeschädigten. updated_at daneben wird bereits mit .get() gelesen.",
-)
 async def test_benutzerliste_vertraegt_konto_ohne_zeitstempel(welt, client):
     """Ein einzelnes unvollständiges Konto darf nicht die gesamte Benutzerverwaltung lahmlegen.
 
@@ -529,9 +521,6 @@ async def test_benutzerliste_vertraegt_konto_ohne_zeitstempel(welt, client):
 
 
 async def test_konto_verschwindet_aus_der_benutzerliste(welt, client):
-    # Zeitstempel nachtragen, weil die Benutzerliste sonst abbricht (siehe xfail oben). Hier
-    # geht es um die Löschung, nicht um die Robustheit der Liste.
-    await welt.users.update_many({}, {"$set": {"created_at": "2026-01-01T00:00:00+00:00"}})
     kopf = await anmelden(client, "admin")
 
     await client.delete(LOESCHEN.format("u_schaubach"), headers=kopf)

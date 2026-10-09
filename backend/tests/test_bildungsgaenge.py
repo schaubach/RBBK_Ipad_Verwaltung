@@ -446,12 +446,6 @@ async def test_vorhandene_beendete_zustaendigkeit_wird_mitgeliefert(welt, client
     assert beendete(gym) == {"ausgeschieden"}
 
 
-@pytest.mark.xfail(
-    reason="_zustaendige sortiert innerhalb der Gruppen nach von AUFSTEIGEND, obwohl der "
-    "eigene Kommentar 'nach Beginn absteigend' zusagt. Das vorangestellte sort('von', -1) "
-    "aus der Datenbank wird vom anschliessenden sorted() wieder aufgehoben.",
-    strict=True,
-)
 async def test_zustaendige_stehen_je_gruppe_mit_dem_juengsten_beginn_zuerst(welt, client):
     """Aktuelle nach oben, in der Historie der zuletzt Verantwortliche zuerst.
 
@@ -467,6 +461,26 @@ async def test_zustaendige_stehen_je_gruppe_mit_dem_juengsten_beginn_zuerst(welt
 
     namen = [z["username"] for z in (await hole(client, admin, "bg_meda"))["zustaendige"]]
     assert namen == ["schaubach", "ausgeschieden", "bakenecker"]
+
+
+async def test_aktuelle_zustaendige_stehen_ueber_den_beendeten(welt, client):
+    """Die erste Sortierstufe, getrennt geprüft: laufend vor beendet - unabhängig vom Beginn.
+
+    Hier beginnt die beendete Zuständigkeit SPÄTER als die laufende. Sortierte die zweite
+    Stufe (Beginn absteigend) die erste weg, stünde die ausgeschiedene Person oben.
+    """
+    await welt.zustaendigkeiten.insert_many([
+        {"id": "h_frueh", "bildungsgang_id": "bg_meda", "user_id": "u_bakenecker",
+         "von": "2019-08-01T00:00:00+00:00", "bis": None},
+        {"id": "h_spaet", "bildungsgang_id": "bg_meda", "user_id": "u_ausgeschieden",
+         "von": "2025-08-01T00:00:00+00:00", "bis": "2026-07-31T00:00:00+00:00"},
+    ])
+    admin = await anmelden(client, "admin")
+
+    zustaendige = (await hole(client, admin, "bg_meda"))["zustaendige"]
+    offen = [z["bis"] is None for z in zustaendige]
+    assert offen == [True, True, False], f"Reihenfolge: {[z['username'] for z in zustaendige]}"
+    assert zustaendige[-1]["username"] == "ausgeschieden"
 
 
 async def test_beenden_einer_nicht_bestehenden_zustaendigkeit(welt, client):
