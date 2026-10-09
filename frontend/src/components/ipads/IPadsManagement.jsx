@@ -277,20 +277,18 @@ const IPadsManagement = ({ isAdmin = false }) => {
   };
 
   const handleBatchImportSubmit = async () => {
-    if (!batchImportTargetBildungsgang || !batchImportFile) return;
+    if (!batchImportTargetBildungsgang || !batchImportEmpfaenger || !batchImportFile) return;
     setBatchImportSubmitting(true);
     try {
       const formData = new FormData();
       formData.append('file', batchImportFile);
       formData.append('bildungsgang_id', batchImportTargetBildungsgang.id);
-      if (batchImportEmpfaenger) formData.append('uebergeben_an_user_id', batchImportEmpfaenger.id);
+      formData.append('uebergeben_an_user_id', batchImportEmpfaenger.id);
       const res = await api.post('/admin/ipads/batch-assign-import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       const { summary } = res.data;
-      if (res.data.uebergeben_an) {
-        toast.info(`Übergabe an ${res.data.uebergeben_an} festgehalten`);
-      }
+      toast.info(`Übergabe an ${res.data.uebergeben_an} festgehalten`);
       toast.success(
         `${summary.from_pool_count} aus Pool zugeordnet, ${summary.created_count} neu erstellt & zugeordnet, ` +
         `${summary.already_assigned_count} bereits vorhanden (unverändert)`
@@ -1801,22 +1799,20 @@ const IPadsManagement = ({ isAdmin = false }) => {
             </div>
             <div>
               <Label className="mb-2 block">
-                2. Übergeben an (optional)
+                2. Übergeben an
                 {batchImportEmpfaenger && (
                   <span className="font-normal text-green-700"> — <strong>{batchImportEmpfaenger.username}</strong></span>
                 )}
               </Label>
               <p className="text-xs text-gray-500 mb-2">
-                Wer die Geräte entgegennimmt. Wird mit Datum in der Gerätehistorie festgehalten —
-                die Geräte gehören weiterhin dem Bildungsgang.
+                Wer die Geräte entgegennimmt. Pflichtangabe: ohne sie bliebe später offen, bei
+                wem eine Kiste gelandet ist. Die Geräte gehören weiterhin dem Bildungsgang.
               </p>
               <UserPicker
                 users={batchImportAllUsers}
                 searchQuery={batchImportEmpfaengerSuche}
                 onSearchChange={setBatchImportEmpfaengerSuche}
-                onSelectUser={(u) => setBatchImportEmpfaenger(
-                  batchImportEmpfaenger?.id === u.id ? null : { id: u.id, username: u.username }
-                )}
+                onSelectUser={(u) => setBatchImportEmpfaenger({ id: u.id, username: u.username })}
                 selectedUserId={batchImportEmpfaenger?.id ?? null}
                 searchTestId="batch-import-empfaenger-search-input"
                 rowTestIdPrefix="batch-import-empfaenger-row"
@@ -1836,7 +1832,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <Button
               onClick={handleBatchImportSubmit}
-              disabled={!batchImportTargetBildungsgang || !batchImportFile || batchImportSubmitting}
+              disabled={!batchImportTargetBildungsgang || !batchImportEmpfaenger || !batchImportFile || batchImportSubmitting}
               data-testid="batch-import-submit-btn"
             >
               {batchImportSubmitting ? 'Verarbeite...' : 'Batch-Zuordnung starten'}

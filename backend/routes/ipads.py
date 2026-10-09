@@ -227,7 +227,7 @@ async def batch_assign_import(
     request: Request,
     file: UploadFile = File(...),
     bildungsgang_id: str = Form(...),
-    uebergeben_an_user_id: Optional[str] = Form(None),
+    uebergeben_an_user_id: str = Form(...),
     current_user: dict = Depends(require_admin_user),
 ):
     """
@@ -248,12 +248,10 @@ async def batch_assign_import(
     # An wen die Geraete koerperlich uebergeben wurden. Das ist KEIN Besitz - der liegt beim
     # Bildungsgang - sondern eine Quittung: wer hat die Kiste tatsaechlich bekommen, und wann.
     # Ohne das laesst sich spaeter nicht mehr klaeren, bei wem ein Geraet gelandet ist.
-    uebergeben_an = None
-    if uebergeben_an_user_id:
-        empfaenger = await db.users.find_one({"id": uebergeben_an_user_id})
-        if not empfaenger:
-            raise HTTPException(status_code=404, detail="Empfänger nicht gefunden")
-        uebergeben_an = {"user_id": uebergeben_an_user_id, "username": empfaenger.get("username")}
+    empfaenger = await db.users.find_one({"id": uebergeben_an_user_id})
+    if not empfaenger:
+        raise HTTPException(status_code=404, detail="Empfänger nicht gefunden")
+    uebergeben_an = {"user_id": uebergeben_an_user_id, "username": empfaenger.get("username")}
 
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="Nur Excel-Dateien (.xlsx, .xls) sind erlaubt")
@@ -386,7 +384,7 @@ async def batch_assign_import(
             f"{counts['already_assigned']} bereits vorhanden (unverändert)"
         ),
         "bildungsgang_name": bildungsgang_name,
-        "uebergeben_an": uebergeben_an["username"] if uebergeben_an else None,
+        "uebergeben_an": uebergeben_an["username"],
         "summary": {
             "from_pool_count": counts["from_pool"],
             "created_count": counts["created"],

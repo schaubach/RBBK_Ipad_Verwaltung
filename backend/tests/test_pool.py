@@ -515,26 +515,24 @@ async def test_batch_import_legt_unbekannte_geraete_an_und_quittiert_sie(welt, c
     assert frisch(eintrag["at"])
 
 
-async def test_batch_import_ohne_empfaenger_bleibt_ohne_quittung(welt, client):
-    """Ohne Empfänger wird der Besitz trotzdem festgehalten - die Quittung bleibt leer.
+async def test_batch_import_ohne_empfaenger_wird_abgelehnt(welt, client):
+    """Auch der Dateiimport verlangt einen Empfänger.
 
-    Beweist, dass beides getrennt geführt wird und nicht eines das andere ersetzt.
+    Besitz und Übergabe bleiben getrennte Angaben - aber beide sind verpflichtend. Ohne die
+    zweite bliebe offen, bei wem die Geräte körperlich gelandet sind, und genau das ist die
+    Frage, die im Schuljahr aufkommt.
     """
     await poolgeraet(welt, "g1", itnr="IT100")
     kopf = await anmelden(client, "admin")
 
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
-        data={"bildungsgang_id": "bg_meda"},
+        data={"bildungsgang_id": "bg_meda"},  # absichtlich OHNE Empfänger
         files=anhang(excel([("IT100", "SN100")])),
         headers=kopf,
     )
-    assert antwort.status_code == 200, antwort.text
-    assert antwort.json()["uebergeben_an"] is None
-
-    eintrag = (await client.get("/api/ipads/g1/history", headers=kopf)).json()["pool_history"][-1]
-    assert eintrag["bildungsgang_name"] == "MEDA"
-    assert eintrag["uebergeben_an"] is None
+    assert antwort.status_code == 422, antwort.text
+    assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is True, "Gerät darf im Pool bleiben"
 
 
 async def test_batch_import_laesst_fremde_geraete_unberuehrt(welt, client):
@@ -561,7 +559,7 @@ async def test_batch_import_meldet_zeile_ohne_itnr(welt, client):
 
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
-        data={"bildungsgang_id": "bg_meda"},
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
         files=anhang(excel([("IT500", "SN500"), ("", "SN501")])),
         headers=kopf,
     )
@@ -578,7 +576,7 @@ async def test_batch_import_verlangt_einen_bekannten_bildungsgang(welt, client):
 
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
-        data={"bildungsgang_id": "bg_gibtsnicht"},
+        data={"bildungsgang_id": "bg_gibtsnicht", "uebergeben_an_user_id": "u_bakenecker"},
         files=anhang(excel([("IT100", "SN100")])),
         headers=kopf,
     )
@@ -606,7 +604,7 @@ async def test_batch_import_lehnt_fremde_dateiformate_ab(welt, client):
 
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
-        data={"bildungsgang_id": "bg_meda"},
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
         files=anhang(b"ITNr;SNr\nIT100;SN100\n", name="liste.csv", typ="text/csv"),
         headers=kopf,
     )
@@ -620,7 +618,7 @@ async def test_lehrkraft_darf_keinen_batch_import(welt, client):
 
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
-        data={"bildungsgang_id": "bg_meda"},
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
         files=anhang(excel([("IT100", "SN100")])),
         headers=kopf,
     )
