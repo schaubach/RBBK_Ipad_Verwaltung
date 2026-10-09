@@ -17,6 +17,7 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_user_filter,
+    mit_ansicht,
     resolve_bildungsgang,
     is_admin,
     validate_resource_ownership,
@@ -81,9 +82,14 @@ async def create_student(student_data: dict, current_user: dict = Depends(get_cu
 
 @api_router.get("/students", response_model=List[StudentWithAssignmentCount])
 @limiter.limit("60/minute")
-async def get_students(request: Request, current_user: dict = Depends(get_current_user)):
+async def get_students(
+    request: Request,
+    bildungsgang_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
     # Apply user filter
     user_filter = await get_user_filter(current_user)
+    user_filter = mit_ansicht(user_filter, bildungsgang_id)
     students = await db.students.find(user_filter).to_list(length=None)
 
     # Add assignment_count to each student

@@ -84,33 +84,6 @@ const UserManagement = () => {
   // Data protection cleanup
   const [cleaning, setCleaning] = useState(false);
 
-  // Prüft auf Datensätze, deren Bildungsgang nicht mehr existiert. Löscht bewusst nichts:
-  // ein Fund bedeutet eine unvollständige Wanderung, und dann will man ihn sehen, nicht
-  // wegräumen lassen. Früher löschte dieser Knopf alles, dessen Ersteller gelöscht worden
-  // war - also Daten lebender Bildungsgänge.
-  const handleCleanupOrphanedData = async () => {
-    try {
-      toast.info('Prüfung läuft...');
-      const { data } = await api.post('/admin/cleanup-orphaned-data');
-      const befunde = data.befunde || {};
-      const eintraege = Object.entries(befunde);
-
-      if (eintraege.length === 0) {
-        toast.success(data.message || 'Keine verwaisten Datensätze gefunden.');
-      } else {
-        const lesbar = { ipads: 'iPads', students: 'Schüler', assignments: 'Zuordnungen', contracts: 'Verträge' };
-        toast.warning(
-          `${data.message}\n` +
-          eintraege.map(([k, v]) => `${lesbar[k] || k}: ${v.anzahl}`).join('\n')
-        );
-        console.warn('Verwaiste Datensätze:', befunde);
-      }
-    } catch (error) {
-      console.error('Cleanup error:', error);
-      toast.error(error.response?.data?.detail || 'Fehler bei der Prüfung');
-    }
-  };
-
   const loadUsers = async () => {
     try {
       const response = await api.get('/admin/users');
@@ -579,15 +552,6 @@ const UserManagement = () => {
               </CardDescription>
             </div>
             <div className="flex gap-2">
-              <Button
-                onClick={handleCleanupOrphanedData}
-                variant="outline"
-                className="border-orange-500 text-orange-600 hover:bg-orange-50"
-                title="Prüft auf Datensätze, deren Bildungsgang nicht mehr existiert (löscht nichts)"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Auf verwaiste Daten prüfen
-              </Button>
               <Button
                 onClick={() => setShowCreateDialog(true)}
                 className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"

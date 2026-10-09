@@ -145,6 +145,34 @@ async def get_ipad_filter(user: dict) -> dict:
     }
 
 
+def mit_ansicht(basis_filter: dict, bildungsgang_id: Optional[str]) -> dict:
+    """Engt einen bereits rechtlich geprueften Filter auf einen Bildungsgang ein.
+
+    Rein zur ANSICHT. Die Rechte stehen in get_user_filter/get_ipad_filter und bleiben
+    unberuehrt: wer etwas nicht sehen darf, sieht es auch mit diesem Parameter nicht, denn
+    der Basisfilter gilt weiter. Umgekehrt kann ein Admin damit seinen eigenen Bildungsgang
+    in den Vordergrund holen, statt in 386 Geraeten zu suchen.
+
+    Bewusst getrennt gehalten: eine Bequemlichkeit, die man ins Rechtemodell einbaut, ist
+    spaeter die Stelle, an der man sich irrt.
+    """
+    if not bildungsgang_id:
+        return basis_filter
+
+    # BEIDE Bedingungen muessen gelten. Ein {**basis, "bildungsgang_id": x} wuerde den
+    # Rechtefilter ueberschreiben statt ihn zu ergaenzen - eine Lehrkraft koennte sich damit
+    # jeden fremden Bildungsgang anzeigen lassen. Deshalb ausdruecklich verundet.
+    eingeengt = {k: v for k, v in basis_filter.items() if k != "bildungsgang_id"}
+    if "bildungsgang_id" in basis_filter:
+        eingeengt["$and"] = [
+            {"bildungsgang_id": basis_filter["bildungsgang_id"]},
+            {"bildungsgang_id": bildungsgang_id},
+        ]
+    else:
+        eingeengt["bildungsgang_id"] = bildungsgang_id
+    return eingeengt
+
+
 async def resolve_bildungsgang(user: dict, explicit_id: Optional[str] = None) -> str:
     """Bestimmt, welchem Bildungsgang ein NEUER Datensatz gehört.
 

@@ -20,6 +20,7 @@ from core.security import (
     get_current_user,
     get_ipad_filter,
     get_user_filter,
+    mit_ansicht,
     validate_resource_ownership,
 )
 from core.validators import validate_uploaded_file
@@ -41,6 +42,7 @@ async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
     """
     # Apply user filter
     user_filter = await get_user_filter(current_user)
+    user_filter = mit_ansicht(user_filter, bildungsgang_id)
 
     # Get all students for this user
     all_students = await db.students.find(user_filter).to_list(length=None)
@@ -274,7 +276,11 @@ async def get_available_ipads(request: Request, current_user: dict = Depends(get
 
 @api_router.get("/assignments", response_model=List[Assignment])
 @limiter.limit("60/minute")
-async def get_assignments(request: Request, current_user: dict = Depends(get_current_user)):
+async def get_assignments(
+    request: Request,
+    bildungsgang_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
     # Apply user filter
     user_filter = await get_user_filter(current_user)
     assignment_filter = {**user_filter, "is_active": True}

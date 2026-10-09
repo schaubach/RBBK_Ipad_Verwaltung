@@ -16,6 +16,7 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_ipad_filter,
+    mit_ansicht,
     get_user_filter,
     resolve_bildungsgang,
     require_admin_user,
@@ -34,7 +35,7 @@ from starlette.requests import Request
 
 
 async def _claim_pool_ipad_for_bildungsgang(
-    ipad_id: str, bildungsgang_id: str, action: str, by_user_id: str
+    ipad_id: str, bildungsgang_id: str, action: str, by_user_id: str, uebergeben_an: Optional[dict] = None
 ) -> Optional[dict]:
     """Atomically move an iPad out of the pool into new_owner_id's inventory.
 
@@ -56,6 +57,8 @@ async def _claim_pool_ipad_for_bildungsgang(
                     "action": action,
                     "by": by_user_id,
                     "bildungsgang_id": bildungsgang_id,
+                    # Quittung der koerperlichen Uebergabe, nicht Besitz - siehe batch_assign_import.
+                    "uebergeben_an": uebergeben_an,
                     "at": now_iso,
                 }
             },
@@ -129,9 +132,14 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(require_admi
 
 @api_router.get("/ipads", response_model=List[iPad])
 @limiter.limit("60/minute")
-async def get_ipads(request: Request, current_user: dict = Depends(get_current_user)):
+async def get_ipads(
+    request: Request,
+    bildungsgang_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
     # Admin: everything incl. pool. Regular user: own non-pool iPads only.
     ipad_filter = await get_ipad_filter(current_user)
+    ipad_filter = mit_ansicht(ipad_filter, bildungsgang_id)
     ipads = await db.ipads.find(ipad_filter).to_list(length=None)
     return [iPad(**parse_from_mongo(ipad)) for ipad in ipads]
 
@@ -209,6 +217,7 @@ async def batch_assign_import(
     request: Request,
     file: UploadFile = File(...),
     bildungsgang_id: str = Form(...),
+    uebergeben_an_user_id: Optional[str] = Form(None),
     current_user: dict = Depends(require_admin_user),
 ):
     """
@@ -225,6 +234,16 @@ async def batch_assign_import(
     if not bildungsgang:
         raise HTTPException(status_code=404, detail="Bildungsgang nicht gefunden")
     bildungsgang_name = bildungsgang["name"]
+
+    # An wen die Geraete koerperlich uebergeben wurden. Das ist KEIN Besitz - der liegt beim
+    # Bildungsgang - sondern eine Quittung: wer hat die Kiste tatsaechlich bekommen, und wann.
+    # Ohne das laesst sich spaeter nicht mehr klaeren, bei wem ein Geraet gelandet ist.
+    uebergeben_an = None
+    if uebergeben_an_user_id:
+        empfaenger = await db.users.find_one({"id": uebergeben_an_user_id})
+        if not empfaenger:
+            raise HTTPException(status_code=404, detail="Empfänger nicht gefunden")
+        uebergeben_an = {"user_id": uebergeben_an_user_id, "username": empfaenger.get("username")}
 
     if not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="Nur Excel-Dateien (.xlsx, .xls) sind erlaubt")
@@ -283,6 +302,7 @@ async def batch_assign_import(
                     "action": "created_and_assigned_by_admin",
                     "by": current_user["id"],
                     "bildungsgang_id": bildungsgang_id,
+                    "uebergeben_an": uebergeben_an,
                     "at": now_iso,
                 }
             ],
@@ -308,7 +328,7 @@ async def batch_assign_import(
             )
         elif existing.get("is_in_pool"):
             result = await _claim_pool_ipad_for_bildungsgang(
-                existing["id"], bildungsgang_id, "assigned_by_admin", current_user["id"]
+                existing["id"], bildungsgang_id, "assigned_by_admin", current_user["id"], uebergeben_an
             )
             if result:
                 rows_out.append(
@@ -356,6 +376,7 @@ async def batch_assign_import(
             f"{counts['already_assigned']} bereits vorhanden (unverändert)"
         ),
         "bildungsgang_name": bildungsgang_name,
+        "uebergeben_an": uebergeben_an["username"] if uebergeben_an else None,
         "summary": {
             "from_pool_count": counts["from_pool"],
             "created_count": counts["created"],
@@ -717,12 +738,17 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
     if user_id_set:
         async for u in db.users.find({"id": {"$in": list(user_id_set)}}):
             user_map[u["id"]] = u.get("username", "?")
+    bg_map = {b["id"]: b["name"] async for b in db.bildungsgaenge.find({}, {"id": 1, "name": 1})}
     pool_history = [
         {
             "action": h.get("action"),
             "by_user_id": h.get("by"),
             "by_username": user_map.get(h.get("by"), "Gelöschter User"),
             "target_username": user_map.get(h.get("target")) if h.get("target") else None,
+            # Wem das Geraet zugeschlagen wurde (Besitz) und wer es koerperlich bekommen hat
+            # (Quittung) - zwei verschiedene Dinge, die hier beide sichtbar sein muessen.
+            "bildungsgang_name": bg_map.get(h.get("bildungsgang_id")),
+            "uebergeben_an": (h.get("uebergeben_an") or {}).get("username"),
             "at": h.get("at"),
         }
         for h in raw_history

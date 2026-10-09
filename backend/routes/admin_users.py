@@ -246,45 +246,6 @@ async def delete_user_complete(user_id: str, current_user: dict = Depends(get_cu
     }
 
 
-@api_router.post("/admin/cleanup-orphaned-data")
-async def cleanup_orphaned_data(current_user: dict = Depends(get_current_user)):
-    """Datensaetze finden, deren Bildungsgang nicht mehr existiert (nur Admin).
-
-    Meldet nur, loescht nichts. Frueher loeschte dieser Endpunkt alles, dessen user_id zu
-    keinem existierenden Konto gehoerte - nach dem Umbau waeren das die Datensaetze, deren
-    ERSTELLER geloescht wurde, obwohl sie einem lebenden Bildungsgang gehoeren. Ein Klick
-    haette damit den Bestand eines Bildungsgangs vernichtet.
-
-    Da delete_bildungsgang das Loeschen verweigert, solange Daten daranhaengen, sollte diese
-    Pruefung normalerweise nichts finden. Findet sie doch etwas, ist das ein Hinweis auf eine
-    unvollstaendige Wanderung - und dann will man es sehen, nicht wegraeumen.
-
-    Pool-Geraete haben absichtlich keinen Bildungsgang und gelten hier nicht als verwaist.
-    """
-    require_admin(current_user)
-
-    gueltige = {b["id"] async for b in db.bildungsgaenge.find({}, {"id": 1})}
-
-    befunde = {}
-    for coll, pool_ausnahme in [("ipads", True), ("students", False), ("assignments", False), ("contracts", False)]:
-        query = {"bildungsgang_id": {"$nin": list(gueltige)}}
-        if pool_ausnahme:
-            query["is_in_pool"] = {"$ne": True}
-        treffer = await db[coll].find(query, {"id": 1, "bildungsgang_id": 1, "user_id": 1}).to_list(length=50)
-        gesamt = await db[coll].count_documents(query)
-        if gesamt:
-            befunde[coll] = {"anzahl": gesamt, "beispiele": [t.get("id") for t in treffer[:5]]}
-
-    return {
-        "message": "Keine verwaisten Datensätze gefunden."
-        if not befunde
-        else "Verwaiste Datensätze gefunden - bitte prüfen, es wurde nichts gelöscht.",
-        "befunde": befunde,
-        "hinweis": "Dieser Endpunkt meldet nur. Löschen erfolgt bewusst von Hand, "
-        "nachdem geklärt ist, wohin die Daten gehören.",
-    }
-
-
 @api_router.post("/admin/users/{user_id}/reset-password")
 async def reset_user_password(user_id: str, current_user: dict = Depends(get_current_user)):
     """Reset user password to a temporary 8-digit code (admin only)"""
