@@ -31,7 +31,14 @@ export function BildungsgangFilter({ value, onChange, username, isAdmin = false,
         className="p-2 border rounded-md text-sm"
         data-testid="bildungsgang-filter"
       >
-        <option value="">Alle{isAdmin && meine.length === 0 ? '' : ' Bildungsgänge'}</option>
+        {/* Für eine Lehrkraft heißt "alles" ausdrücklich: alles, wofür SIE zuständig ist.
+            Ein schlichtes "Alle Bildungsgänge" würde etwas anderes versprechen, als die
+            Rechte hergeben - die Liste bliebe dieselbe, nur die Beschriftung wäre falsch. */}
+        <option value="">
+          {isAdmin
+            ? 'Alle Bildungsgänge'
+            : `Meine Bildungsgänge (${meine.map((b) => b.name).join(', ')})`}
+        </option>
         {auswaehlbar.map((b) => (
           <option key={b.id} value={b.id}>
             {b.name}

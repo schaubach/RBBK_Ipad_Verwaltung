@@ -3,6 +3,7 @@ import api from '../../api';
 import StudentDetailViewer from '../students/StudentDetailViewer';
 import IPadDetailViewer from '../ipads/IPadDetailViewer';
 import { BildungsgangSelect } from '../shared/BildungsgangSelect';
+import { BildungsgangFilter } from '../shared/BildungsgangFilter';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
@@ -19,6 +20,8 @@ const ContractsManagement = () => {
   // im localStorage und entscheiden nur darüber, welche Bildungsgänge zur Auswahl stehen.
   const username = localStorage.getItem('username') || '';
   const isAdmin = localStorage.getItem('userRole') === 'admin';
+
+  const [ansichtBildungsgang, setAnsichtBildungsgang] = useState('');
 
   const [contracts, setContracts] = useState([]);
   const [availableAssignments, setAvailableAssignments] = useState([]);
@@ -68,7 +71,14 @@ const ContractsManagement = () => {
     setLoading(true);
     try {
       const [contractsRes, availableRes, allAssignmentsRes] = await Promise.all([
-        api.get('/contracts'),
+        // Der Umschalter engt nur die Vertragsliste ein - die Rechte liegen im Backend und
+        // gelten weiter. Ein fremder Bildungsgang liefert deshalb schlicht nichts.
+        // Die Zuordnungslisten bleiben ungefiltert: sie füttern die Zuordnungs-Dialoge,
+        // in denen ein Vertrag auch einer Zuordnung außerhalb der aktuellen Ansicht
+        // zugewiesen werden können muss.
+        api.get('/contracts', {
+          params: ansichtBildungsgang ? { bildungsgang_id: ansichtBildungsgang } : {}
+        }),
         api.get('/assignments/available-for-contracts'),
         api.get('/assignments')
       ]);
@@ -80,11 +90,20 @@ const ContractsManagement = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [ansichtBildungsgang]);
 
+  // Lädt beim Start und - über die Abhängigkeit von loadData - nach jedem Umschalten neu.
+  // Upload und Löschen rufen dasselbe loadData auf und bleiben damit in der Ansicht.
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Beim Umschalten die Auswahl verwerfen: eine Sammellöschung darf nie Verträge treffen,
+  // die in der neuen Ansicht gar nicht mehr auftauchen.
+  const handleAnsichtChange = (naechste) => {
+    setAnsichtBildungsgang(naechste);
+    setSelectedContracts([]);
+  };
 
   const handleMultipleUpload = async (files) => {
     if (files.length === 0) return;
@@ -674,22 +693,31 @@ const ContractsManagement = () => {
       {/* Contracts Table */}
       <Card className="shadow-lg">
         <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <span className="flex items-center gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
               Verträge verwalten ({contracts.length})
-            </span>
-            {selectedContracts.length > 0 && (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setBatchDeleteDialogOpen(true)}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                {selectedContracts.length} löschen
-              </Button>
-            )}
-          </CardTitle>
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <BildungsgangFilter
+                value={ansichtBildungsgang}
+                onChange={handleAnsichtChange}
+                username={username}
+                isAdmin={isAdmin}
+                id="vertraege-bildungsgang-filter"
+              />
+              {selectedContracts.length > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setBatchDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  {selectedContracts.length} löschen
+                </Button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {/* Filters */}

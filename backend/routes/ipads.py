@@ -171,6 +171,10 @@ class BulkClaimRequest(BaseModel):
 class AdminAssignToBildungsgangRequest(BaseModel):
     ipad_ids: List[str]
     bildungsgang_id: str
+    # Pflicht: ein Geraet geht koerperlich an jemanden. Ohne diese Angabe laesst sich spaeter
+    # nicht mehr klaeren, bei wem eine Kiste gelandet ist - und genau das ist die Frage, die
+    # im Schuljahr aufkommt. Der Besitz liegt davon unberuehrt beim Bildungsgang.
+    uebergeben_an_user_id: str
 
 
 @api_router.post("/admin/ipads/assign-to-bildungsgang")
@@ -191,12 +195,17 @@ async def admin_assign_ipads_to_bildungsgang(
     if not bildungsgang:
         raise HTTPException(status_code=404, detail="Bildungsgang nicht gefunden")
 
+    empfaenger = await db.users.find_one({"id": payload.uebergeben_an_user_id})
+    if not empfaenger:
+        raise HTTPException(status_code=404, detail="Empfänger nicht gefunden")
+    uebergeben_an = {"user_id": empfaenger["id"], "username": empfaenger.get("username")}
+
     success = []
     failed = []
 
     for ipad_id in payload.ipad_ids:
         result = await _claim_pool_ipad_for_bildungsgang(
-            ipad_id, payload.bildungsgang_id, "assigned_by_admin", current_user["id"]
+            ipad_id, payload.bildungsgang_id, "assigned_by_admin", current_user["id"], uebergeben_an
         )
         if result:
             success.append(result.get("itnr"))
@@ -208,6 +217,7 @@ async def admin_assign_ipads_to_bildungsgang(
         "failed_count": len(failed),
         "assigned_itnrs": success,
         "bildungsgang_name": bildungsgang["name"],
+        "uebergeben_an": uebergeben_an["username"],
     }
 
 

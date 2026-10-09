@@ -20,6 +20,7 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_user_filter,
+    mit_ansicht,
     resolve_bildungsgang,
     validate_resource_ownership,
 )
@@ -274,9 +275,13 @@ async def upload_multiple_contracts(
 
 @api_router.get("/contracts")
 @limiter.limit("60/minute")
-async def get_all_contracts(request: Request, current_user: dict = Depends(get_current_user)):
-    """Get all contracts (assigned and unassigned)"""
-    user_filter = await get_user_filter(current_user)
+async def get_all_contracts(
+    request: Request,
+    bildungsgang_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Get all contracts (assigned and unassigned). bildungsgang_id engt nur die Ansicht ein."""
+    user_filter = mit_ansicht(await get_user_filter(current_user), bildungsgang_id)
     contracts = await db.contracts.find(user_filter, {"_id": 0, "file_data": 0}).to_list(length=None)
 
     result = []

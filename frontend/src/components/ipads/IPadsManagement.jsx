@@ -63,6 +63,11 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
   // Admin: Assign Pool iPad(s) to user
   const [assignToUserDialogOpen, setAssignToUserDialogOpen] = useState(false);
+  // Beide Pflicht: das Gerät gehört künftig dem Bildungsgang, körperlich bekommt es eine
+  // Person. Ohne die zweite Angabe lässt sich später nicht klären, bei wem eine Kiste liegt.
+  const [zuweisungBildungsgang, setZuweisungBildungsgang] = useState(null);
+  const [zuweisungEmpfaenger, setZuweisungEmpfaenger] = useState(null);
+  const [zuweisungEmpfaengerSuche, setZuweisungEmpfaengerSuche] = useState('');
   const [assignToUserTargetIds, setAssignToUserTargetIds] = useState([]); // list of ipad ids
   const [allUsers, setAllUsers] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
@@ -213,6 +218,9 @@ const IPadsManagement = ({ isAdmin = false }) => {
     if (!isAdmin) return;
     setAssignToUserTargetIds(ipadIds);
     setUserSearchQuery('');
+    setZuweisungBildungsgang(null);
+    setZuweisungEmpfaenger(null);
+    setZuweisungEmpfaengerSuche('');
     setAssignToUserDialogOpen(true);
     // Load users on demand
     if (allUsers.length === 0) {
@@ -227,14 +235,18 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
   // Geräte gehen an einen Bildungsgang, nicht an eine Person: wer ihn betreut, wechselt,
   // der Bildungsgang nicht. Eine Zuweisung an ein Konto zeigte nach dessen Ausscheiden ins Leere.
-  const handleAssignToBildungsgang = async (bildungsgangId) => {
+  const handleAssignToBildungsgang = async () => {
+    if (!zuweisungBildungsgang || !zuweisungEmpfaenger) return;
     try {
       const res = await api.post('/admin/ipads/assign-to-bildungsgang', {
         ipad_ids: assignToUserTargetIds,
-        bildungsgang_id: bildungsgangId
+        bildungsgang_id: zuweisungBildungsgang.id,
+        uebergeben_an_user_id: zuweisungEmpfaenger.id
       });
-      const { success_count, failed_count, bildungsgang_name } = res.data;
-      if (success_count > 0) toast.success(`${success_count} iPad(s) an ${bildungsgang_name} zugewiesen`);
+      const { success_count, failed_count, bildungsgang_name, uebergeben_an } = res.data;
+      if (success_count > 0) {
+        toast.success(`${success_count} iPad(s) an ${bildungsgang_name} zugewiesen, übergeben an ${uebergeben_an}`);
+      }
       if (failed_count > 0) toast.warning(`${failed_count} konnten nicht zugewiesen werden`);
       setAssignToUserDialogOpen(false);
       setAssignToUserTargetIds([]);
@@ -1703,21 +1715,57 @@ const IPadsManagement = ({ isAdmin = false }) => {
       <AlertDialog open={assignToUserDialogOpen} onOpenChange={setAssignToUserDialogOpen}>
         <AlertDialogContent data-testid="assign-to-user-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>iPad(s) an User zuweisen</AlertDialogTitle>
+            <AlertDialogTitle>Pool-iPads zuweisen</AlertDialogTitle>
             <AlertDialogDescription>
-              {assignToUserTargetIds.length} Pool-iPad(s) werden dem ausgewählten Bildungsgang zugewiesen.
+              {assignToUserTargetIds.length} Pool-iPad(s) gehen an einen Bildungsgang und werden
+              an eine Person übergeben. Beides wird mit Datum in der Gerätehistorie festgehalten.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <BildungsgangPicker
-            bildungsgaenge={bildungsgaenge}
-            searchQuery={userSearchQuery}
-            onSearchChange={setUserSearchQuery}
-            onSelect={(b) => handleAssignToBildungsgang(b.id)}
-            searchTestId="bildungsgang-search-input"
-            rowTestIdPrefix="assign-bildungsgang-row"
-          />
+          <div className="space-y-4">
+            <div>
+              <Label className="mb-2 block">
+                1. Bildungsgang
+                {zuweisungBildungsgang && (
+                  <span className="font-normal text-green-700"> — <strong>{zuweisungBildungsgang.name}</strong></span>
+                )}
+              </Label>
+              <BildungsgangPicker
+                bildungsgaenge={bildungsgaenge}
+                searchQuery={userSearchQuery}
+                onSearchChange={setUserSearchQuery}
+                onSelect={(b) => setZuweisungBildungsgang({ id: b.id, name: b.name })}
+                selectedId={zuweisungBildungsgang?.id ?? null}
+                searchTestId="bildungsgang-search-input"
+                rowTestIdPrefix="assign-bildungsgang-row"
+              />
+            </div>
+            <div>
+              <Label className="mb-2 block">
+                2. Übergeben an
+                {zuweisungEmpfaenger && (
+                  <span className="font-normal text-green-700"> — <strong>{zuweisungEmpfaenger.username}</strong></span>
+                )}
+              </Label>
+              <UserPicker
+                users={allUsers}
+                searchQuery={zuweisungEmpfaengerSuche}
+                onSearchChange={setZuweisungEmpfaengerSuche}
+                onSelectUser={(u) => setZuweisungEmpfaenger({ id: u.id, username: u.username })}
+                selectedUserId={zuweisungEmpfaenger?.id ?? null}
+                searchTestId="zuweisung-empfaenger-search-input"
+                rowTestIdPrefix="zuweisung-empfaenger-row"
+              />
+            </div>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+            <Button
+              onClick={handleAssignToBildungsgang}
+              disabled={!zuweisungBildungsgang || !zuweisungEmpfaenger}
+              className="bg-gradient-to-r from-ipad-teal to-ipad-blue"
+            >
+              Zuweisen und Übergabe festhalten
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

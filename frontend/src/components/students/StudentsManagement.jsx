@@ -11,12 +11,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
+import { BildungsgangFilter } from '../shared/BildungsgangFilter';
 import { toast } from 'sonner';
 import { Users, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Edit, Download, Tablet, AlertTriangle } from 'lucide-react';
 import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
 
 import { downloadBlob } from '../../utils/download';
 const StudentsManagement = () => {
+  // Benutzername und Rolle werden hier nicht als Prop durchgereicht; seit dem Login
+  // liegen sie im localStorage.
+  const [currentUsername] = useState(() => localStorage.getItem('username') || '');
+  const [isAdmin] = useState(() => localStorage.getItem('userRole') === 'admin');
+  const [ansichtBildungsgang, setAnsichtBildungsgang] = useState('');
+
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedStudentId, setSelectedStudentId] = useState(null);
@@ -267,7 +274,11 @@ const StudentsManagement = () => {
   const loadStudents = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/students');
+      // Der Filter engt nur die Ansicht ein - die Rechte liegen im Backend und gelten
+      // weiter. Ein fremder Bildungsgang liefert deshalb schlicht nichts.
+      const response = await api.get('/students', {
+        params: ansichtBildungsgang ? { bildungsgang_id: ansichtBildungsgang } : {}
+      });
       console.log('Students API response:', response.data);
       setStudents(response.data || []);
     } catch (error) {
@@ -298,10 +309,19 @@ const StudentsManagement = () => {
   };
 
   useEffect(() => {
-    loadStudents();
     loadAvailableIPads();
     loadAssignments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Lädt die Liste beim Start und nach jedem Umschalten der Ansicht. Die Einengung
+  // geschieht im Backend, damit die Rechte auch dann gelten, wenn jemand den Parameter
+  // von Hand setzt. Alle anderen Stellen rufen loadStudents() auf und behalten dadurch
+  // die aktuelle Ansicht bei.
+  useEffect(() => {
+    loadStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ansichtBildungsgang]);
 
   // Drop selections that fall out of view when a filter changes, so batch
   // actions never silently apply to students that are no longer visible.
@@ -556,15 +576,28 @@ const StudentsManagement = () => {
     <div className="space-y-6">
       <Card className="shadow-lg">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
               Schüler verwalten ({students.length})
             </CardTitle>
-            <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Neuen Schüler anlegen
-            </Button>
+            <div className="flex items-center gap-2">
+              <BildungsgangFilter
+                value={ansichtBildungsgang}
+                onChange={(wert) => {
+                  setAnsichtBildungsgang(wert);
+                  // Nach dem Umschalten ist ein Teil der markierten Schüler nicht mehr
+                  // sichtbar - sonst träfen Batch-Aktionen unsichtbare Einträge.
+                  setSelectedStudents([]);
+                }}
+                username={currentUsername}
+                isAdmin={isAdmin}
+              />
+              <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Neuen Schüler anlegen
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

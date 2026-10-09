@@ -214,7 +214,7 @@ async def test_bulk_claim_holt_nur_was_noch_im_pool_liegt(welt, client):
 
     antwort = await client.post(
         "/api/ipads/bulk-claim",
-        json={"ipad_ids": ["g1", "g2", "fremd"], "bildungsgang_id": "bg_meda"},
+        json={"ipad_ids": ["g1", "g2", "fremd"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -226,7 +226,7 @@ async def test_bulk_claim_holt_nur_was_noch_im_pool_liegt(welt, client):
 async def test_bulk_claim_ohne_auswahl_wird_abgelehnt(welt, client):
     kopf = await anmelden(client, "admin")
     antwort = await client.post(
-        "/api/ipads/bulk-claim", json={"ipad_ids": [], "bildungsgang_id": "bg_meda"}, headers=kopf
+        "/api/ipads/bulk-claim", json={"ipad_ids": [], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"}, headers=kopf
     )
     assert antwort.status_code == 400
 
@@ -356,7 +356,7 @@ async def test_zuweisung_an_unbekannten_bildungsgang_wird_abgelehnt(welt, client
 
     antwort = await client.post(
         "/api/admin/ipads/assign-to-bildungsgang",
-        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_gibtsnicht"},
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_gibtsnicht", "uebergeben_an_user_id": "u_bakenecker"},
         headers=kopf,
     )
     assert antwort.status_code == 404
@@ -367,7 +367,7 @@ async def test_zuweisung_ohne_geraete_wird_abgelehnt(welt, client):
     kopf = await anmelden(client, "admin")
     antwort = await client.post(
         "/api/admin/ipads/assign-to-bildungsgang",
-        json={"ipad_ids": [], "bildungsgang_id": "bg_meda"},
+        json={"ipad_ids": [], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
         headers=kopf,
     )
     assert antwort.status_code == 400
@@ -381,7 +381,7 @@ async def test_zuweisung_verschiebt_nur_poolgeraete(welt, client):
 
     antwort = await client.post(
         "/api/admin/ipads/assign-to-bildungsgang",
-        json={"ipad_ids": ["g1", "fremd"], "bildungsgang_id": "bg_meda"},
+        json={"ipad_ids": ["g1", "fremd"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -399,7 +399,7 @@ async def test_zuweisung_laesst_angelegt_von_unberuehrt(welt, client):
 
     antwort = await client.post(
         "/api/admin/ipads/assign-to-bildungsgang",
-        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda"},
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -412,7 +412,7 @@ async def test_lehrkraft_darf_keinem_bildungsgang_zuweisen(welt, client):
 
     antwort = await client.post(
         "/api/admin/ipads/assign-to-bildungsgang",
-        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda"},
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
         headers=kopf,
     )
     assert antwort.status_code == 403
@@ -651,3 +651,53 @@ async def test_uebergabe_wird_auch_bei_bereits_zugeordnetem_geraet_quittiert(wel
     verlauf = await client.get("/api/ipads/g1/history", headers=kopf)
     quittungen = [h for h in verlauf.json()["pool_history"] if h["uebergeben_an"] == "bakenecker"]
     assert quittungen, "Die körperliche Übergabe muss festgehalten werden"
+
+
+# --- Empfänger ist Pflicht ---------------------------------------------------------------
+
+async def test_zuweisung_ohne_empfaenger_wird_abgelehnt(welt, client):
+    """Ein Gerät geht körperlich an jemanden - ohne diese Angabe bleibt später offen, an wen.
+
+    Der Besitz liegt beim Bildungsgang; die Übergabe ist eine getrennte, aber verpflichtende
+    Angabe. Ohne sie wäre genau die Frage unbeantwortbar, die im Schuljahr aufkommt.
+    """
+    await poolgeraet(welt, "g1")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/assign-to-bildungsgang",
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda"},
+        headers=kopf,
+    )
+    assert antwort.status_code == 422, antwort.text
+    assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is True, "Gerät darf nicht bewegt worden sein"
+
+
+async def test_zuweisung_an_unbekannten_empfaenger_wird_abgelehnt(welt, client):
+    await poolgeraet(welt, "g1")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/assign-to-bildungsgang",
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "gibtsnicht"},
+        headers=kopf,
+    )
+    assert antwort.status_code == 404
+    assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is True
+
+
+async def test_uebergabe_steht_in_der_geraetehistorie(welt, client):
+    """Die Quittung muss später auffindbar sein - sonst nützt sie nichts."""
+    await poolgeraet(welt, "g1")
+    kopf = await anmelden(client, "admin")
+
+    await client.post(
+        "/api/admin/ipads/assign-to-bildungsgang",
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        headers=kopf,
+    )
+    historie = (await client.get("/api/ipads/g1/history", headers=kopf)).json()["pool_history"]
+    letzter = historie[-1]
+    assert letzter["uebergeben_an"] == "bakenecker", historie
+    assert letzter["bildungsgang_name"] == "MEDA"
+    assert letzter["at"], "Zeitstempel fehlt"
