@@ -12,6 +12,8 @@ import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { BildungsgangPicker } from '../shared/BildungsgangPicker';
+import { BildungsgangFilter } from '../shared/BildungsgangFilter';
+import { UserPicker } from '../shared/UserPicker';
 import { BildungsgangSelect } from '../shared/BildungsgangSelect';
 import { useBildungsgaenge } from '../../hooks/useBildungsgaenge';
 import { toast } from 'sonner';
@@ -25,6 +27,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
   // `alle` nur zur Anzeige in der Liste (Name + aktuelle Zuständige), `auswahlNoetig` steuert,
   // ob der Anlegen-Dialog eine Pflichtangabe erwartet.
   const { alle: bildungsgaenge, auswahlNoetig } = useBildungsgaenge(currentUsername);
+  const [ansichtBildungsgang, setAnsichtBildungsgang] = useState('');
 
   const [ipads, setIPads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -70,6 +73,11 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const [batchImportAllUsers, setBatchImportAllUsers] = useState([]);
   const [batchImportUserSearchQuery, setBatchImportUserSearchQuery] = useState('');
   const [batchImportTargetBildungsgang, setBatchImportTargetBildungsgang] = useState(null); // { id, name }
+  // Wer die Geraete koerperlich bekommen hat. Das ist kein Besitz - der liegt beim
+  // Bildungsgang - sondern eine Quittung, damit spaeter nachvollziehbar bleibt,
+  // bei wem eine Kiste gelandet ist.
+  const [batchImportEmpfaenger, setBatchImportEmpfaenger] = useState(null); // { id, username }
+  const [batchImportEmpfaengerSuche, setBatchImportEmpfaengerSuche] = useState('');
   const [batchImportFile, setBatchImportFile] = useState(null);
   const [batchImportSubmitting, setBatchImportSubmitting] = useState(false);
   const [batchImportResultDialogOpen, setBatchImportResultDialogOpen] = useState(false);
@@ -240,9 +248,11 @@ const IPadsManagement = ({ isAdmin = false }) => {
   // Admin: Batch-Zuordnung per Datei-Upload
   const openBatchImportDialog = async () => {
     if (!isAdmin) return;
-    setBatchImportTargetUser(null);
+    setBatchImportTargetBildungsgang(null);
+    setBatchImportEmpfaenger(null);
     setBatchImportFile(null);
     setBatchImportUserSearchQuery('');
+    setBatchImportEmpfaengerSuche('');
     setBatchImportDialogOpen(true);
     if (batchImportAllUsers.length === 0) {
       try {
@@ -261,10 +271,14 @@ const IPadsManagement = ({ isAdmin = false }) => {
       const formData = new FormData();
       formData.append('file', batchImportFile);
       formData.append('bildungsgang_id', batchImportTargetBildungsgang.id);
+      if (batchImportEmpfaenger) formData.append('uebergeben_an_user_id', batchImportEmpfaenger.id);
       const res = await api.post('/admin/ipads/batch-assign-import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
       const { summary } = res.data;
+      if (res.data.uebergeben_an) {
+        toast.info(`Übergabe an ${res.data.uebergeben_an} festgehalten`);
+      }
       toast.success(
         `${summary.from_pool_count} aus Pool zugeordnet, ${summary.created_count} neu erstellt & zugeordnet, ` +
         `${summary.already_assigned_count} bereits vorhanden (unverändert)`
@@ -474,7 +488,11 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const loadIPads = async () => {
     setLoading(true);
     try {
-      const response = await api.get('/ipads');
+      // Der Filter engt nur die Ansicht ein - die Rechte liegen im Backend und gelten
+      // weiter. Ein fremder Bildungsgang liefert deshalb schlicht nichts.
+      const response = await api.get('/ipads', {
+        params: ansichtBildungsgang ? { bildungsgang_id: ansichtBildungsgang } : {}
+      });
       console.log('iPads API response:', response.data);
       setIPads(response.data || []);
     } catch (error) {
@@ -519,7 +537,15 @@ const IPadsManagement = ({ isAdmin = false }) => {
     loadGlobalSettings();
     loadAssignments();
     loadStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Beim Umschalten der Ansicht neu laden - die Einengung geschieht im Backend, damit
+  // die Rechte auch dann gelten, wenn jemand den Parameter von Hand setzt.
+  useEffect(() => {
+    loadIPads();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ansichtBildungsgang]);
 
   // Drop selections that fall out of view when a filter changes, so batch
   // actions never silently apply to iPads that are no longer visible.
@@ -890,12 +916,18 @@ const IPadsManagement = ({ isAdmin = false }) => {
 
       <Card className="shadow-lg">
         <CardHeader>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="flex items-center gap-2">
               <Tablet className="h-5 w-5" />
               iPads verwalten ({ipads.length})
             </CardTitle>
             <div className="flex items-center gap-2">
+              <BildungsgangFilter
+                value={ansichtBildungsgang}
+                onChange={setAnsichtBildungsgang}
+                username={currentUsername}
+                isAdmin={isAdmin}
+              />
               {isAdmin && (
                 <Button
                   onClick={openBatchImportDialog}
@@ -1717,7 +1749,30 @@ const IPadsManagement = ({ isAdmin = false }) => {
               />
             </div>
             <div>
-              <Label className="mb-2 block">2. Datei hochladen</Label>
+              <Label className="mb-2 block">
+                2. Übergeben an (optional)
+                {batchImportEmpfaenger && (
+                  <span className="font-normal text-green-700"> — <strong>{batchImportEmpfaenger.username}</strong></span>
+                )}
+              </Label>
+              <p className="text-xs text-gray-500 mb-2">
+                Wer die Geräte entgegennimmt. Wird mit Datum in der Gerätehistorie festgehalten —
+                die Geräte gehören weiterhin dem Bildungsgang.
+              </p>
+              <UserPicker
+                users={batchImportAllUsers}
+                searchQuery={batchImportEmpfaengerSuche}
+                onSearchChange={setBatchImportEmpfaengerSuche}
+                onSelectUser={(u) => setBatchImportEmpfaenger(
+                  batchImportEmpfaenger?.id === u.id ? null : { id: u.id, username: u.username }
+                )}
+                selectedUserId={batchImportEmpfaenger?.id ?? null}
+                searchTestId="batch-import-empfaenger-search-input"
+                rowTestIdPrefix="batch-import-empfaenger-row"
+              />
+            </div>
+            <div>
+              <Label className="mb-2 block">3. Datei hochladen</Label>
               <Input
                 type="file"
                 accept=".xlsx,.xls"

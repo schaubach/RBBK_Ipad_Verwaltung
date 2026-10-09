@@ -40,8 +40,24 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-COLLECTIONS = ["users", "students", "ipads", "assignments", "contracts", "global_settings"]
+# Jede Sammlung, die in ein Backup gehoert. Wer hier eine vergisst, merkt es erst beim
+# Zurueckspielen - und dann fehlt sie. bildungsgaenge und zustaendigkeiten sind zwingend:
+# ohne sie haette nach einer Wiederherstellung kein Datensatz mehr einen Besitzer und
+# niemand mehr Zugriff ausser den Admins.
+COLLECTIONS = [
+    "users",
+    "bildungsgaenge",
+    "zustaendigkeiten",
+    "students",
+    "ipads",
+    "assignments",
+    "contracts",
+    "global_settings",
+]
 BACKUP_TYPE_KEY = "__rbbk_backup_type"
+# Eintraege in global_settings, die das Backup ueber sich selbst fuehrt. Sie gehoeren ins
+# Backup, zaehlen aber nicht als inhaltliche Aenderung - siehe _serialize_and_encrypt.
+BACKUP_EIGENE_ZUSTAENDE = {"server_backup_state"}
 
 
 def serialize_backup_value(value):
@@ -140,7 +156,19 @@ def _serialize_and_encrypt(backup_data: dict, password: str) -> tuple:
     files - or their sizes - can therefore never tell duplicates apart.
     """
     json_bytes = json.dumps(backup_data, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    return encrypt_backup_bytes(json_bytes, password), hashlib.sha256(json_bytes).hexdigest()
+
+    # Die Pruefsumme laeuft ueber den Bestand OHNE die Buchfuehrung des Backups selbst.
+    # server_backup_state haelt last_run_at fest und aendert sich damit bei jedem Lauf -
+    # ohne diese Ausnahme gaelte der Bestand immer als veraendert und die Entdoppelung
+    # koennte nie greifen. Das Backup enthaelt die Eintraege weiterhin, sie zaehlen nur
+    # nicht als inhaltliche Aenderung.
+    fuer_pruefsumme = dict(backup_data)
+    fuer_pruefsumme["global_settings"] = [
+        g for g in backup_data.get("global_settings", [])
+        if g.get("type") not in BACKUP_EIGENE_ZUSTAENDE
+    ]
+    pruef_bytes = json.dumps(fuer_pruefsumme, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return encrypt_backup_bytes(json_bytes, password), hashlib.sha256(pruef_bytes).hexdigest()
 
 
 async def build_backup_export_bytes() -> tuple:
