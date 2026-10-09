@@ -11,18 +11,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
-import { BildungsgangFilter } from '../shared/BildungsgangFilter';
+import { useBildungsgangAnsicht } from '../../hooks/BildungsgangAnsicht';
 import { toast } from 'sonner';
 import { Users, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Edit, Download, Tablet, AlertTriangle } from 'lucide-react';
 import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
 
 import { downloadBlob } from '../../utils/download';
 const StudentsManagement = () => {
-  // Benutzername und Rolle werden hier nicht als Prop durchgereicht; seit dem Login
-  // liegen sie im localStorage.
-  const [currentUsername] = useState(() => localStorage.getItem('username') || '');
-  const [isAdmin] = useState(() => localStorage.getItem('userRole') === 'admin');
-  const [ansichtBildungsgang, setAnsichtBildungsgang] = useState('');
+  // Die Ansicht wird in der Kopfzeile eingestellt und gilt für die ganze Anwendung.
+  const { ansichtBildungsgang } = useBildungsgangAnsicht();
 
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -319,6 +316,9 @@ const StudentsManagement = () => {
   // die aktuelle Ansicht bei.
   useEffect(() => {
     loadStudents();
+    // Nach dem Umschalten ist ein Teil der markierten Schüler nicht mehr sichtbar -
+    // sonst träfen Batch-Aktionen unsichtbare Einträge.
+    setSelectedStudents([]);
   }, [ansichtBildungsgang]);
 
   // Drop selections that fall out of view when a filter changes, so batch
@@ -583,17 +583,6 @@ const StudentsManagement = () => {
               Schüler verwalten ({students.length})
             </CardTitle>
             <div className="flex items-center gap-2">
-              <BildungsgangFilter
-                value={ansichtBildungsgang}
-                onChange={(wert) => {
-                  setAnsichtBildungsgang(wert);
-                  // Nach dem Umschalten ist ein Teil der markierten Schüler nicht mehr
-                  // sichtbar - sonst träfen Batch-Aktionen unsichtbare Einträge.
-                  setSelectedStudents([]);
-                }}
-                username={currentUsername}
-                isAdmin={isAdmin}
-              />
               <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
                 <Plus className="h-4 w-4" />
                 Neuen Schüler anlegen

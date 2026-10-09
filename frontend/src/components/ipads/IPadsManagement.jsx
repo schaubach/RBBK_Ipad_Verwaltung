@@ -12,7 +12,7 @@ import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { BildungsgangPicker } from '../shared/BildungsgangPicker';
-import { BildungsgangFilter } from '../shared/BildungsgangFilter';
+import { useBildungsgangAnsicht } from '../../hooks/BildungsgangAnsicht';
 import { UserPicker } from '../shared/UserPicker';
 import { BildungsgangSelect } from '../shared/BildungsgangSelect';
 import { useBildungsgaenge } from '../../hooks/useBildungsgaenge';
@@ -27,7 +27,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
   // `alle` nur zur Anzeige in der Liste (Name + aktuelle Zuständige), `auswahlNoetig` steuert,
   // ob der Anlegen-Dialog eine Pflichtangabe erwartet.
   const { alle: bildungsgaenge, auswahlNoetig } = useBildungsgaenge(currentUsername);
-  const [ansichtBildungsgang, setAnsichtBildungsgang] = useState('');
+  // Die Ansicht wird in der Kopfzeile eingestellt und gilt für die ganze Anwendung.
+  const { ansichtBildungsgang } = useBildungsgangAnsicht();
 
   const [ipads, setIPads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -553,6 +554,9 @@ const IPadsManagement = ({ isAdmin = false }) => {
   // die Rechte auch dann gelten, wenn jemand den Parameter von Hand setzt.
   useEffect(() => {
     loadIPads();
+    // Nach dem Umschalten ist ein Teil der markierten Geräte nicht mehr sichtbar -
+    // sonst träfen Batch-Aktionen unsichtbare Einträge.
+    setSelectedIPads([]);
   }, [ansichtBildungsgang]);
 
   // Drop selections that fall out of view when a filter changes, so batch
@@ -933,12 +937,6 @@ const IPadsManagement = ({ isAdmin = false }) => {
               iPads verwalten ({ipads.length})
             </CardTitle>
             <div className="flex items-center gap-2">
-              <BildungsgangFilter
-                value={ansichtBildungsgang}
-                onChange={setAnsichtBildungsgang}
-                username={currentUsername}
-                isAdmin={isAdmin}
-              />
               {isAdmin && (
                 <Button
                   onClick={openBatchImportDialog}

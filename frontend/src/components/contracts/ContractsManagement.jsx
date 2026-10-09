@@ -3,7 +3,7 @@ import api from '../../api';
 import StudentDetailViewer from '../students/StudentDetailViewer';
 import IPadDetailViewer from '../ipads/IPadDetailViewer';
 import { BildungsgangSelect } from '../shared/BildungsgangSelect';
-import { BildungsgangFilter } from '../shared/BildungsgangFilter';
+import { useBildungsgangAnsicht } from '../../hooks/BildungsgangAnsicht';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
@@ -21,7 +21,8 @@ const ContractsManagement = () => {
   const username = localStorage.getItem('username') || '';
   const isAdmin = localStorage.getItem('userRole') === 'admin';
 
-  const [ansichtBildungsgang, setAnsichtBildungsgang] = useState('');
+  // Die Ansicht wird in der Kopfzeile eingestellt und gilt für die ganze Anwendung.
+  const { ansichtBildungsgang } = useBildungsgangAnsicht();
 
   const [contracts, setContracts] = useState([]);
   const [availableAssignments, setAvailableAssignments] = useState([]);
@@ -100,10 +101,9 @@ const ContractsManagement = () => {
 
   // Beim Umschalten die Auswahl verwerfen: eine Sammellöschung darf nie Verträge treffen,
   // die in der neuen Ansicht gar nicht mehr auftauchen.
-  const handleAnsichtChange = (naechste) => {
-    setAnsichtBildungsgang(naechste);
+  useEffect(() => {
     setSelectedContracts([]);
-  };
+  }, [ansichtBildungsgang]);
 
   const handleMultipleUpload = async (files) => {
     if (files.length === 0) return;
@@ -699,13 +699,6 @@ const ContractsManagement = () => {
               Verträge verwalten ({contracts.length})
             </CardTitle>
             <div className="flex items-center gap-2">
-              <BildungsgangFilter
-                value={ansichtBildungsgang}
-                onChange={handleAnsichtChange}
-                username={username}
-                isAdmin={isAdmin}
-                id="vertraege-bildungsgang-filter"
-              />
               {selectedContracts.length > 0 && (
                 <Button
                   variant="destructive"

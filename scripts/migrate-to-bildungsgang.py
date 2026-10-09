@@ -33,7 +33,7 @@ DATEN_NACH = {
     "malina": "HÖTE",
     "mehinagic": "BFS",
     "graaff": "MT",
-    "papoulias": "ITA",
+    # papoulias: Konto wird von Hand angelegt, hält noch keine Daten
 }
 
 # Wer wofür ZUSTÄNDIG ist. Mehrfachnennung ausdrücklich erlaubt - das ist der Kern des Umbaus.
@@ -49,12 +49,21 @@ ZUSTAENDIG = {
     "malina": ["HÖTE"],
     "mehinagic": ["BFS", "AVWH"],
     "graaff": ["MT"],
-    "papoulias": ["ITA"],
+    # papoulias (ITA): Konto und Zuständigkeit werden von Hand in der Oberfläche angelegt
     # timpte: Bildungsgang noch offen, hält keine Daten
 }
 
-ALLE_BILDUNGSGAENGE = sorted({b for v in ZUSTAENDIG.values() for b in v} | set(DATEN_NACH.values()))
-NEU_ANZULEGENDE_KONTEN = ["papoulias"]
+# Bildungsgänge, die es gibt, für die aber (noch) niemand hinterlegt ist. ITA gehört zur
+# Schule unabhängig davon, wer sie betreut - angelegt wird sie, damit das Konto später
+# nur noch zugeordnet werden muss.
+OHNE_ZUSTAENDIGE = ["ITA"]
+
+ALLE_BILDUNGSGAENGE = sorted(
+    {b for v in ZUSTAENDIG.values() for b in v} | set(DATEN_NACH.values()) | set(OHNE_ZUSTAENDIGE)
+)
+# Konten legt dieses Skript nicht an - das geschieht in der Benutzerverwaltung, damit das
+# Passwort gleich an die richtige Person geht.
+NEU_ANZULEGENDE_KONTEN = []
 SAMMLUNGEN = ["ipads", "students", "assignments", "contracts"]
 
 log = []
@@ -101,6 +110,8 @@ async def main():
 
     # --- 2. Fehlende Konten anlegen -----------------------------------------
     sag("\n[2] Konten")
+    if not NEU_ANZULEGENDE_KONTEN:
+        sag("      keine - Konten werden von Hand in der Benutzerverwaltung angelegt")
     for name in NEU_ANZULEGENDE_KONTEN:
         if await db.users.find_one({"username": name}):
             sag(f"      {name}: existiert bereits")

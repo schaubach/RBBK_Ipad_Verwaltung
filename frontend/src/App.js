@@ -14,6 +14,11 @@ import ContractsManagement from './components/contracts/ContractsManagement';
 import Settings from './components/settings/Settings';
 import SessionTimer from './components/shared/SessionTimer';
 import UserManagement from './components/users/UserManagement';
+import { BildungsgangUmschalter } from './components/shared/BildungsgangUmschalter';
+import {
+  BildungsgangAnsichtProvider,
+  ANSICHT_SPEICHER_SCHLUESSEL,
+} from './hooks/BildungsgangAnsicht';
 
 // Import UI components
 import { Button } from './components/ui/button';
@@ -28,6 +33,7 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
   const isAdmin = userRole === 'admin';
 
   return (
+    <BildungsgangAnsichtProvider username={currentUsername} isAdmin={isAdmin}>
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-ipad-dark-gray shadow-sm border-b border-ipad-beige">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -52,6 +58,9 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
                   </span>
                 )}
               </div>
+              {/* Die Ansicht ist ein Arbeitszusammenhang, kein Listenfilter: hier
+                  eingestellt, folgen Schüler, Geräte und Verträge gemeinsam. */}
+              <BildungsgangUmschalter />
               <SessionTimer onLogout={onLogout} />
               <Button variant="outline" onClick={onLogout} className="flex items-center gap-2">
                 <LogOut className="h-4 w-4" />
@@ -113,6 +122,7 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
         </Tabs>
       </div>
     </div>
+    </BildungsgangAnsichtProvider>
   );
 };
 
@@ -231,6 +241,9 @@ function App() {
     localStorage.removeItem('userRole');
     localStorage.removeItem('username');
     localStorage.removeItem('lastActivity');
+    // Die eingeengte Ansicht endet mit der Sitzung: nach einer Anmeldung soll niemand
+    // in einem Ausschnitt landen, den er vor Tagen eingestellt hat.
+    localStorage.removeItem(ANSICHT_SPEICHER_SCHLUESSEL);
     setIsAuthenticated(false);
     setUserRole('user');
     setCurrentUsername('');
