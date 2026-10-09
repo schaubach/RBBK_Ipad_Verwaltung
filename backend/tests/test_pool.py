@@ -956,6 +956,238 @@ async def test_unbekannter_status_wird_auch_am_vorhandenen_geraet_gemeldet(welt,
     assert (await welt.ipads.find_one({"id": "g1"}))["status"] == "ok", "der Bestand bleibt stehen"
 
 
+async def test_abweichender_status_wird_gemeldet_statt_uebernommen(welt, client):
+    """In der Liste steht "defekt", im Bestand "ok" - der Bestand bleibt stehen, die Zeile sagt es.
+
+    Derselbe Grund wie bei der SNr: der Bestand kam zentral herein und wurde seitdem in der
+    App gepflegt, die Lieferliste ist älter als diese Korrekturen. Welche der beiden Angaben
+    stimmt, klärt nur, wer das Gerät vor sich hat - stillschweigend verschwinden darf die aus
+    der Liste deshalb nicht.
+    """
+    await poolgeraet(welt, "g1", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT100", "SNg1", "defekt")], spalten=("ITNr", "SNr", "Status"))),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "from_pool"
+    assert zeile["note"] == "Status weicht ab: im Bestand 'ok', in der Liste 'defekt'", zeile["note"]
+
+    assert (await welt.ipads.find_one({"id": "g1"}))["status"] == "ok", "der Bestand bleibt stehen"
+
+
+async def test_abweichender_status_wird_auch_bei_der_nachlieferung_gemeldet(welt, client):
+    """Das Gerät gehört MEDA schon: es wird quittiert und nachgetragen - der Status trotzdem nicht.
+
+    Diese Zeile trägt bereits eine Meldung, die Quittung. Der Hinweis muss daneben treten,
+    nicht an ihre Stelle - sonst erfährt der Admin je Zeile nur das, was zufällig zuerst
+    gemeldet wurde.
+    """
+    await geraet(welt, "g1", "bg_meda", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT100", "SNg1", "defekt")], spalten=("ITNr", "SNr", "Status"))),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "already_assigned"
+    assert zeile["note"] == (
+        "Bereits zugeordnet zu MEDA - Übergabe quittiert"
+        " - Status weicht ab: im Bestand 'ok', in der Liste 'defekt'"
+    ), zeile["note"]
+
+    assert (await welt.ipads.find_one({"id": "g1"}))["status"] == "ok", "der Bestand bleibt stehen"
+
+
+async def test_gleicher_status_bleibt_unerwaehnt(welt, client):
+    """Liste und Bestand sagen dasselbe - dazu gibt es nichts zu melden.
+
+    Das ist der Normalfall jeder Lieferliste. Stünde auch hier ein Hinweis, trüge ihn fast
+    jede Zeile, und die wenigen Zeilen, auf die es ankommt, gingen darin unter.
+    """
+    await poolgeraet(welt, "g1", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT100", "SNg1", "ok")], spalten=("ITNr", "SNr", "Status"))),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "from_pool"
+    assert zeile["note"] is None, zeile["note"]
+
+
+async def test_leere_statusspalte_meldet_keine_abweichung(welt, client):
+    """Eine leere Zelle ist keine Angabe - sie kann vom Bestand nicht abweichen.
+
+    Ungeprüft in den Vergleich gegeben, meldete sie "in der Liste 'None'", und zwar an jeder
+    einzelnen Zeile einer Liste, in der die Spalte schlicht nicht ausgefüllt wurde.
+    """
+    await poolgeraet(welt, "g1", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT100", "SNg1", "")], spalten=("ITNr", "SNr", "Status"))),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "from_pool"
+    assert zeile["note"] is None, zeile["note"]
+
+
+async def test_grossschreibung_allein_ist_keine_abweichung(welt, client):
+    """"Defekt" und "defekt" sind dieselbe Angabe - auf beiden Seiten des Vergleichs.
+
+    Der Wert aus der Datei wird schon beim Lesen kleingeschrieben, der aus dem Bestand erst im
+    Vergleich. Beides wird gebraucht: die erste Zeile kommt großgeschrieben aus der Liste, die
+    zweite trifft auf ein großgeschriebenes "Defekt" in der Kartei, wie es der zentrale Import
+    hinterlassen hat. Keine der beiden ist eine Abweichung.
+    """
+    await poolgeraet(welt, "g1", itnr="IT100")
+    await poolgeraet(welt, "g2", itnr="IT101")
+    await welt.ipads.update_one({"id": "g1"}, {"$set": {"status": "defekt"}})
+    await welt.ipads.update_one({"id": "g2"}, {"$set": {"status": "Defekt"}})
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel(
+            [("IT100", "SNg1", "Defekt"), ("IT101", "SNg2", "defekt")],
+            spalten=("ITNr", "SNr", "Status"),
+        )),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeilen = antwort.json()["rows"]
+    assert [z["outcome"] for z in zeilen] == ["from_pool", "from_pool"], zeilen
+    assert [z["note"] for z in zeilen] == [None, None], zeilen
+
+
+async def test_unbekannter_status_meldet_nicht_zusaetzlich_eine_abweichung(welt, client):
+    """"kaputt" weicht nicht vom Bestand ab - es ist überhaupt kein Status.
+
+    Die beiden Meldungen beantworten verschiedene Fragen: die eine sagt, dass in der Liste
+    etwas steht, das niemand deuten kann, die andere, dass zwei deutbare Angaben auseinander-
+    gehen. An derselben Zeile zugleich wären sie nur Lärm.
+    """
+    await poolgeraet(welt, "g1", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT100", "SNg1", "kaputt")], spalten=("ITNr", "SNr", "Status"))),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "from_pool"
+    assert zeile["note"] == "Status 'kaputt' unbekannt - im Bestand steht 'ok'", zeile["note"]
+
+
+async def test_neues_geraet_uebernimmt_den_status_aus_der_liste(welt, client):
+    """Ein Gerät, das es noch nicht gibt, kann von nichts abweichen.
+
+    Hier ist die Liste die einzige Quelle: "defekt" wird übernommen, und die Zeile bleibt
+    stumm. Ein Abweichungshinweis verwiese auf einen Bestand, der in derselben Sekunde aus
+    eben dieser Liste entstanden ist.
+
+    Dieser Zweig baut seine Meldung selbst und läuft NICHT durch _hinweis() - der Test
+    sichert also den created-Zweig ab, nicht die Abweichungsmeldung. Der frühere Name
+    ("...ohne_hinweis") las sich andersherum.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT500", "SN500", "defekt")], spalten=("ITNr", "SNr", "Status"))),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "created"
+    assert zeile["note"] is None, zeile["note"]
+
+    assert (await welt.ipads.find_one({"itnr": "IT500"}))["status"] == "defekt"
+
+
+async def test_geraet_ohne_statusfeld_gilt_als_ok(welt, client):
+    """Fehlt das Feld ganz, gilt "ok" - und zwar ohne dass der Lauf darüber stolpert.
+
+    Der zentrale Altimport hat nachweislich Felder weggelassen (349 von 430 Geräten tragen
+    kein is_in_pool), ein Datensatz ohne status ist also nicht ausgedacht. Ohne den Rückfall
+    liefe der Vergleich auf None und risse mit einem AttributeError den ganzen Upload mit -
+    nicht nur diese eine Zeile.
+    """
+    kopf = await anmelden(client, "admin")
+    await poolgeraet(welt, "i_ohne_status", itnr="IT501")
+    await welt.ipads.update_one({"id": "i_ohne_status"}, {"$unset": {"status": ""}})
+
+    # Dieselbe SNr wie im Bestand, damit die Zeile nur den Status meldet und nichts sonst.
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel([("IT501", "SNi_ohne_status", "defekt")], spalten=("ITNr", "SNr", "Status"))),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["note"] == "Status weicht ab: im Bestand 'ok', in der Liste 'defekt'", zeile["note"]
+    # Und der Bestand bleibt, wie er war - auch ein fehlendes Feld wird nicht nachgetragen.
+    assert "status" not in await welt.ipads.find_one({"itnr": "IT501"})
+
+
+async def test_mehrere_hinweise_stehen_nebeneinander_in_einer_zeile(welt, client):
+    """Abweichende SNr, abweichender Status und ein ergänztes Feld - alle drei in einer Note.
+
+    Je Zeile bekommt der Admin genau ein Feld Text zu lesen. Verdrängt ein Hinweis einen
+    anderen, erfährt er von der Hälfte dessen nichts, weswegen er das Gerät in die Hand nehmen
+    müsste - und gemerkt würde es niemand, weil die Zeile ja eine Meldung trägt.
+    """
+    await poolgeraet(welt, "g1", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(excel(
+            [("IT100", "SN999", "K7", "", "", "", "defekt")],
+            spalten=SPALTEN_VOLL,
+        )),
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+    zeile = antwort.json()["rows"][0]
+    assert zeile["outcome"] == "from_pool"
+    assert zeile["note"] == (
+        "SNr weicht ab: im Bestand SNg1, in der Liste SN999"
+        " - Status weicht ab: im Bestand 'ok', in der Liste 'defekt'"
+        " - Karton ergänzt"
+    ), zeile["note"]
+
+    nachher = await welt.ipads.find_one({"id": "g1"})
+    assert nachher["snr"] == "SNg1", "die abweichende SNr wird gemeldet, nicht übernommen"
+    assert nachher["status"] == "ok", "der Bestand bleibt stehen"
+    assert nachher["karton"] == "K7", "das leere Feld wird ergänzt"
+
+
 async def test_liste_aus_itnr_und_snr_wirkt_wie_vor_dem_ausbau(welt, client):
     """Der Rückwärtsgang: die alten Listen ohne Stammdatenspalten müssen unverändert laufen.
 

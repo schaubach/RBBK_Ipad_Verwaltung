@@ -402,24 +402,46 @@ def _nachzutragen(vorhanden: dict, aus_datei: dict) -> dict:
     return {feld: wert for feld, wert in aus_datei.items() if wert is not None and not vorhanden.get(feld)}
 
 
-def _hinweis(vorhanden: dict, nachtrag: dict, snr: str, status_unbekannt: Optional[str] = None) -> Optional[str]:
+def _hinweis(
+    vorhanden: dict,
+    nachtrag: dict,
+    snr: str,
+    status: Optional[str] = None,
+    status_unbekannt: Optional[str] = None,
+) -> Optional[str]:
     """Meldet, was tatsaechlich passiert ist - und nur das.
 
     Typ, Pencil und Status sind bei allen Geraeten belegt. Wuerde jedes nicht ueberschriebene
     Feld gemeldet, truege jede Zeile eine Meldung und niemand laese sie mehr.
 
-    ``status_unbekannt`` ist der ungedeutete Wert aus der Status-Spalte, sonst None.
+    ``status`` ist der gedeutete Wert aus der Status-Spalte, ``status_unbekannt`` der
+    ungedeutete; gesetzt ist hoechstens einer von beiden, sonst None.
     """
     teile = []
     # Zwei Seriennummern unter einer ITNr heissen vertauschte Hardware oder einen Zahlendreher
     # in der Liste. Beides klaert nur, wer die Geraete vor sich hat.
     if snr and vorhanden.get("snr") and snr != vorhanden["snr"]:
         teile.append(f"SNr weicht ab: im Bestand {vorhanden['snr']}, in der Liste {snr}")
+    # Was im Bestand steht, wenn das Feld fehlt: dasselbe "ok", mit dem das Datenmodell ein
+    # Geraet anlegt. Beide Status-Hinweise nennen diesen Wert, deshalb steht er einmal hier.
+    bestand_status = vorhanden.get("status") or "ok"
     # "kaputt" in der Lieferliste ist der Grund, warum jemand das Geraet in die Hand nehmen
     # soll. Am Bestand aendert die Spalte bei einem vorhandenen Geraet nichts - gerade deshalb
     # muss die Zeile sagen, dass dort etwas stand, das sie nicht deuten konnte.
     if status_unbekannt:
-        teile.append(f"Status '{status_unbekannt}' unbekannt - im Bestand steht '{vorhanden.get('status') or 'ok'}'")
+        teile.append(f"Status '{status_unbekannt}' unbekannt - im Bestand steht '{bestand_status}'")
+    # Und "defekt" in der Lieferliste genauso: der Bestand bleibt stehen - er kam zentral
+    # herein und wurde seitdem in der App gepflegt, die Liste ist aelter als diese Korrekturen
+    # - aber stillschweigend verschwinden darf die Angabe nicht. Dieselbe Begruendung wie bei
+    # der SNr, deshalb auch dieselbe Form.
+    #
+    # Kein elif: gedeuteter und ungedeuteter Wert schliessen sich schon beim Lesen der Zelle
+    # aus, hier ist also gar keine Rangfolge zu treffen.
+    #
+    # Der Wert aus der Datei ist beim Lesen bereits kleingeschrieben; der Bestand wird hier
+    # nachgezogen, damit ein altes "Defekt" in der Kartei keine Abweichung erfindet.
+    if status and status != bestand_status.lower():
+        teile.append(f"Status weicht ab: im Bestand '{bestand_status}', in der Liste '{status}'")
     if nachtrag:
         teile.append(", ".join(_SPALTE_JE_FELD[feld] for feld in nachtrag) + " ergänzt")
     return " - ".join(teile) or None
@@ -500,7 +522,8 @@ async def batch_assign_import(
     An einem vorhandenen Geraet wird nie ein Wert ueberschrieben. Der Bestand kam zentral
     herein und wurde seitdem in der App gepflegt; die Lieferliste ist aelter als diese
     Korrekturen. Eine abweichende SNr wird deshalb gemeldet statt uebernommen, und der Status
-    eines vorhandenen Geraets bleibt stehen - ein unbekannter Wert in der Spalte wird gemeldet.
+    eines vorhandenen Geraets bleibt stehen - ein unbekannter wie ein vom Bestand abweichender
+    Wert in der Spalte wird gemeldet.
     """
     bildungsgang = await db.bildungsgaenge.find_one({"id": bildungsgang_id})
     if not bildungsgang:
@@ -583,8 +606,9 @@ async def batch_assign_import(
             )
             continue
 
-        # Gross-/Kleinschreibung egal, wie im allgemeinen Import. Eine leere Status-Spalte ist
-        # kein Fehler; nur ein ausgefuellter, unbekannter Wert wird gemeldet.
+        # Gross-/Kleinschreibung egal, wie im allgemeinen Import - "Defekt" und "defekt" sind
+        # derselbe Status. Eine leere Status-Spalte ist kein Fehler; ein ausgefuellter Wert
+        # wird gemeldet, wenn er unbekannt ist oder vom Bestand abweicht.
         status_roh = _zelle(row, _SPALTE_JE_FELD["status"])
         status = status_roh.lower() if status_roh and status_roh.lower() in valid_statuses else None
         # Der ungedeutete Wert, sonst None. Er gehoert in JEDEN Zweig, in dem die Zeile
@@ -677,7 +701,7 @@ async def batch_assign_import(
                         "snr": snr,
                         "outcome": "from_pool",
                         "assigned_to": bildungsgang_name,
-                        "note": _hinweis(existing, nachtrag, snr, status_unbekannt),
+                        "note": _hinweis(existing, nachtrag, snr, status, status_unbekannt),
                         "at": now_iso,
                     }
                 )
@@ -755,8 +779,10 @@ async def batch_assign_import(
                 note = f"Bereits zugeordnet zu {owner_name} - Übergabe quittiert"
             # Auch im fremden Bildungsgang: am Geraet wird nichts angefasst, die Zeile wird
             # aber gemeldet - und ein ungedeuteter Status ist ein Mangel der LISTE, nicht des
-            # Geraets. Wer die Liste geschrieben hat, soll ihn erfahren.
-            hinweis = _hinweis(existing, nachtrag, snr, status_unbekannt)
+            # Geraets. Wer die Liste geschrieben hat, soll ihn erfahren. Fuer den abweichenden
+            # Status gilt dasselbe: der Bestand bleibt hier ohnehin unberuehrt, und ob "defekt"
+            # in der Liste oder im Bestand steht, klaert nur, wer beide Seiten kennt.
+            hinweis = _hinweis(existing, nachtrag, snr, status, status_unbekannt)
             if hinweis:
                 note = f"{note} - {hinweis}"
             rows_out.append(
