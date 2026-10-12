@@ -530,3 +530,35 @@ async def test_geloeschter_vertrag_gibt_die_zuordnung_wieder_frei(welt, client):
 
     freigegeben = await welt.assignments.find_one({"id": "a_meda"})
     assert freigegeben["contract_id"] is None
+
+
+async def test_vertragserstellung_ohne_auswahl_wird_abgewiesen(welt, client):
+    """Eine leere Auswahl hieß früher "alle offenen Zuordnungen" - ein Fehlklick genügte."""
+    await schueler(welt, "s_meda", "bg_meda")
+    await geraet(welt, "g_meda", "bg_meda", "IT-100")
+    await zuordnung(welt, "a_meda", "bg_meda", "s_meda", "g_meda", "IT-100")
+
+    kopf = await anmelden(client, "admin")
+    leer = await client.post("/api/assignments/generate-contracts", json={"assignment_ids": []}, headers=kopf)
+    assert leer.status_code == 400
+    ohne = await client.post("/api/assignments/generate-contracts", json={}, headers=kopf)
+    assert ohne.status_code == 400
+    # Die alten Namensfilter als Query-Parameter öffnen keinen Hintertürweg mehr.
+    gefiltert = await client.post(
+        "/api/assignments/generate-contracts?sus_nachn=Mustermann", json={}, headers=kopf
+    )
+    assert gefiltert.status_code == 400
+    assert await welt.contracts.count_documents({}) == 0
+
+
+async def test_vertragserstellung_fuer_fremde_auswahl_findet_nichts(welt, client):
+    await schueler(welt, "s_gym", "bg_gym")
+    await geraet(welt, "g_gym", "bg_gym", "IT-200")
+    await zuordnung(welt, "a_gym", "bg_gym", "s_gym", "g_gym", "IT-200")
+
+    kopf = await anmelden(client, "schaubach")
+    antwort = await client.post(
+        "/api/assignments/generate-contracts", json={"assignment_ids": ["a_gym"]}, headers=kopf
+    )
+    assert antwort.status_code == 404
+    assert await welt.contracts.count_documents({}) == 0

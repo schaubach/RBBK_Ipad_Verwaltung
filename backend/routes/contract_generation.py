@@ -4,9 +4,8 @@ Auto-extracted from monolithic server.py during refactor (Session 12).
 """
 
 import io
-import re
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from contract_generator import create_contracts_from_assignments
 from core.config import (
@@ -24,63 +23,31 @@ from pydantic import BaseModel
 
 # Contract Generation
 class GenerateContractsRequest(BaseModel):
-    assignment_ids: Optional[List[str]] = None
+    assignment_ids: List[str] = []
 
 
 @api_router.post("/assignments/generate-contracts")
 async def generate_contracts(
-    request: Optional[GenerateContractsRequest] = None,
-    sus_vorn: Optional[str] = None,
-    sus_nachn: Optional[str] = None,
-    sus_kl: Optional[str] = None,
-    itnr: Optional[str] = None,
+    request: GenerateContractsRequest,
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Generate PDF contracts as encrypted ZIP archives.
+    Generate PDF contracts as encrypted ZIP archives for the selected assignments.
 
-    Supports two modes:
-    1. Filter-based: Use query parameters (sus_vorn, sus_nachn, sus_kl, itnr)
-    2. Selection-based: Pass assignment_ids in request body
+    Nur noch für eine ausdrückliche Auswahl. Früher erzeugte ein Aufruf ohne Auswahl (oder
+    nur mit Namensfiltern) Verträge für alle offenen Zuordnungen - ein Fehlklick genügte,
+    um Verträge für die ganze Schule zu erstellen. Eine leere Auswahl wird daher abgewiesen
+    statt als "alle" gedeutet.
     """
+    if not request.assignment_ids:
+        raise HTTPException(status_code=400, detail="Keine Zuordnungen ausgewählt")
+
     try:
         # Apply user filter - CRITICAL for RBAC!
         user_filter = await get_user_filter(current_user)
 
-        # Mode 1: Selection-based (assignment_ids provided)
-        if request and request.assignment_ids:
-            assignment_filter = {"id": {"$in": request.assignment_ids}, "is_active": True, **user_filter}
-            assignments = await db.assignments.find(assignment_filter).to_list(length=None)
-        else:
-            # Mode 2: Filter-based (query parameters)
-            # Build filter query for students (with user filter!)
-            student_filter = user_filter.copy()
-            if sus_vorn:
-                student_filter["sus_vorn"] = {"$regex": re.escape(sus_vorn), "$options": "i"}
-            if sus_nachn:
-                student_filter["sus_nachn"] = {"$regex": re.escape(sus_nachn), "$options": "i"}
-            if sus_kl:
-                student_filter["sus_kl"] = {"$regex": re.escape(sus_kl), "$options": "i"}
-
-            # Build filter query for assignments (IT-Nummer) with user filter!
-            assignment_filter = user_filter.copy()
-            assignment_filter["is_active"] = True
-            if itnr:
-                assignment_filter["itnr"] = {"$regex": re.escape(itnr), "$options": "i"}
-
-            if sus_vorn or sus_nachn or sus_kl:
-                # Get matching students (filtered by Bildungsgang!)
-                students = await db.students.find(student_filter).to_list(length=None)
-                student_ids = [s["id"] for s in students]
-
-                if not student_ids:
-                    raise HTTPException(status_code=404, detail="Keine passenden Zuordnungen gefunden")
-
-                # Add student filter to assignment filter
-                assignment_filter["student_id"] = {"$in": student_ids}
-
-            # Get assignments matching all filters (filtered by Bildungsgang!)
-            assignments = await db.assignments.find(assignment_filter).to_list(length=None)
+        assignment_filter = {"id": {"$in": request.assignment_ids}, "is_active": True, **user_filter}
+        assignments = await db.assignments.find(assignment_filter).to_list(length=None)
 
         if not assignments:
             raise HTTPException(status_code=404, detail="Keine Zuordnungen gefunden")
