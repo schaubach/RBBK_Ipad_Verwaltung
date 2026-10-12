@@ -512,7 +512,15 @@ const UserManagement = () => {
       console.error('Failed to import backup:', error);
       // Auch das Scheitern bleibt stehen: die Meldung nennt den Namen des Sicherheitsnetzes,
       // das danach von Hand zurückzuspielen ist.
-      const detail = error.response?.data?.detail || 'Fehler beim Wiederherstellen des Backups';
+      //
+      // Zwei Fälle, die auseinandergehalten gehören: Hat der Server geantwortet, steht in
+      // seiner Begründung, dass er die Datei abgelehnt hat - der Bestand liegt dann unberührt
+      // da. Kam gar keine Antwort, weiß von hier aus niemand, wie weit die Wiederherstellung
+      // gekommen ist, und genau das muss dastehen statt eines allgemeinen Satzes.
+      const detail = error.response?.data?.detail
+        || `Die Wiederherstellung ist fehlgeschlagen, bevor der Server geantwortet hat (${fehlerText(error)}). `
+           + 'Ob sie begonnen hat und wie weit sie kam, lässt sich von hier nicht sagen — bitte den '
+           + 'Datenbestand prüfen, bevor Sie es erneut versuchen.';
       setImportErgebnis({ ok: false, detail });
       toast.error(detail);
       await loadPreRestoreBackups();

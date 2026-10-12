@@ -30,6 +30,11 @@ services:
     environment:
       - MONGO_URL=mongodb://mongodb:27017
       - SECRET_KEY=e2e-only-secret-key-not-used-anywhere-else-0123456789
+      # Alle Aufrufe kommen über den Proxy von einer Adresse - mit Bremse liefen die Tests
+      # in 429. Die Bremse selbst prüft backend/tests/test_ratelimit.py.
+      - RATELIMIT_ENABLED=false
+      # Server-Backups als Datei in den Container, nicht auf den Host.
+      - SERVER_BACKUP_DIR=/tmp/backups
     # Ohne --reload: Hier wird nichts bearbeitet, und der Datei-Beobachter kostet nur Zeit.
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
     depends_on:

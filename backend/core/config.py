@@ -33,5 +33,15 @@ MAX_IPADS_PER_STUDENT = int(os.environ.get("MAX_IPADS_PER_STUDENT", 3))
 MAX_CONTRACTS_PER_STUDENT = int(os.environ.get("MAX_CONTRACTS_PER_STUDENT", 3))
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
+
 # Rate limiter
-limiter = Limiter(key_func=get_remote_address)
+# Abschalten nur im Wegwerf-Stack der Browser-Tests (e2e/docker-compose.yml): Dort kommt
+# jeder Aufruf über denselben Proxy, also von derselben Adresse, und die Tests liefen in die
+# Bremse. Ohne die Variable - also in jeder echten Installation - bleibt sie an.
+def ratelimit_enabled(value: str | None) -> bool:
+    """Nur ein ausdrückliches "false" schaltet ab; fehlt die Variable, bleibt die Bremse an."""
+    return (value or "true").strip().lower() != "false"
+
+
+RATELIMIT_ENABLED = ratelimit_enabled(os.environ.get("RATELIMIT_ENABLED"))
+limiter = Limiter(key_func=get_remote_address, enabled=RATELIMIT_ENABLED)

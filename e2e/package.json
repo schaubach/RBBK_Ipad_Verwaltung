@@ -8,6 +8,7 @@
     "test:smoke": "playwright test --grep @smoke"
   },
   "devDependencies": {
-    "@playwright/test": "1.55.0"
+    "@playwright/test": "1.55.0",
+    "exceljs": "4.4.0"
   }
 }

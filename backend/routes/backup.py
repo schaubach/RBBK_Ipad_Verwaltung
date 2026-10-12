@@ -481,10 +481,18 @@ def pruefe_backup_inhalt(backup_data: dict) -> dict:
             "anschließend das Wanderungsskript scripts/migrate-to-bildungsgang.py laufen lassen."
         )
     if fehlende:
+        # Welche Sammlungen es sind, steht im Feld fehlende_sammlungen daneben - die Oberflaeche
+        # zeigt sie dort mit ihren deutschen Namen. Stuenden sie hier noch einmal, laese der
+        # Admin dieselbe Auskunft zweimal, einmal als "Zustaendigkeiten" und einmal als
+        # "zustaendigkeiten".
         warnungen.append(
-            "ACHTUNG: In der Datei fehlen diese erwarteten Sammlungen: "
-            + ", ".join(fehlende)
-            + ". Sie werden beim Einspielen nicht angefasst - dort bleibt der heutige Stand stehen."
+            f"ACHTUNG: In der Datei fehlen {len(fehlende)} erwartete Sammlungen"
+            if len(fehlende) != 1
+            else "ACHTUNG: In der Datei fehlt eine erwartete Sammlung"
+        )
+        warnungen[-1] += (
+            " (unten aufgezaehlt). Sie werden beim Einspielen nicht angefasst - dort bleibt der "
+            "heutige Stand stehen."
         )
     if ohne_bildungsgang:
         aufzaehlung = ", ".join(
