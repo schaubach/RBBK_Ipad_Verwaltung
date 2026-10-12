@@ -430,6 +430,19 @@ async def import_inventory(
                         existing_pool_ipad = await db.ipads.find_one({"itnr": itnr})
                         if existing_pool_ipad:
                             ipads_skipped += 1
+                            # Ein Geraet, das schon einem Bildungsgang gehoert, holt der
+                            # Pool-Import nicht zurueck. Das soll man aber sehen: sonst steht es
+                            # nur in "X iPads übersprungen", zusammen mit denen, die ohnehin
+                            # schon im Pool liegen.
+                            if existing_pool_ipad.get("bildungsgang_id") and not existing_pool_ipad.get("is_in_pool"):
+                                fremder = await db.bildungsgaenge.find_one(
+                                    {"id": existing_pool_ipad["bildungsgang_id"]}, {"name": 1}
+                                )
+                                errors.append(
+                                    f"Zeile {index + 2}: ITNr {itnr} gehört bereits zu "
+                                    f"{fremder['name'] if fremder else 'einem Bildungsgang'} "
+                                    "- nicht in den Pool übernommen"
+                                )
                             ipad_id = existing_pool_ipad["id"]
                             ipad_already_assigned = existing_pool_ipad.get("current_assignment_id") is not None
                         else:
