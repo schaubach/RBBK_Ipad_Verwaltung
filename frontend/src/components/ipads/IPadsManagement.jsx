@@ -17,9 +17,47 @@ import { UserPicker } from '../shared/UserPicker';
 import { BildungsgangSelect } from '../shared/BildungsgangSelect';
 import { useBildungsgaenge } from '../../hooks/useBildungsgaenge';
 import { toast } from 'sonner';
-import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Download, Upload, Users } from 'lucide-react';
+import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Download, Upload, Users, Check, ChevronDown } from 'lucide-react';
 import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
 import { downloadBlob } from '../../utils/download';
+
+// Ein Schritt der Batch-Zuordnung: offen zeigt er seinen Inhalt, erledigt nur eine Zeile
+// mit der getroffenen Wahl und "ändern" - so passt der Dialog ohne Scrollen auf den Schirm.
+const BatchImportSchritt = ({ nummer, titel, wert, offen, onOeffnen, testId, children }) => {
+  if (!offen && wert) {
+    return (
+      <button
+        type="button"
+        onClick={onOeffnen}
+        className="w-full flex items-center gap-2 rounded-lg border bg-green-50 border-green-200 px-3 py-2 text-left text-sm hover:bg-green-100"
+        data-testid={`${testId}-summary`}
+      >
+        <Check className="h-4 w-4 text-green-700 shrink-0" />
+        <span className="text-gray-600">{nummer}. {titel}:</span>
+        <strong className="truncate">{wert}</strong>
+        <span className="ml-auto text-xs text-blue-700 underline shrink-0">ändern</span>
+      </button>
+    );
+  }
+  if (!offen) {
+    return (
+      <button
+        type="button"
+        onClick={onOeffnen}
+        className="w-full rounded-lg border px-3 py-2 text-left text-sm text-gray-500 hover:bg-gray-50"
+        data-testid={`${testId}-summary`}
+      >
+        {nummer}. {titel}
+      </button>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-blue-200 p-3">
+      <Label className="mb-2 block">{nummer}. {titel}</Label>
+      {children}
+    </div>
+  );
+};
 
 const IPadsManagement = ({ isAdmin = false }) => {
   // Der Benutzername wird nicht als Prop durchgereicht; seit dem Login liegt er im localStorage.
@@ -85,6 +123,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const [batchImportEmpfaenger, setBatchImportEmpfaenger] = useState(null); // { id, username }
   const [batchImportEmpfaengerSuche, setBatchImportEmpfaengerSuche] = useState('');
   const [batchImportFile, setBatchImportFile] = useState(null);
+  // Nur der aktuelle Schritt zeigt seine Liste; erledigte klappen auf eine Zeile zusammen.
+  const [batchImportOffenerSchritt, setBatchImportOffenerSchritt] = useState(1); // 1, 2 oder null
   const [batchImportSubmitting, setBatchImportSubmitting] = useState(false);
   const [batchImportResultDialogOpen, setBatchImportResultDialogOpen] = useState(false);
   const [batchImportResult, setBatchImportResult] = useState(null);
@@ -265,6 +305,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
     setBatchImportFile(null);
     setBatchImportUserSearchQuery('');
     setBatchImportEmpfaengerSuche('');
+    setBatchImportOffenerSchritt(1);
     setBatchImportDialogOpen(true);
     if (batchImportAllUsers.length === 0) {
       try {
@@ -1811,55 +1852,41 @@ const IPadsManagement = ({ isAdmin = false }) => {
         <AlertDialogContent className="max-w-2xl max-h-[90vh] flex flex-col" data-testid="batch-import-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>Batch-Zuordnung per Datei</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <p>
-                  Excel-Datei mit den Geräten hochladen. Pflicht ist allein die <strong>ITNr</strong>;
-                  SNr, Karton, Pencil, Typ, AnschJahr und Status sind freiwillig. Beim Status werden
-                  nur <strong>ok</strong>, <strong>defekt</strong> und <strong>gestohlen</strong>{' '}
-                  gedeutet; jeder andere Wert wird im Protokoll gemeldet.
-                </p>
-                <p>
-                  Pro Zeile wird entschieden: aus dem Pool holen &amp; zuweisen, neu anlegen &amp;
-                  zuweisen, die Übergabe quittieren, wenn das Gerät schon <strong>diesem</strong>{' '}
-                  Bildungsgang gehört, oder nichts tun, wenn es einem <strong>anderen</strong>{' '}
-                  gehört.
-                </p>
-                <p>
-                  Bei einem <strong>neuen</strong> Gerät greifen für Typ und Pencil die Vorgaben aus
-                  den Einstellungen, wenn die Zellen leer bleiben.
-                </p>
-                <p>
-                  Bei einem Gerät aus dem Pool oder aus <strong>diesem</strong> Bildungsgang werden
-                  nur leere Felder ergänzt; vorhandene Werte und der Status bleiben unangetastet, und
-                  eine abweichende SNr wird gemeldet statt übernommen. An Geräten{' '}
-                  <strong>anderer</strong> Bildungsgänge wird nichts geändert.
-                </p>
-              </div>
+            <AlertDialogDescription>
+              Excel-Datei mit den Geräten hochladen. Pflicht ist allein die <strong>ITNr</strong>;
+              alle anderen Spalten sind freiwillig.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
-            <div>
-              <Label className="mb-2 block">1. Ziel-Bildungsgang auswählen{batchImportTargetBildungsgang && (
-                <span className="font-normal text-green-700"> — ausgewählt: <strong>{batchImportTargetBildungsgang.name}</strong></span>
-              )}</Label>
+          <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1">
+            <BatchImportSchritt
+              nummer={1}
+              titel="Ziel-Bildungsgang"
+              wert={batchImportTargetBildungsgang?.name}
+              offen={batchImportOffenerSchritt === 1}
+              onOeffnen={() => setBatchImportOffenerSchritt(1)}
+              testId="batch-import-schritt-bildungsgang"
+            >
               <BildungsgangPicker
                 bildungsgaenge={bildungsgaenge}
                 searchQuery={batchImportUserSearchQuery}
                 onSearchChange={setBatchImportUserSearchQuery}
-                onSelect={(b) => setBatchImportTargetBildungsgang({ id: b.id, name: b.name })}
+                onSelect={(b) => {
+                  setBatchImportTargetBildungsgang({ id: b.id, name: b.name });
+                  setBatchImportOffenerSchritt(batchImportEmpfaenger ? null : 2);
+                }}
                 selectedId={batchImportTargetBildungsgang?.id ?? null}
                 searchTestId="batch-import-bildungsgang-search-input"
                 rowTestIdPrefix="batch-import-bildungsgang-row"
               />
-            </div>
-            <div>
-              <Label className="mb-2 block">
-                2. Übergeben an
-                {batchImportEmpfaenger && (
-                  <span className="font-normal text-green-700"> — <strong>{batchImportEmpfaenger.username}</strong></span>
-                )}
-              </Label>
+            </BatchImportSchritt>
+            <BatchImportSchritt
+              nummer={2}
+              titel="Übergeben an"
+              wert={batchImportEmpfaenger?.username}
+              offen={batchImportOffenerSchritt === 2}
+              onOeffnen={() => setBatchImportOffenerSchritt(2)}
+              testId="batch-import-schritt-empfaenger"
+            >
               <p className="text-xs text-gray-500 mb-2">
                 Wer die Geräte entgegennimmt. Pflichtangabe: ohne sie bliebe später offen, bei
                 wem eine Kiste gelandet ist. Die Geräte gehören weiterhin dem Bildungsgang.
@@ -1868,13 +1895,16 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 users={batchImportAllUsers}
                 searchQuery={batchImportEmpfaengerSuche}
                 onSearchChange={setBatchImportEmpfaengerSuche}
-                onSelectUser={(u) => setBatchImportEmpfaenger({ id: u.id, username: u.username })}
+                onSelectUser={(u) => {
+                  setBatchImportEmpfaenger({ id: u.id, username: u.username });
+                  setBatchImportOffenerSchritt(batchImportTargetBildungsgang ? null : 1);
+                }}
                 selectedUserId={batchImportEmpfaenger?.id ?? null}
                 searchTestId="batch-import-empfaenger-search-input"
                 rowTestIdPrefix="batch-import-empfaenger-row"
               />
-            </div>
-            <div>
+            </BatchImportSchritt>
+            <div className="rounded-lg border p-3">
               <div className="flex items-center justify-between gap-2 mb-2">
                 <Label>3. Datei hochladen</Label>
                 <Button
@@ -1895,6 +1925,35 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 data-testid="batch-import-file-input"
               />
             </div>
+            <details className="group rounded-lg border px-3 py-2 text-sm text-gray-600" data-testid="batch-import-hilfe">
+              <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-gray-700 [&::-webkit-details-marker]:hidden">
+                <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+                Wie wird die Datei verarbeitet?
+              </summary>
+              <div className="mt-2 space-y-2">
+                <p>
+                  Gelesen werden ITNr (Pflicht) sowie SNr, Karton, Pencil, Typ, AnschJahr und
+                  Status. Beim Status werden nur <strong>ok</strong>, <strong>defekt</strong> und{' '}
+                  <strong>gestohlen</strong> gedeutet; jeder andere Wert wird im Protokoll gemeldet.
+                </p>
+                <p>
+                  Pro Zeile wird entschieden: aus dem Pool holen &amp; zuweisen, neu anlegen &amp;
+                  zuweisen, die Übergabe quittieren, wenn das Gerät schon <strong>diesem</strong>{' '}
+                  Bildungsgang gehört, oder nichts tun, wenn es einem <strong>anderen</strong>{' '}
+                  gehört.
+                </p>
+                <p>
+                  Bei einem <strong>neuen</strong> Gerät greifen für Typ und Pencil die Vorgaben aus
+                  den Einstellungen, wenn die Zellen leer bleiben.
+                </p>
+                <p>
+                  Bei einem Gerät aus dem Pool oder aus <strong>diesem</strong> Bildungsgang werden
+                  nur leere Felder ergänzt; vorhandene Werte und der Status bleiben unangetastet, und
+                  eine abweichende SNr wird gemeldet statt übernommen. An Geräten{' '}
+                  <strong>anderer</strong> Bildungsgänge wird nichts geändert.
+                </p>
+              </div>
+            </details>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
