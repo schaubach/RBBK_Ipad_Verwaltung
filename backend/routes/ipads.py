@@ -344,9 +344,9 @@ _LIEFERLISTE_SPALTEN = [
     # (Bestandsfeld, Spalte der Datei, Beispielwert der Vorlage)
     ("snr", "SNr", "SN-BEISPIEL-12345"),
     ("karton", "Karton", "K-12"),
-    ("pencil", "Pencil", "mit Apple Pencil"),
-    ("typ", "Typ", "Apple iPad 9. Gen, 64 GB"),
-    ("ansch_jahr", "AnschJahr", "2024"),
+    ("pencil", "Pencil", "ohne Apple Pencil"),
+    ("typ", "Typ", "iPad (A16)"),
+    ("ansch_jahr", "AnschJahr", "2026"),
     ("status", "Status", "ok"),
 ]
 
