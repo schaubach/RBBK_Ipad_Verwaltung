@@ -63,14 +63,20 @@ const UserManagement = () => {
   const [preRestoreBackups, setPreRestoreBackups] = useState([]);
   const [loadingPreRestoreBackups, setLoadingPreRestoreBackups] = useState(false);
 
-  // Central backup encryption password (any admin may set it)
-  const [backupEncryption, setBackupEncryption] = useState({ password_configured: false });
+  // Central backup encryption password (any admin may set it). password_state kennt drei
+  // Lagen ('fehlt' | 'unlesbar' | 'bereit'); password_configured allein verschweigt die
+  // mittlere - siehe Backup-Sicherheit weiter unten.
+  const [backupEncryption, setBackupEncryption] = useState({ password_configured: false, password_state: 'fehlt', message: '' });
   const [loadingBackupEncryption, setLoadingBackupEncryption] = useState(true);
   const [newBackupPassword, setNewBackupPassword] = useState('');
   const [newBackupPasswordConfirm, setNewBackupPasswordConfirm] = useState('');
   const [savingBackupPassword, setSavingBackupPassword] = useState(false);
+  // Antwort des letzten Setzens. Steht hier und nicht nur in einer Toast-Meldung, weil sie
+  // sagen kann, dass das vorhandene Archiv dauerhaft unlesbar geworden ist - eine Nachricht,
+  // die nach drei Sekunden verschwindet, ist dafuer die falsche Stelle.
+  const [backupPasswordErgebnis, setBackupPasswordErgebnis] = useState(null);
 
-  // Server-side backups (MongoDB/GridFS, rolling 7-day retention)
+  // Server-side backups (MongoDB/GridFS, rolling retention - SERVER_BACKUP_RETENTION_DAYS)
   const [serverBackups, setServerBackups] = useState([]);
   const [serverBackupStatus, setServerBackupStatus] = useState(null);
   const [loadingServerBackups, setLoadingServerBackups] = useState(false);
@@ -299,9 +305,13 @@ const UserManagement = () => {
       return;
     }
     setSavingBackupPassword(true);
+    setBackupPasswordErgebnis(null);
     try {
       const response = await api.put('/settings/backup-encryption', { password: newBackupPassword });
-      toast.success(response.data.message);
+      // Statt einer Toast-Meldung: die Antwort bleibt stehen, bis der Admin sie wegklickt.
+      // Sie zaehlt, wie viele vorhandene Sicherungen sich mit dem neuen Passwort nicht mehr
+      // oeffnen lassen - wer das uebersieht, wirft sein Archiv weg, ohne es zu merken.
+      setBackupPasswordErgebnis(response.data);
       setNewBackupPassword('');
       setNewBackupPasswordConfirm('');
       await loadBackupEncryption();
@@ -533,6 +543,13 @@ const UserManagement = () => {
     setEditPasswordConfirm('');
     setShowEditDialog(true);
   };
+
+  // Drei Lagen, drei Anzeigen. "Hinterlegt, aber nicht entpackbar" sah bisher wie "alles gut"
+  // aus, weil allein das Vorhandensein zaehlte - waehrend der Tagesjob seit Tagen scheiterte.
+  // Dieser Fall ist ein Alarm, kein gruener Kasten.
+  const passwortZustand = backupEncryption.password_state || (backupEncryption.password_configured ? 'bereit' : 'fehlt');
+  const passwortBereit = passwortZustand === 'bereit';
+  const passwortUnlesbar = passwortZustand === 'unlesbar';
 
   return (
     <div className="space-y-6">
@@ -922,7 +939,9 @@ const UserManagement = () => {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {backupEncryption.password_configured ? (
+            {passwortUnlesbar ? (
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+            ) : passwortBereit ? (
               <Lock className="h-5 w-5 text-green-600" />
             ) : (
               <Unlock className="h-5 w-5 text-gray-400" />
@@ -938,24 +957,46 @@ const UserManagement = () => {
             <div className="text-center py-4">Lade Konfiguration...</div>
           ) : (
             <div className="space-y-6">
-              <div className={`border-l-4 p-3 rounded text-sm ${backupEncryption.password_configured ? 'border-green-400 bg-green-50 text-green-800' : 'border-gray-300 bg-gray-50 text-gray-600'}`}>
-                {backupEncryption.password_configured ? (
-                  <>🔒 Alle Backups (manuell, E-Mail, Server) werden aktuell verschlüsselt.</>
-                ) : (
-                  <>🔓 Backups sind aktuell <strong>nicht</strong> verschlüsselt. Backup-Passwort setzen, um das zu ändern.</>
-                )}
-              </div>
+              {passwortUnlesbar ? (
+                <div className="border-l-4 border-red-500 bg-red-50 p-3 rounded text-sm text-red-800 space-y-2">
+                  <div className="font-semibold flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                    Backup-Passwort hinterlegt, aber nicht lesbar — es entstehen <strong>keine</strong> Backups.
+                  </div>
+                  {/* Der Begruendungstext kommt vom Server: nur er weiss, woran es liegt. */}
+                  {backupEncryption.message && <p>{backupEncryption.message}</p>}
+                  <p>
+                    <strong>Zu tun:</strong> unten ein Backup-Passwort <strong>neu setzen</strong>. Mit dem bisherigen
+                    Passwort bleiben die vorhandenen Sicherungen lesbar, mit einem anderen nicht.
+                  </p>
+                </div>
+              ) : (
+                <div className={`border-l-4 p-3 rounded text-sm ${passwortBereit ? 'border-green-400 bg-green-50 text-green-800' : 'border-gray-300 bg-gray-50 text-gray-600'}`}>
+                  {passwortBereit ? (
+                    <>🔒 Alle Backups (manuell, E-Mail, Server) werden aktuell verschlüsselt.</>
+                  ) : (
+                    <>🔓 Es ist <strong>kein</strong> Backup-Passwort hinterlegt, deshalb entstehen keine Backups. Backup-Passwort setzen, um das zu ändern.</>
+                  )}
+                </div>
+              )}
 
               {/* Central backup password, settable by any admin */}
               <div className="space-y-2 max-w-lg border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
                 <h4 className="font-medium text-blue-800 flex items-center gap-2">
                   <KeyRound className="h-4 w-4" />
-                  Backup-Passwort {backupEncryption.password_configured ? 'ändern' : 'setzen'}
+                  Backup-Passwort {passwortUnlesbar ? 'neu setzen' : passwortBereit ? 'ändern' : 'setzen'}
                 </h4>
                 <p className="text-xs text-blue-700 mb-2">
                   Mindestens 8 Zeichen. Gilt zentral für alle automatischen und manuellen Backups und wird
                   server-seitig verschlüsselt gespeichert, damit auch geplante Backups ohne manuelles Zutun
                   verschlüsselt werden können. Jeder Admin kann es jederzeit ändern.
+                </p>
+                {/* Steht vor dem Klick, nicht erst danach: nachtraeglich umschluesseln kann die
+                    vorhandenen Sicherungen niemand. */}
+                <p className="text-xs text-blue-700 mb-2">
+                  <strong>Achtung:</strong> Ein <em>anderes</em> Passwort als das bisherige macht alle vorhandenen
+                  Sicherungen dauerhaft unlesbar — auch die Dateikopien außer Haus. Nach dem Speichern steht hier,
+                  wie viele betroffen sind.
                 </p>
                 <Input
                   type="password"
@@ -979,12 +1020,38 @@ const UserManagement = () => {
                   {savingBackupPassword ? 'Speichert...' : 'Backup-Passwort speichern'}
                 </Button>
               </div>
+
+              {/* Das Ergebnis des letzten Setzens. Es verschwindet erst auf Klick: sagt es, dass
+                  Sicherungen unlesbar geworden sind, ist das die wichtigste Zeile der ganzen
+                  Seite - und ob der Admin sie gelesen hat, weiss niemand ausser ihm. */}
+              {backupPasswordErgebnis && (
+                <div
+                  className={`border-l-4 p-3 rounded text-sm space-y-2 ${
+                    backupPasswordErgebnis.sicherungen_unlesbar
+                      ? 'border-red-500 bg-red-50 text-red-800'
+                      : backupPasswordErgebnis.sicherungen_unlesbar === null
+                        ? 'border-yellow-500 bg-yellow-50 text-yellow-800'
+                        : 'border-green-400 bg-green-50 text-green-800'
+                  }`}
+                >
+                  {backupPasswordErgebnis.sicherungen_unlesbar > 0 && (
+                    <div className="font-semibold flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                      Vorhandene Sicherungen sind jetzt nur noch mit dem vorherigen Passwort zu öffnen
+                    </div>
+                  )}
+                  <p>{backupPasswordErgebnis.message}</p>
+                  <Button variant="outline" size="sm" onClick={() => setBackupPasswordErgebnis(null)}>
+                    Hinweis gelesen
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Server-side daily backups (MongoDB/GridFS, 7-day retention) */}
+      {/* Server-side daily backups (MongoDB/GridFS, SERVER_BACKUP_RETENTION_DAYS retention) */}
       <Card className="shadow-lg">
         <CardHeader>
           <div className="flex justify-between items-center">
@@ -994,14 +1061,18 @@ const UserManagement = () => {
                 Server-Backups (MongoDB)
               </CardTitle>
               <CardDescription>
-                Läuft automatisch einmal täglich. Auf dem Server werden die letzten 7 Tage aufbewahrt;
+                Läuft automatisch einmal täglich. Auf dem Server werden die letzten 20 Tage aufbewahrt;
                 zusätzlich wird jedes Backup als Datei abgelegt und von dort außer Haus gesichert.
               </CardDescription>
             </div>
             <Button
               onClick={handleRunServerBackupNow}
-              disabled={runningServerBackupNow || !backupEncryption.password_configured}
-              title={!backupEncryption.password_configured ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)' : undefined}
+              disabled={runningServerBackupNow || !passwortBereit}
+              title={passwortUnlesbar
+                ? 'Das hinterlegte Backup-Passwort lässt sich nicht entpacken - bitte unter Backup-Sicherheit neu setzen'
+                : !passwortBereit
+                  ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)'
+                  : undefined}
               variant="outline"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
@@ -1010,13 +1081,31 @@ const UserManagement = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {!backupEncryption.password_configured && (
+          {!passwortBereit && (
             <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2 mb-4">
-              <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              {passwortUnlesbar ? <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" /> : <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />}
               <span>
-                Ohne Backup-Passwort werden <strong>keine</strong> täglichen Server-Backups erstellt (Schülerdaten
-                dürfen nicht unverschlüsselt gespeichert werden).
+                {passwortUnlesbar ? (
+                  <>
+                    Das hinterlegte Backup-Passwort lässt sich nicht mehr entpacken, deshalb entstehen
+                    <strong> keine</strong> täglichen Server-Backups. Unter <strong>Backup-Sicherheit</strong> ein
+                    Backup-Passwort neu setzen, dann läuft es wieder.
+                  </>
+                ) : (
+                  <>
+                    Ohne Backup-Passwort werden <strong>keine</strong> täglichen Server-Backups erstellt (Schülerdaten
+                    dürfen nicht unverschlüsselt gespeichert werden).
+                  </>
+                )}
               </span>
+            </div>
+          )}
+          {/* Fehlt der eindeutige Index auf ipads.itnr, meldet der Server das im Klartext - sonst
+              stuende es nur als Logzeile vom letzten Start im Container. */}
+          {serverBackupStatus?.itnr_index_meldung && (
+            <div className="text-sm text-yellow-800 bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded flex items-start gap-2 mb-4">
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span>{serverBackupStatus.itnr_index_meldung}</span>
             </div>
           )}
           {serverBackupStatus && serverBackupStatus.last_status === 'error' && (

@@ -1,19 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../../api';
 import StudentDetailViewer from './StudentDetailViewer';
 import { Button } from '../ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Checkbox } from '../ui/checkbox';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { ExportColumnsDialog } from '../shared/ExportColumnsDialog';
 import { useBildungsgangAnsicht } from '../../hooks/BildungsgangAnsicht';
 import { toast } from 'sonner';
-import { Users, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Edit, Download, Tablet, AlertTriangle } from 'lucide-react';
+import { Users, Eye, Trash2, Plus, ArrowUp, ArrowDown, X, Download, Tablet, AlertTriangle } from 'lucide-react';
 import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
 
 import { downloadBlob } from '../../utils/download';
@@ -276,7 +275,6 @@ const StudentsManagement = () => {
       const response = await api.get('/students', {
         params: ansichtBildungsgang ? { bildungsgang_id: ansichtBildungsgang } : {}
       });
-      console.log('Students API response:', response.data);
       setStudents(response.data || []);
     } catch (error) {
       console.error('Failed to load students:', error);

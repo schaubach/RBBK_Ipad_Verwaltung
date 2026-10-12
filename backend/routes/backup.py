@@ -55,9 +55,48 @@ COLLECTIONS = [
     "global_settings",
 ]
 BACKUP_TYPE_KEY = "__rbbk_backup_type"
+# Bewusst NICHT in COLLECTIONS: hier steht, dass gerade eine Wiederherstellung laeuft. Stuende
+# der Riegel in einer gesicherten Sammlung, raeumte die Wiederherstellung ihn mitten im eigenen
+# Lauf weg - genau in dem Moment, in dem er gebraucht wird.
+SYSTEM_STATE = "system_state"
+# Laenger als jede Wiederherstellung dauert. Stirbt der Prozess mittendrin, bliebe der Riegel
+# sonst fuer immer liegen und spaerrte die Ersteinrichtung auf einem frischen Server aus.
+RESTORE_RIEGEL_MAX_SEKUNDEN = 1800
 # Eintraege in global_settings, die das Backup ueber sich selbst fuehrt. Sie gehoeren ins
 # Backup, zaehlen aber nicht als inhaltliche Aenderung - siehe _serialize_and_encrypt.
 BACKUP_EIGENE_ZUSTAENDE = {"server_backup_state"}
+
+# Nur in diesen Sammlungen haengt der Besitz am Bildungsgang. Fehlt dort die bildungsgang_id,
+# ist der Datensatz herrenlos: keine Lehrkraft sieht ihn mehr, nur noch Admins. Der Anzeigename
+# steht daneben, weil die Zahlen in einer Meldung an den Admin landen.
+BILDUNGSGANG_SAMMLUNGEN = {
+    "students": "Schüler",
+    "ipads": "Geräte",
+    "assignments": "Zuordnungen",
+    "contracts": "Verträge",
+}
+
+# Die drei Zustaende des zentralen Backup-Passworts. PASSWORT_UNLESBAR ist der heimtueckische:
+# in global_settings liegt ein Eintrag, er laesst sich mit dem aktuellen SECRET_KEY aber nicht
+# mehr entpacken. Vorher galt allein das Vorhandensein als "Passwort gesetzt" - die Oberflaeche
+# meldete gruen, waehrend der Tagesjob stuendlich scheiterte.
+PASSWORT_BEREIT = "bereit"
+PASSWORT_FEHLT = "fehlt"
+PASSWORT_UNLESBAR = "unlesbar"
+
+PASSWORT_MELDUNG = {
+    PASSWORT_BEREIT: "Backup-Passwort gesetzt und lesbar - alle Backups werden damit verschlüsselt.",
+    PASSWORT_FEHLT: (
+        "Kein Backup-Passwort hinterlegt. Da Backups Schülerdaten enthalten, ist ein Backup-Passwort "
+        "erforderlich (siehe Admin-Tab > Backup-Sicherheit: Backup-Passwort setzen)."
+    ),
+    PASSWORT_UNLESBAR: (
+        "Es ist ein Backup-Passwort hinterlegt, der Server kann es aber nicht mehr entpacken - bitte "
+        "im Admin-Tab > Backup-Sicherheit ein neues Backup-Passwort setzen. Bis dahin entsteht kein "
+        "Backup. (Ursache ist ein anderer SECRET_KEY als beim Setzen, etwa weil der Eintrag aus einer "
+        "älteren Sicherung zurückgespielt wurde.)"
+    ),
+}
 
 
 def serialize_backup_value(value):
@@ -109,22 +148,75 @@ async def build_backup_payload() -> dict:
 
 
 async def restore_backup_payload(backup_data: dict):
-    """Overwrite COLLECTIONS with the given (already deserialized-ready) backup payload."""
+    """Overwrite COLLECTIONS with the given (already deserialized-ready) backup payload.
+
+    Sammlungen, die in der Datei gar nicht vorkommen, bleiben unberuehrt stehen - darauf weist
+    pruefe_backup_inhalt vor dem Einspielen ausdruecklich hin.
+    """
+    # Das Backup-Passwort wird NICHT aus der Datei uebernommen, sondern bleibt, wie es auf
+    # diesem Server steht: der Eintrag sagt, womit DIESER Server seine Sicherungen
+    # verschluesselt, und gehoert damit zum Server, nicht zum Datenbestand der Schule. Genau
+    # sein Zurueckschreiben hat die Anlage im Oktober lahmgelegt - der Eintrag stammte aus
+    # einer Zeit mit anderem SECRET_KEY und war danach nicht mehr zu entpacken, waehrend die
+    # Oberflaeche weiter "Passwort gesetzt" meldete. Fuer einen Umzug auf neue Hardware kostet
+    # das nichts: wer eine verschluesselte Sicherung einspielen will, muss das Passwort dort
+    # ohnehin vorher von Hand setzen, sonst laesst sich die Datei nicht einmal oeffnen
+    # (siehe decrypt_uploaded_backup).
+    eigenes_passwort = await db.global_settings.find_one({"type": "backup_encryption"})
+    # Zwischen delete_many und insert_many ist die Benutzersammlung leer - und genau auf diesen
+    # Zustand wartet der Einrichtungs-Endpunkt, um ein Standardkonto anzulegen. Ohne diesen
+    # Riegel reichte ein Aufruf im richtigen Augenblick, um waehrend einer Wiederherstellung
+    # admin/admin123 zu bekommen.
+    await db[SYSTEM_STATE].update_one(
+        {"type": "restore_running"},
+        {"$set": {"type": "restore_running", "seit": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    try:
+        await _restore_sammlungen(backup_data, eigenes_passwort)
+    finally:
+        await db[SYSTEM_STATE].delete_one({"type": "restore_running"})
+
+
+async def laeuft_wiederherstellung() -> bool:
+    """Ob gerade eine Wiederherstellung schreibt - und der Bestand deshalb nichts aussagt.
+
+    Ein liegengebliebener Riegel (abgestuerzter Prozess) verfaellt, sonst kaeme man auf einem
+    frisch aufgesetzten Server nicht mehr in die Ersteinrichtung.
+    """
+    eintrag = await db[SYSTEM_STATE].find_one({"type": "restore_running"})
+    if not eintrag:
+        return False
+    seit = _parse_iso_utc(eintrag.get("seit"))
+    if seit is None:
+        return True
+    return (datetime.now(timezone.utc) - seit).total_seconds() < RESTORE_RIEGEL_MAX_SEKUNDEN
+
+
+async def _restore_sammlungen(backup_data: dict, eigenes_passwort: Optional[dict]):
     for coll_name, records in backup_data.items():
-        if coll_name in COLLECTIONS:
-            decoded_records = []
-            for record in records:
-                decoded_record = deserialize_backup_value(record)
-                if "_id" in decoded_record and isinstance(decoded_record["_id"], str):
-                    try:
-                        decoded_record["_id"] = ObjectId(decoded_record["_id"])
-                    except Exception:
-                        del decoded_record["_id"]
-                decoded_records.append(decoded_record)
-            collection = db[coll_name]
-            await collection.delete_many({})
-            if decoded_records:
-                await collection.insert_many(decoded_records)
+        if coll_name not in COLLECTIONS:
+            continue
+        decoded_records = []
+        for record in records:
+            decoded_record = deserialize_backup_value(record)
+            if "_id" in decoded_record and isinstance(decoded_record["_id"], str):
+                try:
+                    decoded_record["_id"] = ObjectId(decoded_record["_id"])
+                except Exception:
+                    del decoded_record["_id"]
+            decoded_records.append(decoded_record)
+        if coll_name == "global_settings":
+            decoded_records = [
+                r for r in decoded_records
+                if not (isinstance(r, dict) and r.get("type") == "backup_encryption")
+            ]
+            if eigenes_passwort is not None:
+                decoded_records.append(eigenes_passwort)
+        collection = db[coll_name]
+        await collection.delete_many({})
+        if decoded_records:
+            await collection.insert_many(decoded_records)
 
 
 def _parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
@@ -139,12 +231,22 @@ def _parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-async def get_active_backup_password() -> Optional[str]:
-    """Return the currently configured (central) backup encryption password, unwrapped, or None if unset."""
+async def get_backup_password_state() -> tuple:
+    """(Zustand, Passwort) des zentralen Backup-Passworts; Passwort ist None, wenn unbrauchbar.
+
+    Gesetzt ist ein Passwort erst, wenn es sich auch ENTPACKEN laesst. Ein Eintrag, den
+    unwrap_secret nicht mehr oeffnet, ist fuer jeden Backup-Lauf dasselbe wie gar keiner - nur
+    sieht man es ihm nicht an. Deshalb bekommt der Fall einen eigenen Zustand und eine eigene
+    Meldung, statt als "fehlt" durchzugehen: zu tun ist etwas anderes (neu setzen) als beim
+    erstmaligen Einrichten.
+    """
     settings = await db.global_settings.find_one({"type": "backup_encryption"})
     if not settings or not settings.get("wrapped_password"):
-        return None
-    return unwrap_secret(settings["wrapped_password"])
+        return PASSWORT_FEHLT, None
+    passwort = unwrap_secret(settings["wrapped_password"])
+    if not passwort:
+        return PASSWORT_UNLESBAR, None
+    return PASSWORT_BEREIT, passwort
 
 
 def _serialize_and_encrypt(backup_data: dict, password: str) -> tuple:
@@ -176,12 +278,9 @@ async def build_backup_export_bytes() -> tuple:
     configured - backups contain student data (Schülerdaten) and must never leave the server
     (download, server-side archive) unencrypted.
     Returns (content_bytes, filename, is_encrypted, sha256_of_plaintext)."""
-    password = await get_active_backup_password()
+    zustand, password = await get_backup_password_state()
     if not password:
-        raise ValueError(
-            "Kein Backup-Passwort konfiguriert. Da Backups Schülerdaten enthalten, ist ein Backup-Passwort "
-            "erforderlich (siehe Admin-Tab > Backup-Sicherheit: Backup-Passwort setzen)."
-        )
+        raise ValueError(PASSWORT_MELDUNG[zustand])
     backup_data = await build_backup_payload()
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     # JSON dump + PBKDF2/Fernet are CPU-bound and grow with the data set - keep them off the
@@ -194,12 +293,9 @@ async def decrypt_uploaded_backup(content: bytes) -> bytes:
     """Decrypt an uploaded backup if it looks encrypted; pass plain JSON through unchanged."""
     if not is_encrypted_backup(content):
         return content
-    password = await get_active_backup_password()
+    zustand, password = await get_backup_password_state()
     if not password:
-        raise ValueError(
-            "Diese Datei ist verschlüsselt, aber es ist aktuell kein Backup-Passwort konfiguriert "
-            "(siehe Admin-Tab > Backup-Sicherheit)."
-        )
+        raise ValueError("Diese Datei ist verschlüsselt. " + PASSWORT_MELDUNG[zustand])
     return decrypt_backup_bytes(content, password)
 
 
@@ -215,11 +311,16 @@ def _pre_restore_backups_dir() -> Path:
     return PRE_RESTORE_BACKUPS_DIR
 
 
-def _write_pre_restore_backup(content_bytes: bytes, encrypted: bool = False) -> str:
-    """Persist a pre-restore snapshot to disk and prune old ones. Returns the filename."""
+def _write_pre_restore_backup(content_bytes: bytes) -> str:
+    """Persist a pre-restore snapshot to disk and prune old ones. Returns the filename.
+
+    Immer verschluesselt - das Sicherheitsnetz ist ein vollstaendiges Abbild samt Namen,
+    Adressen und unterschriebenen Vertraegen. Das Muster erlaubt weiterhin Dateinamen ohne
+    ".enc", weil aus der Zeit davor noch solche im Verzeichnis liegen koennen.
+    """
     backups_dir = _pre_restore_backups_dir()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"pre_restore_backup_{timestamp}.json" + (".enc" if encrypted else "")
+    filename = f"pre_restore_backup_{timestamp}.json.enc"
     (backups_dir / filename).write_bytes(content_bytes)
 
     existing = sorted(backups_dir.glob("pre_restore_backup_*.json*"))
@@ -255,14 +356,254 @@ async def export_backup(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Fehler beim Erstellen des Backups.")
 
 
+# --- Pruefungen vor dem Einspielen ------------------------------------------------------
+
+def _itnr_schluessel(itnr) -> tuple:
+    """Zwei ITNr so vergleichbar machen, wie der eindeutige Index auf ipads.itnr sie vergleicht.
+
+    Ein fehlendes Feld legt die Datenbank als denselben Schluessel ab wie eine ausdrueckliche
+    None - zwei Geraete ohne ITNr sind fuer sie dieselbe Nummer und die zweite Einfuegung
+    scheitert. Zahlen vergleicht sie numerisch (1 und 1.0 sind eine), Zeichenkette und Zahl
+    dagegen nicht ("1" ist nicht 1); deshalb traegt der Schluessel die Art mit, sonst wuerde
+    eine Datei abgelehnt, die sich einwandfrei einspielen laesst.
+    """
+    if itnr is None:
+        return ("fehlt", None)
+    if isinstance(itnr, (int, float)) and not isinstance(itnr, bool):
+        return ("zahl", float(itnr))
+    if isinstance(itnr, str):
+        return ("text", itnr)
+    return ("sonstiges", repr(itnr))
+
+
+def _itnr_anzeige(itnr) -> str:
+    """Wie eine ITNr in einer Meldung erscheint - auch dann, wenn sie fehlt oder keine ist."""
+    if itnr is None:
+        return "ohne ITNr"
+    if isinstance(itnr, str):
+        return itnr if itnr.strip() else "leere ITNr"
+    if isinstance(itnr, (int, float)) and not isinstance(itnr, bool):
+        return f"{itnr} (als Zahl, nicht als Text)"
+    return f"{itnr!r} (keine ITNr)"
+
+
+def _doppelte_itnr(records) -> list:
+    """ITNr, die in der Datei mehr als einmal vorkommen, in der Reihenfolge des Auftretens.
+
+    Verglichen wird ueber _itnr_schluessel, also auch dort, wo gar keine Nummer steht. Vorher
+    uebersprang die Pruefung jeden Wert, der keine nichtleere Zeichenkette war: zwei Geraete mit
+    None, "" oder einer Zahl kamen durch und liefen erst beim Schreiben in den Index - der Admin
+    bekam den rohen Mongo-Text zu lesen, und das bei halb ersetztem Bestand.
+    """
+    gesehen = set()
+    gemeldet = set()
+    doppelt = []
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        itnr = record.get("itnr")
+        schluessel = _itnr_schluessel(itnr)
+        if schluessel in gesehen and schluessel not in gemeldet:
+            doppelt.append(_itnr_anzeige(itnr))
+            gemeldet.add(schluessel)
+        gesehen.add(schluessel)
+    return doppelt
+
+
+def _geraete_ohne_itnr(records) -> int:
+    """Wie viele Geraete in der Datei ohne brauchbare ITNr ankommen.
+
+    Einzeln nimmt die Datenbank das an, deshalb wird deswegen nichts abgelehnt - gemeldet
+    gehoert es trotzdem: ein Geraet ohne Nummer ist in der Verwaltung nicht wiederzufinden,
+    und der Batch-Abgleich sucht ueber genau diese Nummer.
+    """
+    anzahl = 0
+    for record in records or []:
+        if not isinstance(record, dict):
+            continue
+        itnr = record.get("itnr")
+        if itnr is None or (isinstance(itnr, str) and not itnr.strip()):
+            anzahl += 1
+    return anzahl
+
+
+def pruefe_backup_inhalt(backup_data: dict) -> dict:
+    """Bestandsaufnahme einer hochgeladenen Datei: was fehlt, was ist herrenlos, wie alt ist sie.
+
+    Es wird gewarnt statt abgelehnt. Eine Sicherung, die sich nicht mehr einspielen laesst, ist
+    wertlos - und gerade die alte Datei ist die, nach der im Notfall gegriffen wird. Der Weg
+    zurueck bleibt ueber das Sicherheitsnetz offen, die Warnung sagt, was danach noch zu tun
+    ist. Abgelehnt wird nur, was mitten im Schreiben scheitern wuerde (doppelte ITNr).
+    """
+    fehlende = [name for name in COLLECTIONS if name not in backup_data]
+    ohne_bildungsgang = {}
+    for name in BILDUNGSGANG_SAMMLUNGEN:
+        anzahl = sum(
+            1 for record in backup_data.get(name) or []
+            if isinstance(record, dict) and not record.get("bildungsgang_id")
+        )
+        if anzahl:
+            ohne_bildungsgang[name] = anzahl
+
+    ohne_itnr = _geraete_ohne_itnr(backup_data.get("ipads"))
+
+    # "departments" hiess die Sammlung vor dem Umbau, "bildungsgaenge" gibt es erst seitdem.
+    # Beides zusammen erkennt auch eine Datei, in der nur eines der Merkmale steht.
+    vor_dem_umbau = "departments" in backup_data or "bildungsgaenge" not in backup_data
+
+    warnungen = []
+    if vor_dem_umbau:
+        warnungen.append(
+            "ACHTUNG: Diese Datei stammt aus der Zeit vor der Umstellung auf Bildungsgänge (sie "
+            "enthält \"departments\" bzw. keine \"bildungsgaenge\"). Geräte und Schüler gehören "
+            "danach zu keinem Bildungsgang, und ausser Admins sieht niemand mehr etwas. Bitte "
+            "anschließend das Wanderungsskript scripts/migrate-to-bildungsgang.py laufen lassen."
+        )
+    if fehlende:
+        warnungen.append(
+            "ACHTUNG: In der Datei fehlen diese erwarteten Sammlungen: " + ", ".join(fehlende)
+            + ". Sie werden beim Einspielen nicht angefasst - dort bleibt der heutige Stand stehen."
+        )
+    if ohne_bildungsgang:
+        aufzaehlung = ", ".join(
+            f"{anzahl} {BILDUNGSGANG_SAMMLUNGEN[name]}" for name, anzahl in ohne_bildungsgang.items()
+        )
+        warnungen.append(f"ACHTUNG: Ohne Bildungsgang kommen an: {aufzaehlung}.")
+    if ohne_itnr:
+        warnungen.append(
+            f"ACHTUNG: {ohne_itnr} {'Gerät kommt' if ohne_itnr == 1 else 'Geräte kommen'} ohne ITNr an. "
+            "Ohne Nummer ist ein Gerät weder in der Verwaltung noch beim Batch-Abgleich "
+            "wiederzufinden - bitte die ITNr nachtragen."
+        )
+
+    return {
+        "fehlende_sammlungen": fehlende,
+        "ohne_bildungsgang": ohne_bildungsgang,
+        "geraete_ohne_itnr": ohne_itnr,
+        "vor_dem_umbau": vor_dem_umbau,
+        "warnungen": warnungen,
+    }
+
+
+def _dubletten_satz(anzahl: int) -> str:
+    """"1 ITNr kommt mehrfach vor" bzw. "N ITNr kommen mehrfach vor"."""
+    return f"{anzahl} ITNr {'kommt' if anzahl == 1 else 'kommen'} mehrfach vor"
+
+
+async def _doppelte_itnr_im_bestand() -> Optional[int]:
+    """Wie viele ITNr im Bestand mehrfach vorkommen; None, wenn sich das nicht zaehlen laesst."""
+    try:
+        gruppen = await db.ipads.aggregate([
+            {"$group": {"_id": "$itnr", "anzahl": {"$sum": 1}}},
+            {"$match": {"anzahl": {"$gt": 1}}},
+            {"$count": "doppelte"},
+        ]).to_list(length=1)
+    except Exception as e:
+        logger.error(f"Doppelte ITNr konnten nicht gezaehlt werden: {str(e)}")
+        return None
+    return gruppen[0]["doppelte"] if gruppen else 0
+
+
+async def ensure_itnr_index() -> dict:
+    """Den eindeutigen Index auf ipads.itnr anlegen und berichten, ob er steht.
+
+    Zwei Aufrufer: der Start (main.py) und jede Wiederherstellung. Letzteres ist noetig, weil
+    der Index in der Datenbank steht und nicht in der Backup-Datei: wird in eine frische
+    Datenbank eingespielt, gibt es ihn danach nicht. Fehlt er, nimmt die Datenbank Dubletten
+    klaglos auf - und der naechste Start scheitert dann dauerhaft am Anlegen.
+
+    Scheitert es, sagt die Meldung WIE VIELE Nummern doppelt sind. "Bitte bereinigen" ohne
+    Zahl laesst denjenigen, der es liest, ratlos zurueck.
+
+    Dubletten sind der haeufige, aber nicht der einzige Grund (eine Datenbank laesst sich auch
+    nur lesend einbinden). Vorher stand in jeder Meldung, es gaebe welche - auch bei null
+    gezaehlten. Das schickt jemanden auf die Suche nach etwas, das es nicht gibt; deshalb nennt
+    die Meldung jetzt den Fall, der tatsaechlich vorliegt.
+    """
+    try:
+        await db.ipads.create_index("itnr", unique=True, name="itnr_eindeutig")
+        return {"ok": True, "duplikate": 0, "meldung": None}
+    except Exception as e:
+        duplikate = await _doppelte_itnr_im_bestand()
+        if duplikate:
+            meldung = (
+                "ACHTUNG: Der eindeutige Index auf ipads.itnr konnte nicht angelegt werden - "
+                f"{_dubletten_satz(duplikate)}. Bitte die Dubletten bereinigen; bis dahin können "
+                "zwei gleichzeitige Batch-Läufe dieselbe ITNr doppelt anlegen."
+            )
+        else:
+            befund = ("doppelte ITNr gibt es dabei keine" if duplikate == 0
+                      else "ob ITNr mehrfach vorkommen, ließ sich nicht feststellen")
+            meldung = (
+                "ACHTUNG: Der eindeutige Index auf ipads.itnr konnte nicht angelegt werden - "
+                f"{befund}. Die Datenbank meldet: {str(e)}. Bis der Index steht, können zwei "
+                "gleichzeitige Batch-Läufe dieselbe ITNr doppelt anlegen."
+            )
+        logger.error(f"{meldung} ({str(e)})")
+        return {"ok": False, "duplikate": duplikate, "meldung": meldung}
+
+
+async def itnr_index_status() -> dict:
+    """Steht der eindeutige Index? Nur wenn nicht, wird gezaehlt - das spart den Durchlauf
+    ueber den Bestand im Normalfall.
+
+    Wie bei ensure_itnr_index gilt: ohne gezaehlte Dubletten wird auch keine behauptet. Fehlt
+    der Index ohne Dubletten, liegt es an etwas anderem - und dann ist das Log vom letzten
+    Start die Spur, nicht der Bestand.
+    """
+    try:
+        vorhanden = "itnr_eindeutig" in await db.ipads.index_information()
+    except Exception as e:
+        logger.error(f"Index-Auskunft zu ipads.itnr fehlgeschlagen: {str(e)}")
+        return {"ok": None, "duplikate": None, "meldung": None}
+    if vorhanden:
+        return {"ok": True, "duplikate": 0, "meldung": None}
+    duplikate = await _doppelte_itnr_im_bestand()
+    if duplikate:
+        meldung = (
+            f"ACHTUNG: Der eindeutige Index auf ipads.itnr fehlt - {_dubletten_satz(duplikate)}. "
+            "Bitte die Dubletten bereinigen; der Index wird beim nächsten Start erneut angelegt."
+        )
+    elif duplikate == 0:
+        meldung = (
+            "ACHTUNG: Der eindeutige Index auf ipads.itnr fehlt, doppelte ITNr gibt es aber keine. "
+            "Warum das Anlegen scheiterte, steht im Server-Protokoll des letzten Starts; bis der "
+            "Index steht, können zwei gleichzeitige Batch-Läufe dieselbe ITNr doppelt anlegen."
+        )
+    else:
+        meldung = (
+            "ACHTUNG: Der eindeutige Index auf ipads.itnr fehlt; ob ITNr mehrfach vorkommen, ließ "
+            "sich nicht feststellen (siehe Server-Protokoll). Bis der Index steht, können zwei "
+            "gleichzeitige Batch-Läufe dieselbe ITNr doppelt anlegen."
+        )
+    return {"ok": False, "duplikate": duplikate, "meldung": meldung}
+
+
 @api_router.post("/backup/import")
 async def import_backup(file: UploadFile = File(...), current_user: dict = Depends(get_current_user)):
     """Restores the database from a backup file (plain .json or encrypted .json.enc). Only
     accessible by administrators. Warning: this overwrites existing data. A pre-restore safety
-    snapshot is always written first and used to automatically roll back on failure."""
+    snapshot is always written first (verschlüsselt, siehe unten) and used to automatically roll
+    back on failure.
+
+    Der Rueckgabewert nennt ausserdem, was an der Datei auffaellt: fehlende Sammlungen,
+    Datensaetze ohne Bildungsgang, eine Datei von vor dem Umbau - und ob der eindeutige Index
+    auf ipads.itnr danach steht."""
     require_admin(current_user)
     if not (file.filename.endswith(".json") or file.filename.endswith(".json.enc")):
         raise HTTPException(status_code=400, detail="Es muss eine .json oder verschlüsselte .json.enc Datei hochgeladen werden.")
+
+    # Ohne entpackbares Passwort gibt es keine Wiederherstellung. Das Sicherheitsnetz weiter
+    # unten ist ein vollstaendiges Abbild samt Namen, Adressen und unterschriebenen Vertraegen;
+    # ohne Passwort landete es frueher als reines JSON in uploads/backups. Der Export verweigert
+    # aus genau diesem Grund jedes unverschluesselte Backup (siehe build_backup_export_bytes) -
+    # hier darf es nicht anders sein, nur weil der Weg ein anderer ist.
+    passwort_zustand, backup_password = await get_backup_password_state()
+    if not backup_password:
+        raise HTTPException(status_code=400, detail=(
+            "Vor dem Einspielen wird der aktuelle Bestand als Sicherheitsnetz gespeichert, und das "
+            "muss verschlüsselt geschehen - es enthält Schülerdaten. " + PASSWORT_MELDUNG[passwort_zustand]
+        ))
 
     raw_content = await file.read()
     try:
@@ -279,23 +620,53 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # insert_many schreibt der Reihe nach: bei einer doppelten ITNr bricht es mittendrin ab und
+    # der Admin saehe den rohen Mongo-Text ("E11000 duplicate key"). Lieber vorher pruefen und
+    # die betroffene Nummer nennen - bereinigen muss er die Datei ohnehin.
+    doppelte = _doppelte_itnr(backup_data.get("ipads"))
+    if doppelte:
+        gezeigt = ", ".join(doppelte[:10])
+        rest = f" (und {len(doppelte) - 10} weitere)" if len(doppelte) > 10 else ""
+        raise HTTPException(status_code=400, detail=(
+            f"Die Datei enthält dieselbe ITNr mehrfach: {gezeigt}{rest}. Eine ITNr bezeichnet genau "
+            "ein Gerät, deshalb wird nichts eingespielt. Bitte die Dubletten in der Datei bereinigen. "
+            "Geräte ohne ITNr zählen dabei mit: für den eindeutigen Index sind auch zwei leere "
+            "Felder dieselbe Nummer."
+        ))
+
+    befund = pruefe_backup_inhalt(backup_data)
+
     # Safety net: snapshot current data BEFORE touching anything, so a failed or unwanted
     # restore can be rolled back / manually recovered afterwards.
     pre_restore_payload = await build_backup_payload()
     pre_restore_json = json.dumps(pre_restore_payload, ensure_ascii=False).encode("utf-8")
-    backup_password = await get_active_backup_password()
-    pre_restore_content = encrypt_backup_bytes(pre_restore_json, backup_password) if backup_password else pre_restore_json
+    pre_restore_content = encrypt_backup_bytes(pre_restore_json, backup_password)
     try:
-        pre_restore_filename = _write_pre_restore_backup(pre_restore_content, encrypted=bool(backup_password))
+        pre_restore_filename = _write_pre_restore_backup(pre_restore_content)
     except OSError as e:
         logger.error(f"Could not write pre-restore backup: {str(e)}")
         raise HTTPException(status_code=500, detail="Sicherheits-Backup konnte nicht gespeichert werden. Wiederherstellung abgebrochen.")
 
     try:
         await restore_backup_payload(backup_data)
+        # Der Index gehoert zur Datenbank, nicht zur Datei - nach dem Einspielen in eine frische
+        # Datenbank fehlt er. Jetzt anlegen, solange noch jemand davorsitzt und es liest.
+        index = await ensure_itnr_index()
+        meldungen = list(befund["warnungen"])
+        if index["meldung"]:
+            meldungen.append(index["meldung"])
         return {
-            "message": "System-Backup erfolgreich wiederhergestellt.",
+            # Die Oberflaeche zeigt nur "message" an, deshalb stehen die Warnungen auch darin
+            # und nicht nur im Feld daneben.
+            "message": " ".join(["System-Backup erfolgreich wiederhergestellt."] + meldungen),
             "pre_restore_backup": pre_restore_filename,
+            "warnungen": meldungen,
+            "fehlende_sammlungen": befund["fehlende_sammlungen"],
+            "ohne_bildungsgang": befund["ohne_bildungsgang"],
+            "geraete_ohne_itnr": befund["geraete_ohne_itnr"],
+            "vor_dem_umbau": befund["vor_dem_umbau"],
+            "itnr_index_ok": index["ok"],
+            "itnr_duplikate": index["duplikate"],
         }
     except Exception as e:
         logger.error(f"Backup import error, attempting rollback: {str(e)}")
@@ -363,19 +734,106 @@ async def download_pre_restore_backup(filename: str, current_user: dict = Depend
 
 @api_router.get("/settings/backup-encryption")
 async def get_backup_encryption_settings(current_user: dict = Depends(get_current_user)):
-    """Get the backup encryption status (admin only). Never returns the actual password."""
+    """Get the backup encryption status (admin only). Never returns the actual password.
+
+    "Gesetzt" heisst: entpackbar. Dass ein Eintrag da ist, sagt noch nichts - siehe
+    get_backup_password_state. ``message`` nennt den Fall beim Namen und sagt, was zu tun ist.
+    """
     require_admin(current_user)
-    settings = await db.global_settings.find_one({"type": "backup_encryption"})
-    return {"password_configured": bool(settings and settings.get("wrapped_password"))}
+    zustand, _passwort = await get_backup_password_state()
+    return {
+        "password_configured": zustand == PASSWORT_BEREIT,
+        "password_state": zustand,
+        "message": PASSWORT_MELDUNG[zustand],
+    }
 
 
 class BackupPasswordUpdate(BaseModel):
     password: str
 
 
+def _sicherung_laesst_sich_oeffnen(inhalt: bytes, passwort: str) -> bool:
+    """Laesst sich diese Sicherung mit ``passwort`` oeffnen? Blockierend (asyncio.to_thread).
+
+    Eine unverschluesselte Datei aus der Zeit davor zaehlt als lesbar - sie haengt an keinem
+    Passwort. Geprueft wird mit decrypt_backup_bytes, also auf demselben Weg, den auch die
+    Wiederherstellung geht: eine zweite, eigene Pruefmechanik koennte anderes behaupten als
+    das, was spaeter tatsaechlich passiert.
+    """
+    if not is_encrypted_backup(inhalt):
+        return True
+    try:
+        decrypt_backup_bytes(inhalt, passwort)
+        return True
+    except ValueError:
+        return False
+
+
+def _sicherungen_satz(anzahl: int) -> str:
+    """"1 vorhandene Sicherung lässt sich" bzw. "N vorhandene Sicherungen lassen sich"."""
+    if anzahl == 1:
+        return "1 vorhandene Sicherung lässt sich"
+    return f"{anzahl} vorhandene Sicherungen lassen sich"
+
+
+async def _sicherungen_mit_passwort_pruefen(passwort: str) -> dict:
+    """Zaehlen, wie viele vorhandene Sicherungen sich mit ``passwort`` noch oeffnen lassen.
+
+    Geprueft wird, was dieser Server selbst vorhaelt: die Tagesbackups in GridFS und die
+    Sicherheitsnetze auf der Platte. Die Dateikopien in SERVER_BACKUP_FILE_DIR bleiben aussen
+    vor: sie sind Byte fuer Byte dasselbe wie der GridFS-Stand und wuerden die Zahl verdoppeln.
+    Betroffen sind sie genauso, deshalb nennt die Meldung sie ausdruecklich.
+
+    Jede Datei traegt ihr eigenes Salz, also braucht jede ihre eigene Schluesselableitung
+    (PBKDF2, bewusst langsam). Bezahlbar bleibt das nur, weil das Aufraeumen die Zahl der
+    Sicherungen begrenzt (SERVER_BACKUP_RETENTION_DAYS, PRE_RESTORE_KEEP_COUNT) und weil ein
+    Admin ein Backup-Passwort selten setzt. Die Ableitung laeuft im Thread, damit der
+    Tagesjob und der Healthcheck waehrenddessen weiterkommen.
+    """
+    gesamt = 0
+    unlesbar = 0
+    ungeprueft = 0
+
+    bucket = _backups_gridfs_bucket()
+    async for doc in db["backups.files"].find({}, {"_id": 1}).sort("uploadDate", -1):
+        gesamt += 1
+        try:
+            stream = await bucket.open_download_stream(doc["_id"])
+            inhalt = await stream.read()
+        except Exception as e:
+            logger.error(f"Sicherung {doc['_id']} liess sich zum Pruefen nicht lesen: {str(e)}")
+            ungeprueft += 1
+            continue
+        if not await asyncio.to_thread(_sicherung_laesst_sich_oeffnen, inhalt, passwort):
+            unlesbar += 1
+
+    for pfad in sorted(_pre_restore_backups_dir().glob("pre_restore_backup_*.json*"), reverse=True):
+        gesamt += 1
+        try:
+            inhalt = pfad.read_bytes()
+        except OSError as e:
+            logger.error(f"Sicherheitsnetz {pfad.name} liess sich zum Pruefen nicht lesen: {str(e)}")
+            ungeprueft += 1
+            continue
+        if not await asyncio.to_thread(_sicherung_laesst_sich_oeffnen, inhalt, passwort):
+            unlesbar += 1
+
+    return {"gesamt": gesamt, "unlesbar": unlesbar, "ungeprueft": ungeprueft}
+
+
 @api_router.put("/settings/backup-encryption")
 async def set_backup_encryption_password(payload: BackupPasswordUpdate, current_user: dict = Depends(get_current_user)):
-    """Set/update the central backup encryption password (any admin may do this)."""
+    """Set/update the central backup encryption password (any admin may do this).
+
+    Die Antwort sagt ausserdem, was der Wechsel das Archiv kostet. Ein neues Passwort repariert
+    zwar den Backup-Lauf, macht aber jede vorhandene Sicherung dauerhaft unlesbar: sie ist mit
+    dem alten Passwort verschluesselt, und nachtraeglich umschluesseln kann das niemand. "Backup-
+    Passwort erfolgreich gesetzt" allein verschweigt genau das. Wer dasselbe Passwort wie zuvor
+    setzt - der Weg, um einen nicht mehr entpackbaren Eintrag zu reparieren -, behaelt sein
+    Archiv; dann darf auch keine Warnung kommen. Beides laesst sich nur sagen, indem die
+    vorhandenen Sicherungen mit dem NEUEN Passwort probeweise geoeffnet werden: der hinterlegte
+    Eintrag ist in genau diesem Fall ja nicht mehr zu entpacken und taugt nicht zum Vergleich.
+    """
     require_admin(current_user)
     if len(payload.password) < 8:
         raise HTTPException(status_code=400, detail="Das Backup-Passwort muss mindestens 8 Zeichen lang sein")
@@ -385,7 +843,44 @@ async def set_backup_encryption_password(payload: BackupPasswordUpdate, current_
         {"$set": {"wrapped_password": wrap_secret(payload.password), "updated_at": datetime.now(timezone.utc).isoformat()}},
         upsert=True,
     )
-    return {"message": "Backup-Passwort erfolgreich gesetzt. Zukünftige Backups werden damit verschlüsselt."}
+
+    # Erst setzen, dann pruefen und berichten: das Setzen ist die Reparatur und darf an einer
+    # Auskunft nicht scheitern - auch nicht daran, dass sich eine einzelne Sicherung nicht
+    # lesen laesst.
+    try:
+        befund = await _sicherungen_mit_passwort_pruefen(payload.password)
+    except Exception as e:
+        logger.error(f"Vorhandene Sicherungen konnten nicht geprüft werden: {str(e)}")
+        befund = {"gesamt": None, "unlesbar": None, "ungeprueft": None}
+
+    meldung = "Backup-Passwort erfolgreich gesetzt. Zukünftige Backups werden damit verschlüsselt."
+    if befund["unlesbar"] is None:
+        meldung += (
+            " Ob sich die vorhandenen Sicherungen mit dem neuen Passwort noch öffnen lassen, konnte "
+            "nicht geprüft werden (siehe Server-Protokoll)."
+        )
+    elif befund["unlesbar"]:
+        meldung += (
+            f" ACHTUNG: {_sicherungen_satz(befund['unlesbar'])} mit dem neuen Passwort nicht mehr "
+            "öffnen - dafür wird weiterhin das vorherige gebraucht, und nachträglich umschlüsseln "
+            "lässt sich nichts. Das gilt auch für die Dateikopien außer Haus. Bitte das alte "
+            "Passwort aufbewahren, solange diese Sicherungen noch von Wert sind."
+        )
+    else:
+        lesbar = befund["gesamt"] - befund["ungeprueft"]
+        if lesbar:
+            meldung += f" {_sicherungen_satz(lesbar)} damit weiterhin öffnen."
+    if befund["ungeprueft"]:
+        meldung += (
+            f" Bei {befund['ungeprueft']} Sicherungen ließ sich das nicht prüfen (siehe Server-Protokoll)."
+        )
+
+    return {
+        "message": meldung,
+        "sicherungen_gesamt": befund["gesamt"],
+        "sicherungen_unlesbar": befund["unlesbar"],
+        "sicherungen_ungeprueft": befund["ungeprueft"],
+    }
 
 
 BACKUP_SCHEDULE_CHECK_INTERVAL_SECONDS = 3600  # check hourly whether the daily backup is due
@@ -597,6 +1092,9 @@ async def get_server_backup_status(current_user: dict = Depends(get_current_user
     """
     require_admin(current_user)
     state = await db.global_settings.find_one({"type": "server_backup_state"}) or {}
+    # Fehlt der eindeutige Index - etwa nach einer Wiederherstellung in eine frische Datenbank -,
+    # steht das sonst nur als Logzeile vom letzten Start irgendwo im Container.
+    index = await itnr_index_status()
     return {
         "last_run_at": state.get("last_run_at"),
         "last_attempt_at": state.get("last_attempt_at"),
@@ -604,6 +1102,9 @@ async def get_server_backup_status(current_user: dict = Depends(get_current_user
         "last_error": state.get("last_error"),
         "last_file_path": state.get("last_file_path"),
         "last_file_error": state.get("last_file_error"),
+        "itnr_index_ok": index["ok"],
+        "itnr_duplikate": index["duplikate"],
+        "itnr_index_meldung": index["meldung"],
     }
 
 

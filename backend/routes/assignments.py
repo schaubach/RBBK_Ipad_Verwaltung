@@ -4,7 +4,6 @@ Auto-extracted from monolithic server.py during refactor (Session 12).
 """
 
 import io
-import re
 from datetime import UTC, datetime
 from typing import List, Optional
 
@@ -27,109 +26,10 @@ from core.validators import validate_uploaded_file
 from fastapi import Depends, File, HTTPException, UploadFile
 from models.assignment import (
     Assignment,
-    AssignmentResponse,
     ManualAssignmentRequest,
 )
 from models.contract import Contract
 from starlette.requests import Request
-
-
-@api_router.post("/assignments/auto-assign", response_model=AssignmentResponse)
-async def auto_assign_ipads(current_user: dict = Depends(get_current_user)):
-    """
-    Automatische Zuordnung: Weist nur Schülern OHNE jegliche iPad-Zuordnung ein iPad zu.
-    Schüler mit bereits 1, 2 oder 3 iPads werden NICHT berücksichtigt.
-    """
-    # Apply user filter
-    user_filter = await get_user_filter(current_user)
-    user_filter = mit_ansicht(user_filter, bildungsgang_id)
-
-    # Get all students for this user
-    all_students = await db.students.find(user_filter).to_list(length=None)
-
-    # Filter: Nur Schüler OHNE aktive Zuordnungen (nicht 1, nicht 2, nicht 3 - gar keine!)
-    # und ohne "iPad verweigert"-Vermerk (die sollen nicht immer wieder automatisch bedacht werden).
-    unassigned_students = []
-    for student in all_students:
-        if student.get("ipad_refused"):
-            continue
-        active_assignments = await db.assignments.count_documents({"student_id": student["id"], "is_active": True})
-        if active_assignments == 0:
-            unassigned_students.append(student)
-
-    assigned_count = 0
-    details = []
-
-    for student in unassigned_students:
-        now_iso = datetime.now(UTC).isoformat()
-        student_bildungsgang_id = student.get("bildungsgang_id")
-
-        # Ohne Bildungsgang gibt es nichts zu erben. Die Zuordnung waere anschliessend fuer
-        # niemanden sichtbar, weil die Sichtbarkeit am bildungsgang_id haengt - lieber
-        # ueberspringen und melden, als einen Datensatz anzulegen, den hinterher keiner findet.
-        if not student_bildungsgang_id:
-            details.append(
-                f"{student['sus_vorn']} {student['sus_nachn']} übersprungen: keinem Bildungsgang zugeordnet"
-            )
-            continue
-
-        # We need an assignment ID first so we can assign atomically
-        assignment = Assignment(
-            user_id=current_user["id"],  # angelegt von
-            bildungsgang_id=student_bildungsgang_id,
-            student_id=student["id"],
-            ipad_id="temp",
-            itnr="temp",
-            student_name=f"{student['sus_vorn']} {student['sus_nachn']}",
-        )
-
-        # Atomically find and claim an available iPad OF THE SAME BILDUNGSGANG as the student.
-        # Die Zuordnung erbt den Bildungsgang des Schuelers, also darf auch nur ein Geraet
-        # desselben Bildungsgangs beansprucht werden: sonst verschwindet ein Geraet aus einem
-        # fremden Bestand, ohne dass es dort jemand bemerkt. Pro Schueler gefiltert (nicht ueber
-        # einen gemeinsamen Filter), damit ein Admin-Lauf ueber alle Bildungsgaenge die Bestaende
-        # nicht quer verdrahtet. Poolgeraete bleiben aussen vor - die werden bewusst einzeln geholt.
-        ipad = await db.ipads.find_one_and_update(
-            {
-                "bildungsgang_id": student_bildungsgang_id,
-                "current_assignment_id": None,
-                "status": "ok",
-                "is_in_pool": {"$ne": True},
-            },
-            {"$set": {"current_assignment_id": assignment.id, "updated_at": now_iso}},
-        )
-
-        if not ipad:
-            # Kein freies Geraet IN DIESEM Bildungsgang. Frueher stand hier break, und das war
-            # richtig: ein Nicht-Admin sah nur seinen einen Bestand, also gab es danach ohnehin
-            # nichts mehr zu tun. Seit eine Person fuer mehrere Bildungsgaenge zustaendig sein
-            # kann, mischt die Schuelerliste mehrere Bestaende - ein Abbruch uebergeht dann alle
-            # folgenden Schueler der anderen Bildungsgaenge, und zwar lautlos.
-            details.append(
-                {
-                    "student": f"{student.get('sus_vorn', '')} {student.get('sus_nachn', '')}".strip(),
-                    "status": "übersprungen",
-                    "grund": "kein freies iPad im Bildungsgang dieses Schülers",
-                }
-            )
-            continue
-
-        # Update assignment with actual iPad data
-        assignment.ipad_id = ipad["id"]
-        assignment.itnr = ipad["itnr"]
-
-        assignment_dict = prepare_for_mongo(assignment.dict())
-        await db.assignments.insert_one(assignment_dict)
-
-        # Update student (just updated_at)
-        await db.students.update_one({"id": student["id"]}, {"$set": {"updated_at": now_iso}})
-
-        assigned_count += 1
-        details.append(f"Assigned iPad {ipad['itnr']} to {student['sus_vorn']} {student['sus_nachn']}")
-
-    return AssignmentResponse(
-        message=f"Successfully assigned {assigned_count} iPads", assigned_count=assigned_count, details=details
-    )
 
 
 @api_router.post("/assignments/manual")
@@ -137,7 +37,11 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
     """
     Manually assign an iPad to a student without creating a contract.
     Only allowed if iPad is not currently assigned.
-    If iPad is in pool, it will be auto-claimed by the current user first.
+
+    Ein Poolgeraet wird dabei zuerst in den Bildungsgang DES SCHUELERS geholt - nicht in den
+    des Aufrufers. Wer fuer mehrere Bildungsgaenge zustaendig ist, haengte das Geraet sonst an
+    seinen eigenen, waehrend die Zuordnung beim Schueler liegt: das Geraet stuende ab dann in
+    einem Bestand, in dem der Schueler gar nicht gefuehrt wird.
     """
     try:
         # Apply user filter for security
@@ -283,6 +187,12 @@ async def get_assignments(
 ):
     # Apply user filter
     user_filter = await get_user_filter(current_user)
+    # Der Parameter wurde bisher entgegengenommen und stillschweigend verworfen: wer die
+    # Ansicht auf einen Bildungsgang eingeengt hatte, bekam hier trotzdem alles. Die drei
+    # vergleichbaren Listen (iPads, Schueler, Vertraege) engen darueber ein, diese jetzt
+    # auch - eine Liste, die als einzige der Ansicht nicht folgt, erklaert niemand zweimal.
+    # Rein zur Ansicht: die Rechte stehen im user_filter und bleiben unberuehrt.
+    user_filter = mit_ansicht(user_filter, bildungsgang_id)
     assignment_filter = {**user_filter, "is_active": True}
     assignments = await db.assignments.find(assignment_filter).to_list(length=None)
 
@@ -529,173 +439,3 @@ async def dissolve_assignment(assignment_id: str, current_user: dict = Depends(g
     )
 
     return {"message": "Assignment dissolved successfully"}
-
-
-@api_router.post("/assignments/batch-dissolve")
-async def batch_dissolve_assignments(filter_params: dict, current_user: dict = Depends(get_current_user)):
-    """
-    Dissolve multiple assignments at once (filtered or all)
-
-    filter_params can include:
-    - "all": true (dissolves all user's assignments)
-    - "sus_vorn": string (filter by student first name)
-    - "sus_nachn": string (filter by student last name)
-    - "sus_kl": string (filter by class)
-    - "itnr": string (filter by iPad IT number)
-    """
-    try:
-        # Apply user filter - CRITICAL for RBAC!
-        user_filter = await get_user_filter(current_user)
-
-        # Build assignment filter
-        assignment_filter = user_filter.copy()
-        assignment_filter["is_active"] = True
-
-        # If not "all", apply specific filters
-        if not filter_params.get("all", False):
-            # Build student filter if student-related params exist
-            student_filter = user_filter.copy()
-            has_student_filter = False
-
-            if filter_params.get("sus_vorn"):
-                student_filter["sus_vorn"] = {"$regex": re.escape(filter_params["sus_vorn"]), "$options": "i"}
-                has_student_filter = True
-            if filter_params.get("sus_nachn"):
-                student_filter["sus_nachn"] = {"$regex": re.escape(filter_params["sus_nachn"]), "$options": "i"}
-                has_student_filter = True
-            if filter_params.get("sus_kl"):
-                student_filter["sus_kl"] = {"$regex": re.escape(filter_params["sus_kl"]), "$options": "i"}
-                has_student_filter = True
-
-            # Apply iPad filter if provided
-            if filter_params.get("itnr"):
-                assignment_filter["itnr"] = {"$regex": re.escape(filter_params["itnr"]), "$options": "i"}
-
-            # If student filters exist, get matching student IDs
-            if has_student_filter:
-                students = await db.students.find(student_filter).to_list(length=None)
-                student_ids = [s["id"] for s in students]
-
-                if not student_ids:
-                    return {"message": "No assignments match the filter criteria", "dissolved_count": 0, "details": []}
-
-                assignment_filter["student_id"] = {"$in": student_ids}
-
-        # Get all matching assignments
-        assignments = await db.assignments.find(assignment_filter).to_list(length=None)
-
-        if not assignments:
-            return {"message": "No active assignments found to dissolve", "dissolved_count": 0, "details": []}
-
-        dissolved_count = 0
-        details = []
-
-        # Dissolve each assignment
-        for assignment in assignments:
-            try:
-                # Move contract to history if exists
-                if assignment.get("contract_id"):
-                    await db.contracts.update_one(
-                        {"id": assignment["contract_id"]},
-                        {"$set": {"is_active": False, "updated_at": datetime.now(UTC).isoformat()}},
-                    )
-
-                # Mark assignment as inactive
-                await db.assignments.update_one(
-                    {"id": assignment["id"]},
-                    {
-                        "$set": {
-                            "is_active": False,
-                            "unassigned_at": datetime.now(UTC).isoformat(),
-                            "updated_at": datetime.now(UTC).isoformat(),
-                        }
-                    },
-                )
-
-                # Update iPad status to available
-                await db.ipads.update_one(
-                    {"id": assignment["ipad_id"]},
-                    {"$set": {"current_assignment_id": None, "updated_at": datetime.now(UTC).isoformat()}},
-                )
-
-                # Update student timestamp - no current_assignment_id field on Student (1:n relationship)
-                await db.students.update_one(
-                    {"id": assignment["student_id"]},
-                    {"$set": {"updated_at": datetime.now(UTC).isoformat()}},
-                )
-
-                dissolved_count += 1
-                details.append(f"Assignment {assignment.get('itnr', 'Unknown')} dissolved")
-
-            except Exception as e:
-                details.append(f"Error dissolving assignment {assignment.get('itnr', 'Unknown')}: {str(e)}")
-
-        return {
-            "message": f"Successfully dissolved {dissolved_count} assignment(s)",
-            "dissolved_count": dissolved_count,
-            "total_found": len(assignments),
-            "details": details,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error during batch dissolve: {str(e)}")
-
-
-@api_router.get("/assignments/filtered")
-async def get_filtered_assignments(
-    sus_vorn: Optional[str] = None,
-    sus_nachn: Optional[str] = None,
-    sus_kl: Optional[str] = None,
-    itnr: Optional[str] = None,
-    current_user: dict = Depends(get_current_user),
-):
-    try:
-        # Apply user filter - CRITICAL for RBAC!
-        user_filter = await get_user_filter(current_user)
-
-        # Filter fuer Schueler, ueber die Bildungsgaenge des Aufrufers
-        student_filter = user_filter.copy()
-        if sus_vorn:
-            student_filter["sus_vorn"] = {"$regex": re.escape(sus_vorn), "$options": "i"}
-        if sus_nachn:
-            student_filter["sus_nachn"] = {"$regex": re.escape(sus_nachn), "$options": "i"}
-        if sus_kl:
-            student_filter["sus_kl"] = {"$regex": re.escape(sus_kl), "$options": "i"}
-
-        # Build filter query for assignments (IT-Nummer) with user filter!
-        assignment_filter = user_filter.copy()
-        assignment_filter["is_active"] = True
-        if itnr:
-            assignment_filter["itnr"] = {"$regex": re.escape(itnr), "$options": "i"}
-
-        if sus_vorn or sus_nachn or sus_kl:
-            # Schueler, gefiltert ueber die Bildungsgaenge des Aufrufers
-            students = await db.students.find(student_filter).to_list(length=None)
-            student_ids = [s["id"] for s in students]
-
-            if not student_ids:
-                # No matching students found
-                return []
-
-            # Add student filter to assignment filter
-            assignment_filter["student_id"] = {"$in": student_ids}
-
-        # Zuordnungen, gefiltert ueber die Bildungsgaenge des Aufrufers
-        assignments = await db.assignments.find(assignment_filter).to_list(length=None)
-
-        # Safe parsing
-        result = []
-        for assignment in assignments:
-            try:
-                result.append(Assignment(**parse_from_mongo(assignment)))
-            except Exception as e:
-                print(f"Error parsing assignment {assignment.get('id')}: {e}")
-                continue
-
-        return result
-
-    except Exception as e:
-        print(f"Filter error: {e}")
-        raise HTTPException(status_code=500, detail=f"Filter error: {str(e)}")

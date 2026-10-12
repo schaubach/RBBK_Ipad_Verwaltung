@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../../api';
 import IPadDetailViewer from './IPadDetailViewer';
 import { Button } from '../ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
@@ -17,7 +17,7 @@ import { UserPicker } from '../shared/UserPicker';
 import { BildungsgangSelect } from '../shared/BildungsgangSelect';
 import { useBildungsgaenge } from '../../hooks/useBildungsgaenge';
 import { toast } from 'sonner';
-import { Tablet, Eye, Trash2, Plus, ArrowUpDown, ArrowUp, ArrowDown, X, Download, Upload, Users, Check, ChevronDown } from 'lucide-react';
+import { Tablet, Eye, Trash2, Plus, ArrowUp, ArrowDown, X, Download, Upload, Users, Check, ChevronDown } from 'lucide-react';
 import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
 import { downloadBlob } from '../../utils/download';
 
@@ -598,7 +598,6 @@ const IPadsManagement = ({ isAdmin = false }) => {
       const response = await api.get('/ipads', {
         params: ansichtBildungsgang ? { bildungsgang_id: ansichtBildungsgang } : {}
       });
-      console.log('iPads API response:', response.data);
       setIPads(response.data || []);
     } catch (error) {
       console.error('Failed to load iPads:', error);
@@ -943,19 +942,6 @@ const IPadsManagement = ({ isAdmin = false }) => {
   };
 
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'ok':
-        return 'bg-green-100 text-green-800';
-      case 'defekt':
-        return 'bg-red-100 text-red-800';
-      case 'gestohlen':
-        return 'bg-purple-100 text-purple-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
   const getRowClassName = (status) => {
     if (status === 'defekt' || status === 'gestohlen') {
       return 'bg-red-50 hover:bg-red-100';
@@ -1210,7 +1196,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                   onClick={() => openAssignToUserDialog(selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool))}
                   data-testid="bulk-assign-to-user-btn"
                 >
-                  👤 {selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) an User zuweisen
+                  👤 {selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) an Bildungsgang zuweisen
                 </Button>
               )}
               {selectedIPads.some(id => !ipads.find(i => i.id === id)?.current_assignment_id) && (
@@ -1445,10 +1431,10 @@ const IPadsManagement = ({ isAdmin = false }) => {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => openAssignToUserDialog([ipad.id])}
-                                title="An User zuweisen"
+                                title="An Bildungsgang zuweisen und an eine Person übergeben"
                                 data-testid={`assign-to-user-btn-${ipad.id}`}
                               >
-                                👤 An User
+                                👤 An Bildungsgang
                               </Button>
                             </>
                           ) : isAdmin && !ipad.is_in_pool ? (
@@ -1575,7 +1561,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                   data-testid="create-pool-checkbox"
                 />
                 <Label htmlFor="create-is-pool" className="cursor-pointer text-sm">
-                  🌐 Direkt in den gemeinsamen Pool anlegen (für alle Nutzer sichtbar)
+                  🌐 Direkt in den gemeinsamen Pool anlegen (gehört keinem Bildungsgang, nur für Admins sichtbar)
                 </Label>
               </div>
             )}

@@ -1,0 +1,13 @@
+{
+  "name": "ipad-verwaltung-e2e",
+  "private": true,
+  "scripts": {
+    "stack:up": "docker compose up -d --build --wait",
+    "stack:down": "docker compose down -v",
+    "test": "playwright test",
+    "test:smoke": "playwright test --grep @smoke"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0"
+  }
+}

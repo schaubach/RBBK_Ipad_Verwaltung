@@ -289,11 +289,14 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
                   <div><strong>Ansch. Jahr:</strong> {ipad.ansch_jahr || 'N/A'}</div>
                   <div><strong>Ausleihdatum:</strong> {ipad.ausleihe_datum || 'N/A'}</div>
                   <div><strong>Erstellt am:</strong> {ipad.created_at ? new Date(ipad.created_at).toLocaleDateString('de-DE') : 'N/A'}</div>
+                  {/* owner_username ist die user_id des Datensatzes und sagt nur, WER ihn
+                      angelegt hat. Verwaltet wird das Gerät vom Bildungsgang, dem es
+                      gehört - deshalb darf hier nicht "Verwaltet von" stehen. */}
                   <div>
-                    <strong>Verwaltet von:</strong>{' '}
+                    <strong>Angelegt von:</strong>{' '}
                     {ipadData.owner_username
                       ? <span data-testid="ipad-owner">{ipadData.owner_username}{ipad.is_in_pool ? ' (Importeur)' : ''}</span>
-                      : <span className="text-gray-500">Niemand (Pool-Waise)</span>}
+                      : <span className="text-gray-500">Nicht vermerkt</span>}
                   </div>
                 </div>
               )}

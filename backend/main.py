@@ -15,11 +15,11 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.cors import CORSMiddleware
 
-from core.config import client, db, limiter
+from core.config import client, limiter
 from core.middleware import SecurityHeadersMiddleware
 from core.router import api_router
 import routes  # noqa: F401  (import side-effect: registers all endpoints on api_router)
-from routes.backup import backup_scheduler_loop
+from routes.backup import backup_scheduler_loop, ensure_itnr_index
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -58,18 +58,14 @@ async def create_indexes():
 
     Laesst der Index sich nicht anlegen - praktisch immer wegen Dubletten aus der Zeit davor -,
     laeuft die Anwendung trotzdem weiter. Ein Deploy auf eine unsaubere Datenbank darf nicht
-    die ganze Verwaltung stillstellen; die Meldung im Log sagt, was zu bereinigen ist, und bis
-    dahin bleibt es beim alten Zustand.
+    die ganze Verwaltung stillstellen; die Meldung im Log sagt, wie viele Nummern zu bereinigen
+    sind, und bis dahin bleibt es beim alten Zustand.
+
+    Dasselbe Anlegen laeuft nach jeder Wiederherstellung - der Index steht in der Datenbank und
+    nicht in der Backup-Datei. Deshalb liegt es in routes/backup.py, wo der zweite Aufrufer
+    sitzt, und nicht hier (ein Import in die andere Richtung waere ein Ringschluss).
     """
-    try:
-        await db.ipads.create_index("itnr", unique=True, name="itnr_eindeutig")
-    except Exception as e:
-        logger.error(
-            "Eindeutiger Index auf ipads.itnr konnte nicht angelegt werden: %s - vermutlich "
-            "gibt es doppelte ITNr im Bestand. Bitte bereinigen und neu starten; bis dahin "
-            "koennen zwei gleichzeitige Batch-Laeufe dieselbe ITNr doppelt anlegen.",
-            e,
-        )
+    await ensure_itnr_index()
 
 
 @app.on_event("shutdown")

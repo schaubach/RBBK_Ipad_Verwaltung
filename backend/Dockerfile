@@ -47,8 +47,12 @@ RUN mkdir -p uploads templates
 EXPOSE 8001
 
 # Healthcheck
+# Nur lesen. Hier stand bis zuletzt ein POST auf den unauthentifizierten
+# Einrichtungs-Endpunkt: der haette nach dem Verlust des letzten Admin-Kontos binnen einer
+# halben Minute ein Konto mit bekanntem Passwort angelegt. Ein Healthcheck darf nichts
+# veraendern, auch nicht versehentlich.
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD curl -f -X POST http://localhost:8001/api/auth/setup || exit 1
+  CMD curl -f http://localhost:8001/api/health || exit 1
 
 # Startkommando
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]

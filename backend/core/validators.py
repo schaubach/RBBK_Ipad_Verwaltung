@@ -1,10 +1,8 @@
-"""Input sanitization + uploaded-file validation + contract validation helpers."""
+"""Uploaded-file validation + Excel parsing + contract validation helpers."""
 
 import io
-import re
 from typing import Optional
 
-import bleach
 import pandas as pd
 from fastapi import HTTPException
 
@@ -23,17 +21,6 @@ except (ImportError, OSError) as _magic_err:
     print(
         f"WARNING: python-magic unavailable ({_magic_err}); MIME sniffing disabled, extension/size checks still active."
     )
-
-
-def sanitize_input(value: str, max_length: int = 255, allow_html: bool = False) -> str:
-    """Strip HTML/control chars, clip length — for any user-supplied text."""
-    if not isinstance(value, str):
-        value = str(value)
-    value = value[:max_length]
-    if not allow_html:
-        value = bleach.clean(value, tags=[], attributes={}, strip=True)
-    value = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", value)
-    return value.strip()
 
 
 def safe_str(value) -> str:
@@ -55,6 +42,13 @@ def read_excel_upload(contents: bytes, filename: str) -> pd.DataFrame:
 
     Sniffing the content rather than trusting the extension also handles files whose
     extension doesn't match their format (e.g. an .xlsx saved under an .xls name).
+
+    ``filename`` wird deshalb NICHT ausgewertet - der Name entscheidet hier ueber gar nichts.
+    Er bleibt in der Signatur, weil der Aufruf unmittelbar neben
+    ``validate_uploaded_file(contents, filename, ...)`` steht, das den Namen fuer die
+    Endungspruefung wirklich braucht; beide Aufrufe sehen deshalb gleich aus. Wer hier
+    doch nach der Endung verzweigt, hebelt genau die Erkennung aus, die der Absatz darueber
+    begruendet.
     """
     if contents.startswith(_ZIP_MAGIC):
         engine = "openpyxl"

@@ -84,15 +84,27 @@ const Login = ({ onLogin }) => {
     }
   };
 
+  // Beim Laden wird nur GEFRAGT, ob die Ersteinrichtung noch aussteht. Vorher stand hier
+  // POST /auth/setup: ein unangemeldeter, schreibfaehiger Aufruf bei jedem Seitenaufruf, nur
+  // um dieselbe Frage zu beantworten. GET /auth/setup-status liest ausschliesslich und
+  // antwortet mit einem blossen Ja/Nein.
   const checkSetup = async () => {
     try {
-      const response = await api.post('/auth/setup');
-      if (response.data.message.includes('Admin user created')) {
+      const response = await api.get('/auth/setup-status');
+      if (!response.data.setup_required) return;
+
+      // Erst jetzt, bei wirklich leerer Benutzerliste, wird angelegt. Das ist der Notnagel,
+      // den install.sh ankuendigt, falls sein eigener Setup-Aufruf nicht durchkam - ohne ihn
+      // kaeme in eine frische Installation niemand hinein. Der Hinweis unten erscheint nur,
+      // wenn das Konto auch tatsaechlich entstanden ist: sonst nennte er Zugangsdaten, die
+      // gar nicht gelten.
+      const setup = await api.post('/auth/setup');
+      if (setup.data.message.includes('Admin user created')) {
         setShowDefaultCredsHint(true);
-        toast.success('Setup completed! Please login with admin/admin123');
+        toast.success('Ersteinrichtung abgeschlossen. Bitte mit admin/admin123 anmelden.');
       }
     } catch (error) {
-      // Setup likely already done
+      // Keine Meldung: Ist der Server nicht erreichbar, sagt das die Anmeldung selbst.
     }
   };
 

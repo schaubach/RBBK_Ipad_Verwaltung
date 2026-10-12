@@ -52,7 +52,10 @@ services:
     expose:
       - "8001"
     healthcheck:
-      test: ["CMD", "curl", "-f", "-X", "POST", "http://localhost:8001/api/auth/setup"]
+      # Nur lesen, nichts anlegen: Vorher rief der Healthcheck alle 30 Sekunden den
+      # unauthentifizierten Einrichtungs-Endpunkt auf und haette nach dem Verlust des letzten
+      # Admin-Kontos binnen einer halben Minute ein Konto mit bekanntem Passwort angelegt.
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

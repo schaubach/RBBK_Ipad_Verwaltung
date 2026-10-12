@@ -38,10 +38,17 @@ def wrap_secret(plaintext: str) -> str:
     return _server_wrapping_fernet().encrypt(plaintext.encode("utf-8")).decode("ascii")
 
 
-def unwrap_secret(wrapped: str) -> Optional[str]:
+def unwrap_secret(wrapped) -> Optional[str]:
+    """Das verpackte Geheimnis auspacken; None, wenn es sich nicht entpacken laesst.
+
+    Der Parameter ist bewusst untypisiert: in global_settings kann auch etwas anderes als eine
+    Zeichenkette liegen - bytes aus einem aelteren Bestand, None aus einem halb geschriebenen
+    Eintrag. Dann scheitert schon ``.encode`` mit AttributeError, und der Aufrufer saehe einen
+    Absturz statt des Falles, den er ohnehin schon kennt und behandelt: nicht entpackbar.
+    """
     try:
         return _server_wrapping_fernet().decrypt(wrapped.encode("ascii")).decode("utf-8")
-    except (InvalidToken, ValueError):
+    except (AttributeError, InvalidToken, ValueError):
         return None
 
 

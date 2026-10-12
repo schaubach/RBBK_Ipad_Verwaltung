@@ -3,6 +3,7 @@
 Auto-extracted from monolithic server.py during refactor (Session 12).
 """
 
+import logging
 from datetime import UTC, datetime, timedelta
 
 from core.config import (
@@ -24,31 +25,124 @@ from models.user import (
     User,
     UserLogin,
 )
+from routes.backup import laeuft_wiederherstellung
 from starlette.requests import Request
+
+logger = logging.getLogger(__name__)
+
+# Eine einzige Antwort fuer jeden Fall, in dem nichts angelegt wird. Drei verschiedene Texte
+# verrieten einem unangemeldeten Aufrufer, in welchem Zustand die Installation ist - ob es
+# schon einen Admin gibt, ob ein Altbestandskonto herumliegt, ob Benutzer ohne Admin da sind.
+SETUP_NICHT_NOETIG = "Setup not required"
+
+
+@api_router.get("/health")
+async def health():
+    """Lebenszeichen fuer den Container-Healthcheck (config/docker-compose.yml).
+
+    Liegt hier, weil auth.py die Endpunkte sammelt, die ohne Token auskommen - und ohne Token
+    muss dieser auskommen, denn der Healthcheck hat keines. Genau deshalb steht in der Antwort
+    nichts ausser "ok": keine Version, keine Konfiguration, kein Datenbankzugriff. Er bestaetigt
+    allein, dass die Anwendung Anfragen beantwortet, und veraendert dabei nichts - alle 30
+    Sekunden ein schreibender Aufruf waere genau der Fehler, den dieser Endpunkt abloest.
+    """
+    return {"status": "ok"}
 
 
 # Authentication endpoints
+@api_router.get("/auth/setup-status")
+async def setup_status():
+    """Beantwortet nur, OB die Ersteinrichtung noch aussteht - sonst nichts.
+
+    Die Login-Seite muss das bei jedem Laden wissen, hat dabei aber kein Token. Bisher fragte
+    sie mit POST /auth/setup, also mit einem schreibenden Aufruf fuer eine reine Frage. Dieser
+    Endpunkt liest nur; /auth/setup bleibt der Ersteinrichtung und install.sh vorbehalten.
+
+    Zurueck kommt ein blosses Ja/Nein: kein Name, keine Anzahl, kein Passwort. Wer ohne
+    Anmeldung fragt, soll daraus nichts ueber die Anlage lernen, was ihm beim Hineinkommen
+    hilft. "true" heisst genau das, was /auth/setup auch wirklich noch anlegen wuerde: eine
+    voellig leere Benutzerliste. Eine Anlage, die bloss ihr letztes Admin-Konto verloren hat,
+    meldet hier "false" - sie bekommt kein Standardkonto mehr, und dass ihr der Admin fehlt,
+    geht einen Fremden erst recht nichts an.
+    """
+    # Projektion auf _id: Es zaehlt allein, OB ueberhaupt ein Benutzer existiert. Die Felder
+    # duerfen diesen Endpunkt gar nicht erst erreichen, damit sie auch nie in eine Antwort
+    # rutschen koennen.
+    irgendein_benutzer = await db.users.find_one({}, {"_id": 1})
+    return {"setup_required": irgendein_benutzer is None}
+
+
 @api_router.post("/auth/setup", response_model=dict)
 async def setup_admin():
-    """Setup initial admin user - only creates if NO admin exists"""
+    """Ersteinrichtung: legt das erste Admin-Konto an, solange noch kein Benutzer existiert.
+
+    Der Endpunkt braucht keine Anmeldung, sonst kaeme niemand in eine frische Installation
+    hinein. Deshalb legt er nur an, wenn die Benutzerliste vollstaendig leer ist: Verliert die
+    Schule spaeter ihr letztes Admin-Konto, stuende die Verwaltung sonst mit einem Passwort
+    offen, das in jeder Anleitung steht. In dem Fall muss ein Admin von Hand in der Datenbank
+    nachgetragen werden - das ist der Preis dafuer, dass hier keine Hintertuer bleibt.
+
+    Das Standardpasswort steht nicht in der Antwort; wer die Ersteinrichtung ausfuehrt, kennt es
+    aus der Installationsanleitung.
+    """
     # Check if ANY admin user exists (not just username "admin")
     existing_admin = await db.users.find_one({"role": "admin"})
     if existing_admin:
-        return {"message": "Admin user already exists"}
+        return {"message": SETUP_NICHT_NOETIG}
 
-    # Check if old-style admin exists (without role field)
-    legacy_admin = await db.users.find_one({"username": "admin"})
+    # Nur ein ECHTER Altbestand: ein Benutzer "admin", dem das Feld role ganz fehlt. Die
+    # fruehere Abfrage traf jeden Benutzer dieses Namens - auch einen, dem jemand die
+    # Adminrolle bewusst entzogen oder den er abgeschaltet hatte. Ein unangemeldeter Aufruf
+    # holte ihn damit zurueck, und das mitgeschriebene is_active machte ihn gleich wieder
+    # nutzbar. Dieser Zweig stand ausserdem VOR dem Riegel weiter unten und umging ihn.
+    legacy_admin = await db.users.find_one({"username": "admin", "role": {"$exists": False}})
     if legacy_admin:
-        # Update legacy admin to have admin role
-        await db.users.update_one({"username": "admin"}, {"$set": {"role": "admin", "is_active": True}})
-        return {"message": "Admin user updated with role"}
+        # Nur die fehlende Rolle nachtragen. Ein abgeschaltetes Konto bleibt abgeschaltet -
+        # wer es abgeschaltet hat, hatte einen Grund.
+        nachtrag = {"role": "admin"}
+        if "is_active" not in legacy_admin:
+            nachtrag["is_active"] = True
+        # Ueber _id, nicht ueber id: dieser Zweig ist fuer unvollstaendige Altdatensaetze da
+        # und darf gerade nicht voraussetzen, dass das Feld id schon existiert.
+        await db.users.update_one({"_id": legacy_admin["_id"]}, {"$set": nachtrag})
+        logger.warning(
+            "Setup-Endpunkt hat den Altbestands-Benutzer 'admin' zur Rolle admin erhoben - "
+            "dieser Aufruf kam ohne Anmeldung."
+        )
+        return {"message": SETUP_NICHT_NOETIG}
 
-    # No admin exists - create default admin
+    # Waehrend einer Wiederherstellung ist die Benutzersammlung zwischen Leeren und Fuellen
+    # kurz leer. Ohne diese Abfrage reichte ein Aufruf in genau diesem Augenblick, um sich
+    # admin/admin123 anlegen zu lassen - die Hintertuer waere durch die Hintertuer zurueck.
+    if await laeuft_wiederherstellung():
+        logger.warning(
+            "Setup-Endpunkt waehrend einer laufenden Wiederherstellung aufgerufen - abgelehnt."
+        )
+        return {"message": SETUP_NICHT_NOETIG}
+
+    # Es gibt kein Admin-Konto mehr, aber noch Benutzer: Das ist keine Ersteinrichtung, sondern
+    # eine Installation, die ihren Admin verloren hat. Ein Standardkonto waere hier ein offenes
+    # Tor fuer jeden, der den Endpunkt kennt.
+    anzahl_benutzer = await db.users.count_documents({})
+    if anzahl_benutzer:
+        logger.warning(
+            "Setup-Endpunkt aufgerufen, ohne dass ein Admin-Konto existiert - es gibt aber noch "
+            "%d Benutzer. Es wurde NICHTS angelegt. Ein Admin-Konto muss von Hand in der "
+            "Datenbank eingetragen werden.",
+            anzahl_benutzer,
+        )
+        return {"message": SETUP_NICHT_NOETIG}
+
+    # Leere Datenbank - das ist der echte Erstlauf.
     hashed_password = get_password_hash("admin123")
     user = User(username="admin", password_hash=hashed_password, role="admin", is_active=True)
     user_dict = prepare_for_mongo(user.dict())
     await db.users.insert_one(user_dict)
-    return {"message": "Admin user created successfully", "username": "admin", "password": "admin123"}
+    logger.warning(
+        "Ersteinrichtung: Benutzer 'admin' mit dem Standardpasswort angelegt. Das Passwort ist "
+        "oeffentlich bekannt und muss nach der ersten Anmeldung sofort geaendert werden."
+    )
+    return {"message": "Admin user created successfully", "username": "admin"}
 
 
 @api_router.put("/auth/change-password")

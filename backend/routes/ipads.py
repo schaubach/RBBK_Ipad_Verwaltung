@@ -47,7 +47,7 @@ async def _claim_pool_ipad_for_bildungsgang(
     *,
     nachtrag: Optional[dict] = None,
 ) -> Optional[dict]:
-    """Atomically move an iPad out of the pool into new_owner_id's inventory.
+    """Atomically move an iPad out of the pool into the inventory of ``bildungsgang_id``.
 
     Only succeeds if the iPad is still in the pool (guards against a double-claim
     race). Returns the pre-update document on success, or None if it was no longer
@@ -86,9 +86,7 @@ async def _claim_pool_ipad_for_bildungsgang(
     )
 
 
-async def _geraet_mit_itnr(
-    itnr: str, bildungsgang_id: Optional[str], is_in_pool: bool, ausser_id: Optional[str] = None
-) -> Optional[dict]:
+async def _geraet_mit_itnr(itnr: str, ausser_id: Optional[str] = None) -> Optional[dict]:
     """Das Geraet, das diese ITNr schon belegt - oder None, wenn sie frei ist.
 
     Eine ITNr bezeichnet ein Stueck Hardware und ist deshalb SCHULWEIT eindeutig - unabhaengig
@@ -101,8 +99,10 @@ async def _geraet_mit_itnr(
     erreichen laesst, darf beim Korrigieren eines Tippfehlers nicht verboten sein - und
     umgekehrt; genau dieser Widerspruch bestand hier vorher.
 
-    ``bildungsgang_id`` und ``is_in_pool`` bleiben in der Signatur, weil die Aufrufer sie fuer
-    die Fehlermeldung brauchen (``_itnr_belegt_meldung``), nicht fuer die Regel selbst.
+    Gesucht wird deshalb allein nach der Nummer: Bildungsgang und Pool gehen die Regel nichts
+    an. Sie standen frueher in der Signatur, ohne je gelesen zu werden - wer sie dort sah,
+    musste annehmen, die Suche enge sich danach ein. Fuer die Fehlermeldung brauchen die
+    Aufrufer sie weiterhin, die reichen sie aber direkt an ``_itnr_belegt_meldung``.
     """
     suche = {"itnr": itnr}
     if ausser_id:
@@ -111,11 +111,17 @@ async def _geraet_mit_itnr(
 
 
 def _itnr_belegt_meldung(itnr: str, vorhanden: dict, is_in_pool: bool) -> str:
-    """Sagt, WO die Nummer schon liegt - sonst sucht der Admin im falschen Bestand."""
+    """Sagt, WO die Nummer schon liegt - sonst sucht der Admin im falschen Bestand.
+
+    Die Eindeutigkeit selbst ist in allen drei Faellen dieselbe, naemlich schulweit (siehe
+    _geraet_mit_itnr). Der Klammerzusatz sagte dagegen, sie gelte nur im Pool - wer ein
+    Geraet fuer einen Bildungsgang anlegte, durfte daraus schliessen, dieselbe Nummer sei
+    ausserhalb des Pools zu haben.
+    """
     if vorhanden.get("is_in_pool"):
         return f"iPad mit ITNr {itnr} liegt bereits im Pool"
     if is_in_pool:
-        return f"iPad mit ITNr {itnr} existiert bereits (im Pool muss die ITNr global eindeutig sein)"
+        return f"iPad mit ITNr {itnr} existiert bereits im Bestand eines Bildungsgangs"
     return f"iPad mit ITNr {itnr} existiert bereits"
 
 
@@ -190,7 +196,7 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(require_admi
 
         # Die ITNr bezeichnet ein Stueck Hardware und ist schulweit eindeutig - siehe
         # _geraet_mit_itnr; der Index itnr_eindeutig haelt dieselbe Regel in der Datenbank.
-        existing = await _geraet_mit_itnr(itnr, bildungsgang_id, is_in_pool)
+        existing = await _geraet_mit_itnr(itnr)
         if existing:
             raise HTTPException(status_code=400, detail=_itnr_belegt_meldung(itnr, existing, is_in_pool))
 
@@ -976,6 +982,11 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
 
     had_active_assignment = bool(ipad.get("current_assignment_id"))
 
+    # Die Vertraege dieses Geraets, VOR dem Loesen der Verweise gemerkt: gleich traegt keiner
+    # von ihnen mehr die ipad_id, an der man sie wiederfaende.
+    betroffene_vertraege = await db.contracts.find({"ipad_id": ipad_id}, {"id": 1}).to_list(length=None)
+    betroffene_vertrag_ids = [v["id"] for v in betroffene_vertraege]
+
     # Update contracts: entferne ipad_id und assignment_id Referenz (student_id bleibt,
     # Vertrag ist weiterhin ueber den Schueler auffindbar - gleiche Logik wie beim
     # regulaeren Aufloesen einer Zuordnung, nur zusaetzlich ipad_id entfernt, da das
@@ -985,14 +996,16 @@ async def delete_ipad(ipad_id: str, current_user: dict = Depends(get_current_use
         {"$set": {"ipad_id": None, "assignment_id": None, "updated_at": datetime.now(UTC).isoformat()}},
     )
 
-    # Delete orphaned contracts (no ipad_id, no student_id, no assignment_id)
+    # Verwaiste Vertraege loeschen - aber nur die, die DIESE Loeschung verwaist hat. Frueher
+    # stand hier dieselbe Bedingung ohne jede Kennung: wer ein Geraet loeschte, loeschte damit
+    # jeden verwaisten Vertrag der ganzen Datenbank, auch die fremder Bildungsgaenge. Genau die
+    # Trennung, die das Projekt eingefuehrt hat, war damit umgangen.
+    # Ueber den ids-Filter bleibt vom Verwaist-Sein nur noch der Schueler zu pruefen: ipad_id
+    # und assignment_id hat das Update oben bei genau diesen Vertraegen gerade geleert.
     contracts_deleted = await db.contracts.delete_many(
         {
-            "$and": [
-                {"$or": [{"student_id": None}, {"student_id": {"$exists": False}}]},
-                {"$or": [{"ipad_id": None}, {"ipad_id": {"$exists": False}}]},
-                {"$or": [{"assignment_id": None}, {"assignment_id": {"$exists": False}}]},
-            ]
+            "id": {"$in": betroffene_vertrag_ids},
+            "$or": [{"student_id": None}, {"student_id": {"$exists": False}}],
         }
     )
 
@@ -1075,9 +1088,7 @@ async def update_ipad(ipad_id: str, request: IPadUpdateRequest, current_user: di
         # Regel beim Umbenennen verbot genau die Zustaende, die sich ueber das Anlegen
         # herstellen lassen - ein Tippfehler war dann nicht mehr korrigierbar. Gesucht wird mit der gekuerzten
         # Nummer, sonst vergliche die Pruefung Gekuerztes mit Ungekuerztem.
-        existing = await _geraet_mit_itnr(
-            itnr, ipad.get("bildungsgang_id"), bool(ipad.get("is_in_pool")), ausser_id=ipad_id
-        )
+        existing = await _geraet_mit_itnr(itnr, ausser_id=ipad_id)
         if existing:
             raise HTTPException(
                 status_code=400,
@@ -1138,28 +1149,6 @@ async def update_ipad(ipad_id: str, request: IPadUpdateRequest, current_user: di
     }
 
 
-@api_router.post("/ipads/migrate-status")
-async def migrate_ipad_status(current_user: dict = Depends(get_current_user)):
-    """
-    Migration endpoint to update old status values to new ones:
-    - 'verfügbar' -> 'ok'
-    - 'zugewiesen' -> 'ok'
-    """
-    if current_user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Only admins can run migrations")
-
-    try:
-        # Update verfügbar and zugewiesen to ok
-        result1 = await db.ipads.update_many(
-            {"status": {"$in": ["verfügbar", "zugewiesen"]}}, {"$set": {"status": "ok"}}
-        )
-
-        return {"message": "iPad status migration completed", "updated_count": result1.modified_count}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Migration error: {str(e)}")
-
-
 # iPad history and details
 @api_router.get("/ipads/{ipad_id}/history")
 async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_current_user)):
@@ -1173,10 +1162,13 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
     assignments = await db.assignments.find({"ipad_id": ipad_id}).to_list(length=None)
 
     # Get all contracts for this iPad via ipad_id (new) or itnr (legacy).
-    # Der Besitzerfilter ist zwingend: die ITNr ist nur je Besitzer eindeutig (siehe create_ipad),
-    # dieselbe Nummer existiert also legitim mehrfach. Ohne ihn liefert die Geraetehistorie die
-    # form_fields eines fremden Vertrags - darin stehen Anschrift des Schuelers sowie Namen und
-    # Anschriften beider Erziehungsberechtigten.
+    # Der Besitzerfilter ist zwingend - nicht mehr wegen der ITNr: die ist seit dem Index
+    # itnr_eindeutig schulweit eindeutig (siehe _geraet_mit_itnr) und trifft nur noch dieses
+    # eine Geraet. Zwingend ist er, weil das GERAET den Bildungsgang wechselt: ueber den Pool
+    # landet es im naechsten Bestand, seine alten Vertraege gehoeren aber weiter dem
+    # vorherigen. Ohne den Filter liefert die Geraetehistorie dem neuen Bildungsgang die
+    # form_fields eines fremden Vertrags - darin stehen Anschrift des Schuelers sowie Namen
+    # und Anschriften beider Erziehungsberechtigten.
     user_filter = await get_user_filter(current_user)
     contracts = await db.contracts.find(
         {**user_filter, "$or": [{"ipad_id": ipad_id}, {"itnr": ipad["itnr"]}]}

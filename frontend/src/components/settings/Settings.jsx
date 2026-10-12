@@ -269,7 +269,7 @@ const Settings = ({ isAdmin = false, username }) => {
                       data-testid="import-to-pool-checkbox"
                     />
                     <label htmlFor="import-to-pool" className="text-sm cursor-pointer text-violet-800">
-                      🌐 Diese iPads in den gemeinsamen Pool importieren (für alle Nutzer sichtbar)
+                      🌐 Diese iPads in den gemeinsamen Pool importieren (gehören keinem Bildungsgang, nur für Admins sichtbar)
                     </label>
                   </div>
                 )}
@@ -303,7 +303,7 @@ const Settings = ({ isAdmin = false, username }) => {
             <div className="text-xs text-gray-500 bg-gray-50 p-3 rounded">
               <strong>Unterstützte Spalten:</strong> Sname, SuSNachn, SuSVorn, SuSKl, SuSStrHNr, SuSPLZ, SuSOrt, SuSGeb,
               Erz1Nachn, Erz1Vorn, Erz1StrHNr, Erz1PLZ, Erz1Ort, Erz2Nachn, Erz2Vorn, Erz2StrHNr, Erz2PLZ, Erz2Ort
-              {isAdmin && <> , ITNr, SNr, Typ, Pencil, <strong>Status</strong>, AnschJahr, AusleiheDatum</>}
+              {isAdmin && <> , ITNr, SNr, Typ, Pencil, Karton, <strong>Status</strong>, AnschJahr, AusleiheDatum</>}
             </div>
           </div>
         </CardContent>

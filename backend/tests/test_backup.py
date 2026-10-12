@@ -9,10 +9,14 @@ Getestet wird über die HTTP-Endpunkte. Der Tagesjob hat keinen eigenen Endpunkt
 gemeint ist, steht es im jeweiligen Docstring.
 """
 
+import base64
+import hashlib
+import json
 import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from cryptography.fernet import Fernet
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 
 from core.crypto import is_encrypted_backup
@@ -87,6 +91,41 @@ async def altes_serverbackup(db, tage: int) -> str:
     return str(datei_id)
 
 
+def backup_datei(inhalt: dict) -> bytes:
+    """Eine unverschlüsselte Backup-Datei, wie der Import sie weiterhin annimmt.
+
+    Von Hand gebaut statt exportiert: die Prüfungen vor dem Einspielen gelten Dateien, die aus
+    dem heutigen Export gar nicht herauskommen können - mit doppelter ITNr, mit Sammlungen aus
+    der Zeit vor dem Umbau. Genau solche Dateien liegen im Archiv.
+    """
+    return json.dumps(inhalt, ensure_ascii=False).encode("utf-8")
+
+
+async def unlesbares_passwort_hinterlegen(db):
+    """Ein Eintrag, der wie ein gesetztes Backup-Passwort aussieht, aber mit einem FREMDEN
+    Schlüssel verpackt ist.
+
+    So entsteht der Fall in der Anlage: Der Eintrag kommt aus einer älteren Sicherung oder von
+    einem anderen Server, der SECRET_KEY zum Auspacken ist seitdem ein anderer. Es ist kein
+    Datenmüll - mit dem passenden Schlüssel ließe er sich anstandslos öffnen.
+    """
+    fremder_schluessel = base64.urlsafe_b64encode(hashlib.sha256(b"SECRET_KEY des alten Servers").digest())
+    verpackt = Fernet(fremder_schluessel).encrypt(b"Backup-Passwort-123").decode("ascii")
+    await db.global_settings.insert_one({"type": "backup_encryption", "wrapped_password": verpackt})
+
+
+def sicherheitsnetze() -> list:
+    """Was tatsächlich im Verzeichnis der Sicherheitsnetze liegt - am Endpunkt vorbei.
+
+    Der Endpunkt listet nur Dateien, die dem eigenen Namensmuster entsprechen; hier geht es
+    darum, dass überhaupt nichts geschrieben wurde.
+    """
+    import routes.backup as backup
+
+    verzeichnis = backup.PRE_RESTORE_BACKUPS_DIR
+    return sorted(p.name for p in verzeichnis.glob("*")) if verzeichnis.exists() else []
+
+
 # --- Ohne Backup-Passwort darf nichts entstehen ------------------------------------------
 
 async def test_ohne_backup_passwort_entsteht_kein_download(welt, client):
@@ -118,9 +157,9 @@ async def test_backup_passwort_muss_lang_genug_sein(welt, client):
     antwort = await client.put("/api/settings/backup-encryption", json={"password": "kurz"}, headers=kopf)
 
     assert antwort.status_code == 400
-    assert (await client.get("/api/settings/backup-encryption", headers=kopf)).json() == {
-        "password_configured": False
-    }
+    zustand = (await client.get("/api/settings/backup-encryption", headers=kopf)).json()
+    assert zustand["password_configured"] is False
+    assert zustand["password_state"] == "fehlt"
 
 
 async def test_lehrkraft_bekommt_kein_backup(welt, client):
@@ -405,3 +444,305 @@ async def test_aufraeumen_behaelt_die_juengsten_dateikopien_unabhaengig_vom_alte
     assert neue_datei in verblieben
     assert "rbbk_ipad_verwaltung_backup_2024-01-01_12-00-00.json.enc" in verblieben
     assert "rbbk_ipad_verwaltung_backup_2020-01-01_12-00-00.json.enc" not in verblieben
+
+
+# --- Ein Passwort, das keines mehr ist ----------------------------------------------------
+
+async def test_unlesbares_backup_passwort_gilt_nicht_als_gesetzt(welt, client):
+    """Der heimtückischste Zustand der ganzen Sicherung.
+
+    In global_settings liegt ein Eintrag, mit dem aktuellen SECRET_KEY lässt er sich aber nicht
+    mehr auspacken. Vorher genügte sein Vorhandensein für "Passwort gesetzt": die Oberfläche
+    meldete grün, während jeder Backup-Lauf scheiterte. Wochenlang entstand nichts, und niemand
+    hatte Anlass nachzusehen.
+    """
+    kopf = await anmelden(client, "admin")
+    await unlesbares_passwort_hinterlegen(welt)
+    await datenbestand(welt)
+
+    zustand = (await client.get("/api/settings/backup-encryption", headers=kopf)).json()
+
+    assert zustand["password_configured"] is False, "Ein Eintrag, den niemand öffnen kann, ist kein Passwort"
+    assert zustand["password_state"] == "unlesbar"
+    assert "nicht mehr entpacken" in zustand["message"]
+
+
+async def test_unlesbares_backup_passwort_meldet_sich_beim_backup_lauf(welt, client):
+    """Gegenprobe zur Statusmeldung: der Lauf scheitert wirklich - und sagt denselben Grund.
+
+    Stünde hier "kein Backup-Passwort hinterlegt", setzte der Admin eines und fände es
+    anschließend immer noch vor; die Meldung muss auf den Schlüssel zeigen.
+    """
+    kopf = await anmelden(client, "admin")
+    await unlesbares_passwort_hinterlegen(welt)
+    await datenbestand(welt)
+
+    antwort = await client.post("/api/backup/server-backups/run-now", headers=kopf)
+
+    assert antwort.status_code == 400
+    assert "nicht mehr entpacken" in antwort.json()["detail"]
+    assert (await client.get("/api/backup/server-backups", headers=kopf)).json() == []
+
+
+async def test_wiederherstellung_ohne_passwort_legt_kein_klartext_netz_an(welt, client):
+    """Das Sicherheitsnetz vor dem Einspielen ist ein vollständiges Abbild - mit Namen,
+    Anschriften und unterschriebenen Verträgen.
+
+    Ohne Passwort landete es als reines JSON im Upload-Verzeichnis. Der Export verweigert aus
+    genau diesem Grund jede unverschlüsselte Sicherung; auf diesem Weg darf nicht entstehen,
+    was auf dem anderen verboten ist.
+    """
+    kopf = await anmelden(client, "admin")
+    await datenbestand(welt)
+
+    antwort = await wiederherstellen(client, kopf, backup_datei({"students": []}), dateiname="backup.json")
+
+    assert antwort.status_code == 400
+    assert "Backup-Passwort" in antwort.json()["detail"]
+    assert sicherheitsnetze() == [], "Ohne Passwort darf gar kein Abbild entstehen"
+    assert await welt.students.count_documents({}) == 1, "Ein abgelehnter Import darf nichts anfassen"
+
+
+async def test_wiederherstellung_mit_unlesbarem_passwort_legt_kein_klartext_netz_an(welt, client):
+    """Derselbe Riegel für den Eintrag, der sich nicht mehr öffnen lässt: hinterlegt ist er,
+    verschlüsseln kann man damit trotzdem nichts."""
+    kopf = await anmelden(client, "admin")
+    await unlesbares_passwort_hinterlegen(welt)
+    await datenbestand(welt)
+
+    antwort = await wiederherstellen(client, kopf, backup_datei({"students": []}), dateiname="backup.json")
+
+    assert antwort.status_code == 400
+    assert "nicht mehr entpacken" in antwort.json()["detail"]
+    assert sicherheitsnetze() == []
+    assert await welt.students.count_documents({}) == 1
+
+
+# --- Was die hochgeladene Datei mitbringt -------------------------------------------------
+
+async def test_doppelte_itnr_in_der_datei_wird_mit_nummer_abgelehnt(welt, client):
+    """Eine ITNr bezeichnet genau ein Gerät - zweimal dieselbe ist keine Sicherung.
+
+    Ohne Vorabprüfung bräche insert_many mitten im Schreiben ab: der Schülerbestand wäre dann
+    schon ersetzt, die Geräte halb, und der Admin bekäme den rohen Mongo-Text zu lesen. Die
+    Meldung muss die Nummer nennen, sonst ist die Datei nicht zu bereinigen.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+
+    datei = backup_datei({
+        "students": [],
+        "ipads": [
+            {"id": "i7", "itnr": "IT-7", "snr": "SN-7", "status": "ok", "bildungsgang_id": "bg_meda"},
+            {"id": "i8", "itnr": "IT-7", "snr": "SN-8", "status": "ok", "bildungsgang_id": "bg_meda"},
+        ],
+    })
+    antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
+
+    assert antwort.status_code == 400
+    assert "IT-7" in antwort.json()["detail"], "Ohne die Nummer weiß niemand, wo er suchen soll"
+    assert "ITNr" in antwort.json()["detail"]
+    assert await welt.students.count_documents({}) == 1, "Kein halb geschriebener Bestand"
+    assert [g["itnr"] for g in await welt.ipads.find({}).to_list(length=None)] == ["IT-1"]
+    assert sicherheitsnetze() == [], "Was gar nicht erst eingespielt wird, braucht kein Netz"
+
+
+@pytest.mark.parametrize(
+    "itnr_felder,erwartet",
+    [
+        ({}, "ohne ITNr"),
+        ({"itnr": ""}, "leere ITNr"),
+        ({"itnr": "   "}, "leere ITNr"),
+        ({"itnr": 7}, "7 (als Zahl, nicht als Text)"),
+    ],
+    ids=["fehlt", "leer", "nur-leerzeichen", "zahl"],
+)
+async def test_doppelte_itnr_wird_auch_ohne_richtige_nummer_erkannt(welt, client, itnr_felder, erwartet):
+    """Dublette ist nicht nur, was zweimal dieselbe Nummer trägt.
+
+    Für den eindeutigen Index auf ipads.itnr sind zwei fehlende Felder dieselbe Nummer, zwei
+    leere Felder auch, und eine Zahl ist ein Schlüssel wie jeder andere. Die Vorabprüfung
+    übersprang früher alles, was keine nichtleere Zeichenkette war: Solche Dateien kamen durch
+    und liefen erst beim Schreiben in den Index - der Bestand war dann schon halb ersetzt und
+    der Admin las rohen Mongo-Text.
+
+    Je Fall einzeln, denn jeder entsteht anders: ein Export von vor der ITNr-Pflicht, eine
+    Tabellenkalkulation mit leeren Zellen, eine, die "0815" als Zahl gespeichert hat.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+
+    datei = backup_datei({
+        "students": [],
+        "ipads": [
+            {"id": "i7", "snr": "SN-7", "status": "ok", "bildungsgang_id": "bg_meda", **itnr_felder},
+            {"id": "i8", "snr": "SN-8", "status": "ok", "bildungsgang_id": "bg_meda", **itnr_felder},
+        ],
+    })
+    antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
+
+    assert antwort.status_code == 400, antwort.text
+    assert erwartet in antwort.json()["detail"], "Die Meldung muss sagen, welcher Eintrag gemeint ist"
+    assert await welt.students.count_documents({}) == 1, "Kein halb geschriebener Bestand"
+    assert [g["itnr"] for g in await welt.ipads.find({}).to_list(length=None)] == ["IT-1"]
+    assert sicherheitsnetze() == [], "Was gar nicht erst eingespielt wird, braucht kein Netz"
+
+
+async def test_zahl_und_zeichenkette_sind_keine_dublette(welt, client):
+    """Gegenprobe: 7 und "7" sind für die Datenbank zwei verschiedene Nummern.
+
+    Wer beim Vergleichen alles in Text verwandelt, lehnt eine Datei ab, die sich einwandfrei
+    einspielen lässt - und im Notfall steht die Schule dann vor einer Sicherung, die niemand
+    mehr zurückbekommt. Dass der eindeutige Index danach steht, ist der Beweis: Die Datenbank
+    sieht hier wirklich zwei Schlüssel.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+
+    datei = backup_datei({
+        "students": [],
+        "ipads": [
+            {"id": "i7", "itnr": 7, "snr": "SN-7", "status": "ok", "bildungsgang_id": "bg_meda"},
+            {"id": "i8", "itnr": "7", "snr": "SN-8", "status": "ok", "bildungsgang_id": "bg_meda"},
+        ],
+    })
+    antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
+
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["itnr_index_ok"] is True, "Die Datenbank selbst nimmt beide an"
+    assert await welt.ipads.count_documents({}) == 2
+
+
+async def test_datei_von_vor_dem_umbau_wird_als_solche_gemeldet(welt, client):
+    """Eine Sicherung aus der Zeit der "departments" lässt sich einspielen - nur gehört danach
+    nichts mehr zu einem Bildungsgang.
+
+    Abgelehnt wird sie trotzdem nicht: im Notfall ist gerade die alte Datei die, nach der
+    gegriffen wird. Die Antwort muss aber sagen, was man vor sich hat, und den Weg nennen -
+    sonst sitzt die Schule vor einer Verwaltung, in der niemand außer dem Admin etwas sieht,
+    und hält es für einen Rechtefehler.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+
+    datei = backup_datei({
+        "departments": [{"id": "d_meda", "name": "MEDA", "user_id": "u_schaubach"}],
+        "students": [{"id": "s_alt", "sus_vorn": "Alt", "sus_nachn": "Bestand", "user_id": "u_schaubach"}],
+        "ipads": [{"id": "i_alt", "itnr": "IT-ALT", "snr": "SN-ALT", "status": "ok", "user_id": "u_schaubach"}],
+    })
+    antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
+
+    assert antwort.status_code == 200, antwort.text
+    befund = antwort.json()
+    assert befund["vor_dem_umbau"] is True
+    assert "migrate-to-bildungsgang.py" in befund["message"], "Die Meldung muss den Weg nennen"
+    assert any("Bildungsgänge" in warnung for warnung in befund["warnungen"])
+    assert befund["ohne_bildungsgang"] == {"students": 1, "ipads": 1}
+    assert "bildungsgaenge" in befund["fehlende_sammlungen"]
+
+    lehrkraft = await anmelden(client, "schaubach")
+    assert (await client.get("/api/ipads", headers=lehrkraft)).json() == [], \
+        "Das ist die Folge, vor der die Warnung steht"
+
+
+# --- Die Meldung zum eindeutigen Index ----------------------------------------------------
+
+async def test_fehlender_index_ohne_dubletten_behauptet_keine(welt, client):
+    """Fehlt der Index, ohne dass es Dubletten gibt, darf die Meldung keine behaupten.
+
+    Vorher stand in jeder Meldung, es gebe welche - auch bei null gezählten. Das schickt
+    denjenigen, der sie liest, auf die Suche nach etwas, das es nicht gibt, und die eigentliche
+    Spur (das Server-Protokoll vom letzten Start) sucht er dann gar nicht erst.
+    """
+    kopf = await anmelden(client, "admin")
+    await datenbestand(welt)
+
+    status = (await client.get("/api/backup/server-backups/status", headers=kopf)).json()
+
+    assert status["itnr_index_ok"] is False
+    assert status["itnr_duplikate"] == 0
+    assert "doppelte ITNr gibt es aber keine" in status["itnr_index_meldung"]
+    assert "Server-Protokoll" in status["itnr_index_meldung"], "Die Meldung muss woandershin zeigen"
+
+
+async def test_fehlender_index_mit_dubletten_nennt_die_zahl(welt, client):
+    """Gibt es Dubletten, steht ihre ANZAHL in der Meldung.
+
+    "Bitte bereinigen" ohne Zahl lässt denjenigen, der es liest, ratlos zurück: Er weiß nicht,
+    ob er eine Nummer sucht oder hundert.
+    """
+    kopf = await anmelden(client, "admin")
+    await welt.ipads.insert_many([
+        {"id": "i1", "itnr": "IT-1", "snr": "SN-1", "status": "ok", "bildungsgang_id": "bg_meda"},
+        {"id": "i2", "itnr": "IT-1", "snr": "SN-2", "status": "ok", "bildungsgang_id": "bg_meda"},
+    ])
+
+    status = (await client.get("/api/backup/server-backups/status", headers=kopf)).json()
+
+    assert status["itnr_index_ok"] is False
+    assert status["itnr_duplikate"] == 1
+    assert "1 ITNr kommt mehrfach vor" in status["itnr_index_meldung"]
+
+
+# --- Ein neues Backup-Passwort und das, was es kostet --------------------------------------
+
+async def test_neues_backup_passwort_nennt_die_zahl_der_unlesbaren_sicherungen(welt, client):
+    """Ein Passwortwechsel macht jede vorhandene Sicherung dauerhaft unlesbar.
+
+    Nachträglich umschlüsseln kann das niemand: Jede Datei hängt an dem Passwort, mit dem sie
+    entstanden ist. "Backup-Passwort erfolgreich gesetzt" allein verschweigt genau das - und
+    wer es liest, wirft das alte Passwort weg und damit sein ganzes Archiv. Die Zahl muss
+    dabeistehen, sonst ahnt niemand, wie viel daran hängt.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf, "Erstes-Passwort-123")
+    await datenbestand(welt)
+    for _ in range(2):
+        assert (await client.post("/api/backup/server-backups/run-now", headers=kopf)).status_code == 200
+
+    antwort = await client.put(
+        "/api/settings/backup-encryption", json={"password": "Zweites-Passwort-123"}, headers=kopf
+    )
+
+    assert antwort.status_code == 200, antwort.text
+    befund = antwort.json()
+    assert befund["sicherungen_gesamt"] == 2
+    assert befund["sicherungen_unlesbar"] == 2
+    assert "2 vorhandene Sicherungen lassen sich" in befund["message"]
+    assert "ACHTUNG" in befund["message"]
+
+
+async def test_dasselbe_backup_passwort_erneut_gesetzt_warnt_nicht(welt, client):
+    """Der Weg, mit dem der Backup-Lauf repariert wird: dasselbe Passwort noch einmal setzen.
+
+    Der hinterlegte Eintrag lässt sich nicht mehr entpacken (anderer SECRET_KEY), das Archiv ist
+    aber mit genau diesem Passwort verschlüsselt und bleibt es auch. Käme hier die Warnung, die
+    Sicherungen seien jetzt unlesbar, wäre sie falsch - und sie schreckte genau denjenigen ab,
+    der die Reparatur gerade vornimmt. Prüfen lässt sich das nur am Archiv selbst: Der Eintrag
+    taugt in diesem Fall nicht zum Vergleich, er ist ja nicht mehr zu öffnen.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+    assert (await client.post("/api/backup/server-backups/run-now", headers=kopf)).status_code == 200
+
+    # Derselbe Eintrag, nur mit einem fremden Schlüssel verpackt - der Zustand in der Anlage.
+    await welt.global_settings.delete_many({"type": "backup_encryption"})
+    await unlesbares_passwort_hinterlegen(welt)
+    assert (await client.get("/api/settings/backup-encryption", headers=kopf)).json()["password_state"] == "unlesbar"
+
+    antwort = await client.put(
+        "/api/settings/backup-encryption", json={"password": "Backup-Passwort-123"}, headers=kopf
+    )
+
+    assert antwort.status_code == 200, antwort.text
+    befund = antwort.json()
+    assert befund["sicherungen_unlesbar"] == 0, "Dasselbe Passwort kostet das Archiv nichts"
+    assert "ACHTUNG" not in befund["message"], "Eine falsche Warnung hält von der Reparatur ab"
+    assert "1 vorhandene Sicherung lässt sich" in befund["message"]
+    zustand = (await client.get("/api/settings/backup-encryption", headers=kopf)).json()
+    assert zustand["password_state"] == "bereit", "Und der Backup-Lauf ist damit repariert"

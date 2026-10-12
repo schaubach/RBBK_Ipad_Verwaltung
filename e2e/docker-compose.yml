@@ -1,0 +1,62 @@
+# Wegwerf-Stack für die Playwright-Tests: leere Datenbank, echtes Backend, echter
+# Produktions-Build des Frontends. Lokal wie in der CI derselbe Aufbau:
+#
+#     docker compose -f e2e/docker-compose.yml up -d --build --wait
+#     docker compose -f e2e/docker-compose.yml down -v
+#
+# Bewusst ein eigenes Compose-Projekt (name: unten) ohne container_name: Es läuft neben der
+# lokalen Anlage aus config/, ohne deren Container oder Daten anzufassen.
+#
+# Kein nginx: Das Frontend läuft auf localhost:3000 und spricht das Backend direkt auf
+# localhost:8001 an. Genau so ist das in public/config.js für die lokale Entwicklung
+# vorgesehen, und CORS lässt http://localhost:3000 ohnehin zu.
+name: ipad-e2e
+
+services:
+  mongodb:
+    image: mongo:6
+    tmpfs:
+      - /data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ../backend
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - SECRET_KEY=e2e-only-secret-key-not-used-anywhere-else-0123456789
+      - CORS_ORIGINS=http://localhost:3000
+    # Ohne --reload: Hier wird nichts bearbeitet, und der Datei-Beobachter kostet nur Zeit.
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "8001:8001"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/api/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  frontend:
+    # Die build-Stufe des Produktions-Dockerfiles: dieselbe Installation, derselbe Build.
+    build:
+      context: ../frontend
+      target: build
+      args:
+        - REACT_APP_BACKEND_URL=
+    command: ["node", "/e2e/static-server.js", "/app/build", "3000"]
+    volumes:
+      - ./static-server.js:/e2e/static-server.js:ro
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
+      interval: 3s
+      timeout: 5s
+      retries: 20

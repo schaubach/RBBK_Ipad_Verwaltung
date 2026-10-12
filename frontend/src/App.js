@@ -3,11 +3,10 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import './App.css';
 
 // API Configuration (extracted)
-import api, { API_BASE_URL, SESSION_TIMEOUT, SESSION_WARNING } from './api';
+import api, { SESSION_TIMEOUT, SESSION_WARNING } from './api';
 
 // Extracted Components
 import Login from './components/auth/Login';
-import IPadDetailViewer from './components/ipads/IPadDetailViewer';
 import IPadsManagement from './components/ipads/IPadsManagement';
 import StudentsManagement from './components/students/StudentsManagement';
 import ContractsManagement from './components/contracts/ContractsManagement';

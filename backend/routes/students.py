@@ -27,6 +27,40 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 
+async def _vertrag_ids_des_schuelers(student_id: str) -> List[str]:
+    """Alle Vertraege dieses Schuelers: ueber die student_id, und - fuer Altbestaende ohne sie -
+    ueber seine Zuordnungen, aktive wie vergangene.
+
+    Beide Loeschwege fragen hier, statt die Sammlung je einmal auszuschreiben. Die
+    Stapelloeschung griff frueher nur nach der student_id und liess damit genau die alten
+    Vertraege stehen, die die Einzelloeschung mitnimmt: derselbe Schueler, zwei Ergebnisse -
+    je nachdem, ob er allein oder im Stapel geloescht wurde. Wer den Unterschied bemerkte,
+    konnte ihn nicht erklaeren, denn der Loeschdialog verspricht beide Male "Alle
+    zugehoerigen Vertraege".
+
+    Gefragt werden muss, BEVOR die Zuordnungen geloescht werden - danach gibt es die
+    Kennungen nicht mehr, ueber die die Altvertraege ueberhaupt noch haengen.
+
+    Zurueck kommen Kennungen, keine Bedingung: nur so trifft das anschliessende Loeschen
+    garantiert keinen fremden Vertrag.
+    """
+    alle_zuordnungen = await db.assignments.find({"student_id": student_id}, {"id": 1, "contract_id": 1}).to_list(
+        length=None
+    )
+    vertraege_des_schuelers = await db.contracts.find(
+        {
+            "$or": [
+                {"student_id": student_id},
+                {"assignment_id": {"$in": [a["id"] for a in alle_zuordnungen]}},
+            ]
+        },
+        {"id": 1},
+    ).to_list(length=None)
+    vertrag_ids = {v["id"] for v in vertraege_des_schuelers}
+    vertrag_ids.update(a["contract_id"] for a in alle_zuordnungen if a.get("contract_id"))
+    return list(vertrag_ids)
+
+
 @api_router.post("/students", response_model=Student)
 async def create_student(student_data: dict, current_user: dict = Depends(get_current_user)):
     """Manuell einen neuen Schüler anlegen"""
@@ -354,23 +388,9 @@ async def delete_student(student_id: str, current_user: dict = Depends(get_curre
     # Step 1: Dissolve ALL active assignments (1:n - student can have multiple iPads)
     active_assignments = await db.assignments.find({"student_id": student_id, "is_active": True}).to_list(length=None)
 
-    # Alle Vertraege dieses Schuelers: ueber die student_id, und - fuer Altbestaende ohne sie -
-    # ueber seine Zuordnungen, aktive wie vergangene. Der Loeschdialog verspricht "Alle
-    # zugehoerigen Vertraege", und die Stapelloeschung haelt es genauso.
-    alle_zuordnungen = await db.assignments.find({"student_id": student_id}, {"id": 1, "contract_id": 1}).to_list(
-        length=None
-    )
-    vertraege_des_schuelers = await db.contracts.find(
-        {
-            "$or": [
-                {"student_id": student_id},
-                {"assignment_id": {"$in": [a["id"] for a in alle_zuordnungen]}},
-            ]
-        },
-        {"id": 1},
-    ).to_list(length=None)
-    betroffene_vertrag_ids = {v["id"] for v in vertraege_des_schuelers}
-    betroffene_vertrag_ids.update(a["contract_id"] for a in alle_zuordnungen if a.get("contract_id"))
+    # Vor dem Aufloesen sammeln - siehe _vertrag_ids_des_schuelers. Die Stapelloeschung holt
+    # sich dieselbe Liste aus derselben Funktion.
+    betroffene_vertrag_ids = await _vertrag_ids_des_schuelers(student_id)
 
     for active_assignment in active_assignments:
         # Mark assignment as inactive
@@ -395,7 +415,7 @@ async def delete_student(student_id: str, current_user: dict = Depends(get_curre
     # Vertrag stehen, solange er eine ipad_id trug, also fast immer: der Schueler war weg, sein
     # Vertrag samt PDF ueber das Geraet weiter abrufbar. Nur ueber die gesammelten Kennungen,
     # damit keine Loeschung je fremde Vertraege trifft.
-    contracts_deleted = await db.contracts.delete_many({"id": {"$in": list(betroffene_vertrag_ids)}})
+    contracts_deleted = await db.contracts.delete_many({"id": {"$in": betroffene_vertrag_ids}})
 
     # Step 3: Delete all assignments for this student
     assignments_result = await db.assignments.delete_many({"student_id": student_id})
@@ -459,6 +479,13 @@ async def batch_delete_students(filter_params: dict, current_user: dict = Depend
                 student_id = student["id"]
                 student_name = f"{student.get('sus_vorn', 'Unknown')} {student.get('sus_nachn', 'Unknown')}"
 
+                # Vor dem Aufloesen sammeln, denn Step 2 loescht die Zuordnungen, ueber die
+                # Altvertraege ohne student_id haengen - genau wie in delete_student. Hier
+                # stand frueher nur ein delete_many({"student_id": ...}) weiter unten: wer
+                # einen Schueler im Stapel loeschte, behielt dessen alten Vertrag samt PDF,
+                # wer ihn einzeln loeschte, nicht.
+                betroffene_vertrag_ids = await _vertrag_ids_des_schuelers(student_id)
+
                 # Step 1: Dissolve ALL active assignments (1:n - student can have multiple iPads)
                 # Die Zustaendigkeit entscheidet, nicht die Urheberschaft: user_id sagt seit dem
                 # Umbau nur noch, WER die Zuordnung angelegt hat. Wer danach filterte, liess die
@@ -469,13 +496,6 @@ async def batch_delete_students(filter_params: dict, current_user: dict = Depend
                 active_assignments = await db.assignments.find(assignment_filter).to_list(length=None)
 
                 for active_assignment in active_assignments:
-                    # Move contract to inactive if exists
-                    if active_assignment.get("contract_id"):
-                        await db.contracts.update_one(
-                            {"id": active_assignment["contract_id"]},
-                            {"$set": {"is_active": False, "updated_at": datetime.now(UTC).isoformat()}},
-                        )
-
                     # Mark assignment as inactive
                     await db.assignments.update_one(
                         {"id": active_assignment["id"]},
@@ -503,8 +523,10 @@ async def batch_delete_students(filter_params: dict, current_user: dict = Depend
                 # Step 2: Delete all assignments (history) for this student
                 await db.assignments.delete_many({"student_id": student_id})
 
-                # Step 3: Delete all contracts for this student
-                await db.contracts.delete_many({"student_id": student_id})
+                # Step 3: Seine Vertraege loeschen - auch die, die noch am Geraet haengen,
+                # und auch die ohne student_id. Nur ueber die oben gesammelten Kennungen,
+                # damit keine Loeschung je fremde Vertraege trifft (wie in delete_student).
+                await db.contracts.delete_many({"id": {"$in": betroffene_vertrag_ids}})
 
                 # Step 4: Delete the student
                 await db.students.delete_one({"id": student_id})
