@@ -5,6 +5,7 @@ Auto-extracted from monolithic server.py during refactor (Session 12).
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Optional
 
 from core.config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
@@ -25,6 +26,7 @@ from models.user import (
     User,
     UserLogin,
 )
+from pymongo.errors import DuplicateKeyError
 from routes.backup import laeuft_wiederherstellung
 from starlette.requests import Request
 
@@ -34,6 +36,63 @@ logger = logging.getLogger(__name__)
 # verrieten einem unangemeldeten Aufrufer, in welchem Zustand die Installation ist - ob es
 # schon einen Admin gibt, ob ein Altbestandskonto herumliegt, ob Benutzer ohne Admin da sind.
 SETUP_NICHT_NOETIG = "Setup not required"
+
+
+async def _doppelte_benutzernamen() -> Optional[int]:
+    """Wie viele Benutzernamen mehrfach vorkommen; None, wenn sich das nicht zaehlen laesst."""
+    try:
+        gruppen = await db.users.aggregate([
+            {"$group": {"_id": "$username", "anzahl": {"$sum": 1}}},
+            {"$match": {"anzahl": {"$gt": 1}}},
+            {"$count": "doppelte"},
+        ]).to_list(length=1)
+    except Exception as e:
+        logger.error("Doppelte Benutzernamen konnten nicht gezaehlt werden: %s", str(e))
+        return None
+    return gruppen[0]["doppelte"] if gruppen else 0
+
+
+async def ensure_username_index() -> None:
+    """Den eindeutigen Index auf users.username anlegen; aufgerufen beim Start (main.py).
+
+    Die Anmeldung sucht das Konto allein ueber den Benutzernamen - doppelt vergeben darf er
+    also nicht sein. Geprueft hat das bisher nur die Anwendung, und zwischen "gibt es den
+    Namen schon?" und dem Einfuegen liegt ein Augenblick, in dem ein zweiter Aufruf dasselbe
+    tun kann. Danach gibt es den Namen zweimal, und welches der beiden Konten sich anmeldet,
+    entscheidet die Reihenfolge in der Sammlung. Der Index schliesst diese Luecke dort, wo sie
+    entsteht, statt in jedem Anleger einzeln.
+
+    Laesst er sich nicht anlegen - praktisch immer wegen doppelter Namen aus der Zeit davor -,
+    laeuft die Anwendung trotzdem weiter. Ein Deploy auf eine unsaubere Datenbank darf nicht
+    die ganze Verwaltung stillstellen; ohne Anmeldung kaeme auch niemand mehr an die
+    Benutzerverwaltung, um die Dubletten zu bereinigen. Deshalb sagt die Meldung, WIE VIELE
+    Namen zu bereinigen sind - "bitte bereinigen" ohne Zahl laesst den Leser ratlos zurueck.
+    """
+    try:
+        await db.users.create_index("username", unique=True, name="username_eindeutig")
+        return
+    except Exception as e:
+        # Dubletten sind der haeufige, aber nicht der einzige Grund (eine Datenbank laesst sich
+        # auch nur lesend einbinden). Die Meldung nennt den Fall, der tatsaechlich vorliegt,
+        # und schickt niemanden auf die Suche nach Dubletten, die es gar nicht gibt.
+        doppelte = await _doppelte_benutzernamen()
+        if doppelte:
+            befund = (
+                f"{doppelte} Benutzername kommt mehrfach vor" if doppelte == 1
+                else f"{doppelte} Benutzernamen kommen mehrfach vor"
+            )
+        elif doppelte == 0:
+            befund = "doppelte Benutzernamen gibt es dabei keine"
+        else:
+            befund = "ob Benutzernamen mehrfach vorkommen, liess sich nicht feststellen"
+        logger.error(
+            "ACHTUNG: Der eindeutige Index auf users.username konnte nicht angelegt werden - "
+            "%s. Die Datenbank meldet: %s. Bis der Index steht, koennen zwei gleichzeitige "
+            "Aufrufe denselben Benutzernamen doppelt anlegen; welches Konto sich danach "
+            "anmeldet, entscheidet der Zufall.",
+            befund,
+            str(e),
+        )
 
 
 @api_router.get("/health")
@@ -137,7 +196,18 @@ async def setup_admin():
     hashed_password = get_password_hash("admin123")
     user = User(username="admin", password_hash=hashed_password, role="admin", is_active=True)
     user_dict = prepare_for_mongo(user.dict())
-    await db.users.insert_one(user_dict)
+    try:
+        await db.users.insert_one(user_dict)
+    except DuplicateKeyError:
+        # Zwei Aufrufe gleichzeitig: der andere war zwischen der Pruefung oben und diesem
+        # Einfuegen schneller. Der Index hat das zweite Konto verhindert - genau dafuer ist er
+        # da. Gewollt war, dass es einen Admin gibt, und den gibt es jetzt; also ist das kein
+        # Fehler, sondern derselbe Fall wie oben: es war nichts mehr anzulegen.
+        logger.warning(
+            "Ersteinrichtung doppelt aufgerufen: Der Benutzer 'admin' war im selben Augenblick "
+            "schon von einem anderen Aufruf angelegt worden. Es wurde nichts veraendert."
+        )
+        return {"message": SETUP_NICHT_NOETIG}
     logger.warning(
         "Ersteinrichtung: Benutzer 'admin' mit dem Standardpasswort angelegt. Das Passwort ist "
         "oeffentlich bekannt und muss nach der ersten Anmeldung sofort geaendert werden."

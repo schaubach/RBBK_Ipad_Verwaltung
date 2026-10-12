@@ -384,6 +384,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
     created: 'Neu erstellt & zugeordnet',
     already_assigned: 'Bereits zugeordnet',
     beispielzeile: 'Beispielzeile der Vorlage (übersprungen)',
+    kopfzeile: 'Wiederholte Kopfzeile (übersprungen)',
+    dublette: 'ITNr doppelt in dieser Datei (übersprungen)',
     invalid_row: 'Ungültige Zeile (ITNr fehlt)',
     error: 'Fehler'
   };
@@ -415,6 +417,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
       `# Bereits im Bildungsgang (Übergabe quittiert): ${summary.quittiert_count}`,
       `# Fremder Bildungsgang (unverändert): ${summary.fremder_bildungsgang_count}`,
       `# Beispielzeilen der Vorlage: ${summary.beispielzeile_count ?? 0}`,
+      `# Wiederholte Kopfzeilen: ${summary.kopfzeile_count ?? 0}`,
+      `# Doppelte ITNr in der Datei: ${summary.dublette_count ?? 0}`,
       `# Ungültige Zeilen: ${summary.invalid_rows}`,
       `# Fehler: ${summary.error_count}`,
       '#'
@@ -1985,11 +1989,25 @@ const IPadsManagement = ({ isAdmin = false }) => {
                       <div className="font-semibold text-red-800">{batchImportResult.summary.invalid_rows + batchImportResult.summary.error_count}</div>
                       <div className="text-red-700">ungültig / Fehler</div>
                     </div>
-                    {/* Nur wenn es sie gibt - im Regelfall bleibt das Raster bei fünf Kacheln. */}
+                    {/* Nur wenn es sie gibt - im Regelfall bleibt das Raster bei fünf Kacheln.
+                        Die drei übersprungenen Fälle stehen zusammen, weil sie dasselbe
+                        bedeuten: die Zeile war keine Lieferung. */}
                     {batchImportResult.summary.beispielzeile_count > 0 && (
                       <div className="p-2 bg-amber-50 rounded border border-amber-200">
                         <div className="font-semibold text-amber-800">{batchImportResult.summary.beispielzeile_count}</div>
                         <div className="text-amber-700">Beispielzeilen übersprungen</div>
+                      </div>
+                    )}
+                    {batchImportResult.summary.kopfzeile_count > 0 && (
+                      <div className="p-2 bg-amber-50 rounded border border-amber-200">
+                        <div className="font-semibold text-amber-800">{batchImportResult.summary.kopfzeile_count}</div>
+                        <div className="text-amber-700">Kopfzeilen übersprungen</div>
+                      </div>
+                    )}
+                    {batchImportResult.summary.dublette_count > 0 && (
+                      <div className="p-2 bg-amber-50 rounded border border-amber-200">
+                        <div className="font-semibold text-amber-800">{batchImportResult.summary.dublette_count}</div>
+                        <div className="text-amber-700">doppelte ITNr übersprungen</div>
                       </div>
                     )}
                   </div>

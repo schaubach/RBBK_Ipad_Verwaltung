@@ -8,11 +8,12 @@ Jeder Lauf ist wiederholbar: er legt nichts doppelt an und überschreibt keine Z
 die nach einem früheren Lauf von Hand korrigiert wurde. Bricht ein Lauf mittendrin ab, startet
 man ihn einfach neu - genau dafür ist die Wiederholbarkeit da.
 
-Das Skript selbst schreibt KEIN Protokoll. Es nennt Schülernamen, und die einzigen
-Verzeichnisse im Container, die einen neuen Container überleben, sind die der Backups - dort
-gehört eine unverschlüsselte Namensliste neben die verschlüsselten Archive gerade nicht. Das
-Protokoll macht stattdessen der Aufrufer mit `tee`: es landet dort, wo der Lauf gestartet
-wurde, und steht auch nach einem Abbruch vollständig bis zur Abbruchstelle in der Datei.
+Das Skript selbst schreibt KEIN Protokoll. Es nennt Schülernamen, und das Verzeichnis, das
+sich im Container dafür anböte, ist das der Backups (/app/backups) - von dort geht der Sync
+ausser Haus. Eine unverschlüsselte Namensliste ginge damit denselben Weg nach draussen wie
+die verschlüsselten Archive daneben. Das Protokoll macht stattdessen der Aufrufer mit `tee`:
+es landet dort, wo der Lauf gestartet wurde, und steht auch nach einem Abbruch vollständig
+bis zur Abbruchstelle in der Datei.
 
 Aufruf im Backend-Container:
     docker exec -i ipad_backend python - < scripts/migrate-to-bildungsgang.py            # Trockenlauf
@@ -140,27 +141,34 @@ async def main():
     if not APPLY:
         sag("")
         sag("Hinweis zum Lesen: spätere Schritte sehen die Wirkung früherer NICHT, weil nichts")
-        sag("geschrieben wird. Im Trockenlauf erscheinen deshalb zwangsläufig, ohne dass etwas")
-        sag("fehlt:")
-        sag("  - 'wird angelegt' für Bildungsgänge, die Schritt [1] übernommen hätte")
-        sag("  - in [6] noch die vollen Zahlen von barvar, obwohl [5] dort löschen würde")
-        sag("  - in [7] alles 'ohne Bildungsgang', weil [6] nichts gesetzt hat")
-        sag("ECHT ist dagegen 'KONTO FEHLT': Schritt [2] legt keine Konten mehr an, der Echtlauf")
-        sag("fände das Konto genauso wenig. Erst in der Benutzerverwaltung anlegen - sonst bleiben")
-        sag("seine Daten ohne Bildungsgang liegen und seine Zuständigkeit ungesetzt.")
+        sag("geschrieben wird. Jeder Schritt zeigt den Stand von jetzt und das, was der Echtlauf")
+        sag("daran ändern würde. Daraus folgt, ohne dass etwas fehlt:")
+        sag("  - [7] stellt vorher und nachher gegenüber: hier zweimal derselbe Stand")
+        sag("  - was [5] löschen würde, zählt in [6] und [7] noch mit; was [6] setzen würde,")
+        sag("    steht in [7] noch unter 'ohne Bildungsgang'")
+        sag("Alles andere unten ist der Stand der Daten und kein Artefakt des Trockenlaufs: ein")
+        sag("fehlendes Konto fehlt wirklich, und der Echtlauf legt keines an.")
 
     # --- 0. Ausgangslage festhalten -----------------------------------------
     vorher = {c: await db[c].count_documents({}) for c in SAMMLUNGEN}
     sag(f"\nAusgangslage: {vorher}")
 
     # --- 1. Alte departments-Sammlung übernehmen ----------------------------
+    # Welche IDs dieser Schritt als Bildungsgang weiterleben lässt. Schritt [6] braucht sie:
+    # dort zeigen Datensätze noch auf den alten Eintrag, und im Trockenlauf steht der
+    # übernommene Bildungsgang noch nicht in der Datenbank. Gibt es den Namen schon als
+    # Bildungsgang, wird nichts übernommen - die alte ID lebt dann NICHT weiter.
+    uebernommene_bg_ids = set()
     alt = await db.departments.count_documents({})
     if alt:
         sag(f"\n[1] {alt} vorhandene Einträge aus 'departments' übernehmen")
         for d in await db.departments.find({}).to_list(length=None):
             sag(f"      {d['name']}")
-            if APPLY and not await db.bildungsgaenge.find_one({"name": d["name"]}):
-                await db.bildungsgaenge.insert_one({k: v for k, v in d.items() if k != "_id"})
+            if not await db.bildungsgaenge.find_one({"name": d["name"]}):
+                uebernommene_bg_ids.add(d.get("id"))
+                if APPLY:
+                    await db.bildungsgaenge.insert_one({k: v for k, v in d.items() if k != "_id"})
+        uebernommene_bg_ids.discard(None)
         if APPLY:
             await db.departments.drop()
     else:
@@ -379,7 +387,7 @@ async def main():
         if not user:
             sag(f"      {username}: KONTO FEHLT - übersprungen")
             continue
-        zeilen, woanders, herrenlos = [], [], []
+        zeilen, woanders, aus_departments, herrenlos = [], [], [], []
         tote_ids = set()
         for coll in SAMMLUNGEN:
             query = {"user_id": user["id"]}
@@ -396,16 +404,31 @@ async def main():
             anderswo = dict(query, bildungsgang_id={"$nin": [None, bg_ids[bg]]})
             fremd = await db[coll].count_documents(anderswo)
             if fremd:
-                tot = [i for i in await db[coll].distinct("bildungsgang_id", anderswo) if i not in bekannte_bg]
+                fremde = await db[coll].distinct("bildungsgang_id", anderswo)
+                # Unbekannt heisst nicht gleich herrenlos: was Schritt [1] übernimmt, ist im
+                # Echtlauf längst ein Bildungsgang und fehlt hier nur dem Trockenlauf.
+                offen_1 = [i for i in fremde if i not in bekannte_bg and i in uebernommene_bg_ids]
+                tot = [i for i in fremde if i not in bekannte_bg and i not in uebernommene_bg_ids]
                 n_tot = await db[coll].count_documents(dict(query, bildungsgang_id={"$in": tot})) if tot else 0
-                if fremd - n_tot:
-                    woanders.append(f"{fremd - n_tot} {coll}")
+                n_offen_1 = (
+                    await db[coll].count_documents(dict(query, bildungsgang_id={"$in": offen_1})) if offen_1 else 0
+                )
+                if fremd - n_tot - n_offen_1:
+                    woanders.append(f"{fremd - n_tot - n_offen_1} {coll}")
+                if n_offen_1:
+                    aus_departments.append(f"{n_offen_1} {coll}")
                 if n_tot:
                     herrenlos.append(f"{n_tot} {coll}")
                     tote_ids.update(tot)
         sag(f"      {username:12} -> {bg:12} {', '.join(zeilen) if zeilen else '(nichts offen)'}")
         if woanders:
             sag(f"      {'':12}    liegt schon bei einem anderen Bildungsgang, bleibt dort: {', '.join(woanders)}")
+        if aus_departments:
+            # Diese Meldung gibt es nur im Trockenlauf, und sie ist kein Mangel: Schritt [1]
+            # hat noch nichts geschrieben, der Verweis geht deshalb vorerst ins Leere.
+            sag(f"      {'':12}    zeigt auf einen Eintrag aus 'departments': {', '.join(aus_departments)}.")
+            sag(f"      {'':12}    Den übernimmt Schritt [1] im Echtlauf als Bildungsgang - danach liegen")
+            sag(f"      {'':12}    sie dort und bleiben dort. Nichts zu tun.")
         if herrenlos:
             # Nicht beruhigend melden: dieser Bildungsgang existiert nicht mehr, also ist niemand
             # für ihn zuständig. Die Datensätze bleiben liegen, wo sie keiner sieht.
@@ -455,7 +478,13 @@ async def main():
     # nur bei den Konten aus DATEN_NACH; hier fällt auch auf, was unter einem anderen liegt.
     herrenlos_gesamt = []
     for coll in SAMMLUNGEN:
-        tot = [i for i in await db[coll].distinct("bildungsgang_id") if i and i not in bekannte_bg]
+        # uebernommene_bg_ids zählt hier wie bekannt - sonst meldet ausgerechnet der
+        # Trockenlauf als herrenlos, was Schritt [1] im Echtlauf übernimmt (siehe [6]).
+        tot = [
+            i
+            for i in await db[coll].distinct("bildungsgang_id")
+            if i and i not in bekannte_bg and i not in uebernommene_bg_ids
+        ]
         if tot:
             herrenlos_gesamt.append(f"{await db[coll].count_documents({'bildungsgang_id': {'$in': tot}})} {coll}")
     if herrenlos_gesamt:

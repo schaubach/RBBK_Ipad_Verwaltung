@@ -23,6 +23,9 @@ module.exports = defineConfig({
     locale: 'de-DE',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // Lokal z. B. E2E_CHANNEL=chrome: nimmt das installierte Google Chrome statt des
+    // Playwright-eigenen Chromium (spart den Download). Die CI lässt es leer.
+    channel: process.env.E2E_CHANNEL || undefined,
   },
   projects: [
     { name: 'setup', testMatch: /auth\.setup\.js/ },

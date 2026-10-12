@@ -2,10 +2,12 @@
 
 /api/auth/setup ist der einzige Endpunkt, der ohne Anmeldung ein Konto anlegen kann. Er muss
 es auch: in eine frische Installation käme sonst niemand hinein. Genau deshalb gelten hier
-drei Regeln, und alle drei stehen in dieser Datei:
+vier Regeln, und alle vier stehen in dieser Datei:
 
 - Er legt nur an, solange die Benutzerliste LEER ist. Eine Anlage, die ihren letzten Admin
   verloren hat, bekommt kein Ersatzkonto mit einem Passwort, das in jeder Anleitung steht.
+- Während einer Wiederherstellung legt er gar nichts an - dort ist die Benutzerliste kurz
+  leer, ohne dass die Anlage neu wäre.
 - Altbestand ist nur, wem das Feld ``role`` ganz fehlt. Wer eine Rolle hat, hat sie, weil
   jemand sie so gesetzt hat - auch die Rolle "user" und auch ein abgeschaltetes Konto.
 - Das Standardpasswort steht in keiner Antwort. Wer den Aufruf macht, kennt es aus der
@@ -14,9 +16,22 @@ drei Regeln, und alle drei stehen in dieser Datei:
 Daneben steht GET /api/auth/setup-status: dieselbe Frage, nur lesend. Die Anmeldeseite stellt
 sie bei jedem Laden, und sie hat dabei kein Token - also darf die Antwort nichts enthalten
 außer dem Ja/Nein.
+
+Am Ende der Datei steht der eindeutige Index auf users.username. Er ist keine fünfte Regel,
+sondern das Netz unter allen vieren: Zwischen "gibt es schon Benutzer?" und dem Einfügen passt
+ein zweiter Aufruf, und erst der Index verhindert, dass daraus zwei Konten desselben Namens
+werden.
 """
 
+import logging
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from pymongo.errors import DuplicateKeyError
+
 from core.security import get_password_hash
+from routes.auth import ensure_username_index
+from routes.backup import RESTORE_RIEGEL_MAX_SEKUNDEN, SYSTEM_STATE
 
 
 async def lehrkraft(db, name="lehrkraft"):
@@ -25,6 +40,17 @@ async def lehrkraft(db, name="lehrkraft"):
         "id": f"u_{name}", "username": name, "password_hash": get_password_hash(f"pw_{name}_123"),
         "role": "user", "is_active": True,
     })
+
+
+async def riegel_legen(db, alter_sekunden=0):
+    """Den Riegel setzen, den eine laufende Wiederherstellung setzt - wahlweise als Leiche.
+
+    Geschrieben wird genau dorthin, wo die Wiederherstellung ihn ablegt: in die Sammlung
+    "system_state", die bewusst NICHT gesichert wird. Stünde er in einer gesicherten Sammlung,
+    räumte die Wiederherstellung ihn mitten im eigenen Lauf weg.
+    """
+    seit = datetime.now(timezone.utc) - timedelta(seconds=alter_sekunden)
+    await db[SYSTEM_STATE].insert_one({"type": "restore_running", "seit": seit.isoformat()})
 
 
 # --- Der lesende Einrichtungsstand -------------------------------------------------------
@@ -154,6 +180,47 @@ async def test_ohne_admin_aber_mit_benutzern_entsteht_kein_standardkonto(db, cli
     assert anmeldung.status_code == 401
 
 
+# --- Der Riegel während einer Wiederherstellung -------------------------------------------
+
+async def test_waehrend_einer_wiederherstellung_entsteht_kein_standardkonto(db, client):
+    """Zwischen Leeren und Füllen ist die Benutzersammlung kurz leer - und genau auf diesen
+    Zustand wartet dieser Endpunkt.
+
+    Ohne den Riegel genügte ein Aufruf in diesem Augenblick, um sich admin/admin123 anlegen zu
+    lassen: Die Hintertür wäre durch die Hintertür zurück. Die Benutzersammlung ist hier leer,
+    damit wirklich nur der Riegel hält - alle anderen Abfragen des Endpunkts gingen in diesem
+    Fall durch.
+    """
+    await riegel_legen(db)
+
+    antwort = await client.post("/api/auth/setup")
+
+    assert antwort.status_code == 200, antwort.text
+    assert "password" not in antwort.json()
+    assert await db.users.count_documents({}) == 0, "Während einer Wiederherstellung wird nichts angelegt"
+    anmeldung = await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+    assert anmeldung.status_code == 401
+
+
+async def test_liegengebliebener_riegel_sperrt_die_ersteinrichtung_nicht_dauerhaft(db, client):
+    """Die Gegenprobe, und sie wiegt schwer.
+
+    Stirbt der Prozess mitten in der Wiederherstellung, bleibt der Riegel liegen; aufräumen
+    kann ihn dann niemand mehr. Verfiele er nicht, käme auf einem frisch aufgesetzten Server
+    nie wieder jemand hinein - und niemand wüsste, warum. Deshalb wird hier nicht nur gezählt,
+    sondern mit dem Standardpasswort angemeldet.
+    """
+    await riegel_legen(db, alter_sekunden=RESTORE_RIEGEL_MAX_SEKUNDEN + 60)
+
+    antwort = await client.post("/api/auth/setup")
+    assert antwort.status_code == 200, antwort.text
+
+    anmeldung = await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+
+    assert anmeldung.status_code == 200, anmeldung.text
+    assert anmeldung.json()["role"] == "admin"
+
+
 # --- Was "Altbestand" heißt und was nicht ------------------------------------------------
 
 async def test_altbestands_admin_bekommt_die_rolle_ohne_passwort_in_der_antwort(db, client):
@@ -221,3 +288,126 @@ async def test_abgeschalteter_altbestands_admin_bleibt_abgeschaltet(db, client):
     anmeldung = await client.post("/api/auth/login",
                                   json={"username": "admin", "password": "Altes-Passwort-123"})
     assert anmeldung.status_code == 401, "Ein abgeschaltetes Konto meldet sich nicht an"
+
+
+# --- Der eindeutige Index auf users.username ----------------------------------------------
+
+async def konto(db, name, konto_id=None, passwort="Eigenes-Passwort-123"):
+    await db.users.insert_one({
+        "id": konto_id or f"u_{name}", "username": name,
+        "password_hash": get_password_hash(passwort), "role": "admin", "is_active": True,
+    })
+
+
+def konkurrierender_aufruf(db, monkeypatch, konto_id="u_schneller", passwort="Eigenes-Passwort-123"):
+    """Einen zweiten Einrichtungsaufruf genau in den Augenblick legen, auf den es ankommt.
+
+    Zwischen "gibt es schon Benutzer?" und dem Einfügen liegt der Spalt, den der Index schließt.
+    Das Vorbereiten des Dokuments ist der letzte Schritt davor - hier kommt der andere Aufruf
+    dazwischen und legt den Admin an, den der laufende Aufruf gerade anlegen will.
+
+    Er schreibt über eine eigene, synchrone Verbindung: nur so liegt er wirklich dazwischen.
+    Ein zweiter Aufruf über denselben Client käme an dieser Stelle gar nicht zum Zug, und zwei
+    echte Aufrufe nebeneinander träfen den Spalt nur manchmal - ein Test, der die Lage nur
+    manchmal herstellt, hält sie nicht fest.
+    """
+    from pymongo import MongoClient
+
+    import routes.auth as auth
+    from tests.conftest import MONGO_URL
+
+    echt = auth.prepare_for_mongo
+    schon_dagewesen = []
+
+    def dazwischen(dokument):
+        if not schon_dagewesen:
+            schon_dagewesen.append(True)
+            sync = MongoClient(MONGO_URL)
+            try:
+                sync[db.name].users.insert_one({
+                    "id": konto_id, "username": "admin",
+                    "password_hash": get_password_hash(passwort),
+                    "role": "admin", "is_active": True,
+                })
+            finally:
+                sync.close()
+        return echt(dokument)
+
+    monkeypatch.setattr(auth, "prepare_for_mongo", dazwischen)
+
+
+async def test_der_index_laesst_den_namen_kein_zweites_mal_zu(db):
+    """Nachgesehen wird in der Datenbank, nicht im Rückgabewert.
+
+    Die Anmeldung sucht das Konto allein über den Benutzernamen. Gäbe es ihn zweimal,
+    entschiede die Reihenfolge in der Sammlung, wer sich anmeldet - und ob das stillgelegte
+    oder das gültige Konto antwortet, wäre Zufall. "Index steht" heißt deshalb: die Datenbank
+    nimmt den zweiten Namen nicht mehr an.
+    """
+    await konto(db, "admin")
+    assert "username_eindeutig" not in await db.users.index_information()
+
+    await ensure_username_index()
+
+    index = (await db.users.index_information())["username_eindeutig"]
+    assert index["key"] == [("username", 1)]
+    assert index.get("unique") is True
+    with pytest.raises(DuplicateKeyError):
+        await konto(db, "admin", konto_id="u_zweiter")
+
+
+@pytest.mark.parametrize(
+    "namen,erwartet",
+    [
+        (["admin", "admin"], "1 Benutzername kommt mehrfach vor"),
+        (["admin", "admin", "lehrkraft", "lehrkraft"], "2 Benutzernamen kommen mehrfach vor"),
+    ],
+    ids=["einer", "zwei"],
+)
+async def test_doppelte_namen_verhindern_den_index_und_die_meldung_nennt_die_zahl(
+    db, caplog, namen, erwartet
+):
+    """Gegenprobe: Stehen die Namen schon doppelt im Bestand, lässt die Datenbank den Index
+    nicht zu.
+
+    Die Anwendung läuft trotzdem weiter - ein Deploy auf eine unsaubere Datenbank darf nicht
+    die ganze Verwaltung stillstellen; ohne Anmeldung käme auch niemand mehr an die
+    Benutzerverwaltung, um die Dubletten zu bereinigen. Die Meldung muss dann aber die ANZAHL
+    nennen, und zwar in der richtigen Form: "1 Benutzernamen kommen mehrfach vor" liest sich
+    wie ein Fehler im Programm und nicht wie ein Befund.
+    """
+    for nummer, name in enumerate(namen):
+        await konto(db, name, konto_id=f"u_{nummer}")
+
+    with caplog.at_level(logging.ERROR, logger="routes.auth"):
+        await ensure_username_index()
+
+    assert "username_eindeutig" not in await db.users.index_information(), \
+        "Was die Datenbank ablehnt, darf hinterher nicht doch dastehen"
+    assert erwartet in caplog.text, caplog.text
+
+
+async def test_gleichzeitige_ersteinrichtung_legt_kein_zweites_konto_an(db, client, monkeypatch):
+    """Zwei Ersteinrichtungen im selben Augenblick - der Index lässt nur eine durch.
+
+    Für den zweiten Aufruf ist das kein Fehler: Gewollt war, dass es einen Admin gibt, und den
+    gibt es jetzt. Er antwortet deshalb wie in jedem anderen Fall, in dem nichts mehr anzulegen
+    war. Ein Serverfehler stünde hier besonders schlecht - er käme ausgerechnet bei der ersten
+    Berührung mit einer frischen Installation.
+
+    Angemeldet wird mit dem Passwort des ANDEREN Aufrufs: Nur das zeigt, dass sein Konto
+    unberührt dasteht und nicht nachträglich überschrieben wurde.
+    """
+    await ensure_username_index()
+    konkurrierender_aufruf(db, monkeypatch)
+
+    antwort = await client.post("/api/auth/setup")
+
+    assert antwort.status_code == 200, antwort.text
+    assert "password" not in antwort.json()
+    assert await db.users.count_documents({}) == 1, "Ein zweites Konto desselben Namens darf nicht entstehen"
+    assert (await db.users.find_one({"username": "admin"}))["id"] == "u_schneller"
+    anmeldung = await client.post("/api/auth/login",
+                                  json={"username": "admin", "password": "Eigenes-Passwort-123"})
+    assert anmeldung.status_code == 200, anmeldung.text
+    assert anmeldung.json()["role"] == "admin"

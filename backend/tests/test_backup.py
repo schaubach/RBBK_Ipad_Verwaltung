@@ -18,9 +18,17 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from cryptography.fernet import Fernet
 from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+from pymongo.errors import DuplicateKeyError
 
-from core.crypto import is_encrypted_backup
-from routes.backup import SERVER_BACKUP_KEEP_MINIMUM, save_server_backup
+from core.crypto import decrypt_backup_bytes, is_encrypted_backup, unwrap_secret
+from routes.backup import (
+    SERVER_BACKUP_KEEP_MINIMUM,
+    SERVER_BACKUP_STATUS_UNVERAENDERT,
+    _server_backup_due,
+    ensure_itnr_index,
+    run_scheduled_server_backup_check,
+    save_server_backup,
+)
 from tests.conftest import anmelden
 
 PDF_INHALT = b"%PDF-1.4 Leihvertrag Erika Mustermann, unterschrieben"
@@ -101,17 +109,24 @@ def backup_datei(inhalt: dict) -> bytes:
     return json.dumps(inhalt, ensure_ascii=False).encode("utf-8")
 
 
-async def unlesbares_passwort_hinterlegen(db):
-    """Ein Eintrag, der wie ein gesetztes Backup-Passwort aussieht, aber mit einem FREMDEN
-    Schlüssel verpackt ist.
+def fremd_verpacktes_passwort(passwort: str) -> str:
+    """Ein Backup-Passwort, verpackt mit dem SECRET_KEY eines ANDEREN Servers.
 
     So entsteht der Fall in der Anlage: Der Eintrag kommt aus einer älteren Sicherung oder von
     einem anderen Server, der SECRET_KEY zum Auspacken ist seitdem ein anderer. Es ist kein
     Datenmüll - mit dem passenden Schlüssel ließe er sich anstandslos öffnen.
     """
     fremder_schluessel = base64.urlsafe_b64encode(hashlib.sha256(b"SECRET_KEY des alten Servers").digest())
-    verpackt = Fernet(fremder_schluessel).encrypt(b"Backup-Passwort-123").decode("ascii")
-    await db.global_settings.insert_one({"type": "backup_encryption", "wrapped_password": verpackt})
+    return Fernet(fremder_schluessel).encrypt(passwort.encode("utf-8")).decode("ascii")
+
+
+async def unlesbares_passwort_hinterlegen(db):
+    """Ein Eintrag, der wie ein gesetztes Backup-Passwort aussieht, sich hier aber nicht mehr
+    auspacken lässt."""
+    await db.global_settings.insert_one({
+        "type": "backup_encryption",
+        "wrapped_password": fremd_verpacktes_passwort("Backup-Passwort-123"),
+    })
 
 
 def sicherheitsnetze() -> list:
@@ -317,6 +332,49 @@ async def test_zustaendigkeiten_ueberleben_die_wiederherstellung(welt, client):
     assert [g["id"] for g in sichtbar] == ["i1"], "Nach der Wiederherstellung muss der Zugriff zurück sein"
 
 
+# --- Das Backup-Passwort gehört dem Server, nicht der Datei -------------------------------
+
+async def test_wiederherstellung_behaelt_das_eigene_backup_passwort(welt, client):
+    """Der Fehler, der die Anlage im Oktober lahmgelegt hat.
+
+    In der hochgespielten Datei steckt der backup_encryption-Eintrag von damals, verpackt mit
+    dem SECRET_KEY von damals. Wurde er beim Einspielen zurückgeschrieben, stand danach ein
+    Passwort da, das dieser Server nicht mehr öffnen konnte: Die Oberfläche meldete weiter
+    "gesetzt", der Tagesjob scheiterte stündlich, und wochenlang entstand keine Sicherung.
+
+    Der Eintrag sagt, womit DIESER Server verschlüsselt - er gehört zum Server und nicht zum
+    Datenbestand der Schule. Alles andere aus global_settings gehört sehr wohl zurückgespielt;
+    deshalb liegt in der Datei noch ein zweiter Eintrag, der danach dastehen muss.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+    eigener_eintrag = await welt.global_settings.find_one({"type": "backup_encryption"})
+
+    datei = backup_datei({
+        "bildungsgaenge": [],
+        "students": [],
+        "global_settings": [
+            {"type": "backup_encryption", "wrapped_password": fremd_verpacktes_passwort("Passwort von damals")},
+            {"type": "schuljahr", "wert": "2026/27"},
+        ],
+    })
+    antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
+    assert antwort.status_code == 200, antwort.text
+
+    eintraege = await welt.global_settings.find({"type": "backup_encryption"}).to_list(length=None)
+    assert eintraege == [eigener_eintrag], "Der Eintrag des Servers steht unverändert da"
+    assert await welt.global_settings.find_one({"type": "schuljahr"}) is not None, \
+        "Nur dieser eine Eintrag bleibt stehen - die Sammlung wird nicht weggeworfen"
+
+    zustand = (await client.get("/api/settings/backup-encryption", headers=kopf)).json()
+    assert zustand["password_state"] == "bereit", "Das Passwort lässt sich weiterhin entpacken"
+    sicherung = (await client.get("/api/backup/export", headers=kopf)).content
+    entpackt = decrypt_backup_bytes(sicherung, "Backup-Passwort-123")
+    assert json.loads(entpackt.decode("utf-8"))["global_settings"], \
+        "Und der Backup-Lauf arbeitet weiter mit genau diesem Passwort"
+
+
 async def test_vor_jeder_wiederherstellung_entsteht_ein_sicherheitsnetz(welt, client):
     """Wer das falsche Backup einspielt, soll den vorherigen Stand noch holen können."""
     kopf = await anmelden(client, "admin")
@@ -401,6 +459,151 @@ async def test_veraenderter_bestand_erzeugt_ein_neues_tagesbackup(welt, client):
     assert len((await client.get("/api/backup/server-backups", headers=kopf)).json()) == 2
 
 
+# --- Was der Tageslauf vermerkt -----------------------------------------------------------
+
+async def faellig_machen(welt, tage=3) -> str:
+    """Den Tageslauf fällig stellen und den Zeitpunkt zurückgeben, den er vorfindet.
+
+    `run-now` vermerkt den Tag als erledigt; danach kehrt der stündliche Tick sofort wieder um.
+    Hier werden beide Zeitpunkte so weit zurückdatiert, dass der Nachhol-Zweig greift - sonst
+    hinge der Test an der Uhrzeit, zu der er läuft (SERVER_BACKUP_HOUR).
+
+    Die Prüfsumme bleibt ausdrücklich stehen: nur so trifft der Lauf auf einen Bestand, den er
+    als unverändert erkennt.
+    """
+    vorzeiten = (datetime.now(timezone.utc) - timedelta(days=tage)).isoformat()
+    await welt.global_settings.update_one(
+        {"type": "server_backup_state"},
+        {"$set": {"last_run_at": vorzeiten, "last_completed_at": vorzeiten}},
+    )
+    return vorzeiten
+
+
+async def tageslauf_zustand(client, kopf) -> dict:
+    antwort = await client.get("/api/backup/server-backups/status", headers=kopf)
+    assert antwort.status_code == 200, antwort.text
+    return antwort.json()
+
+
+async def test_uebersprungener_tageslauf_laesst_last_run_at_stehen(welt, client):
+    """Ein Lauf, der nichts geschrieben hat, darf nicht melden, heute sei gesichert worden.
+
+    `last_run_at` ist die Angabe, aus der abgelesen wird, wie frisch die NEUESTE Sicherung ist.
+    Rückte sie beim übersprungenen Lauf mit vor, meldete der Server in unveränderten Wochen
+    (Ferien) täglich eine Sicherung von heute, während die jüngste in Wahrheit Wochen alt ist -
+    und ein Schreiben, das längst nicht mehr funktioniert, fiele niemandem mehr auf.
+
+    Der Tagesjob hat keinen eigenen Endpunkt; er wird hier direkt angestoßen. Nachgesehen wird
+    aber dort, wo der Admin nachsieht: am Statusendpunkt und in der Liste.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+    assert (await client.post("/api/backup/server-backups/run-now", headers=kopf)).status_code == 200
+    vorzeiten = await faellig_machen(welt)
+
+    await run_scheduled_server_backup_check()
+
+    danach = await tageslauf_zustand(client, kopf)
+    assert danach["last_run_at"] == vorzeiten, "Die letzte GESCHRIEBENE Sicherung ist die von damals"
+    assert danach["last_status"] == SERVER_BACKUP_STATUS_UNVERAENDERT, \
+        "'success' hieße: heute ist eine Sicherung entstanden"
+    assert len((await client.get("/api/backup/server-backups", headers=kopf)).json()) == 1, \
+        "Und es ist auch wirklich keine entstanden"
+
+
+async def test_uebersprungener_tageslauf_gilt_trotzdem_als_erledigt(welt, client):
+    """Die andere Hälfte derselben Entscheidung: übersprungen heißt nicht offen.
+
+    Der stündliche Tick fragt, ob der Tageslauf noch aussteht. Zählte dafür der Zeitpunkt der
+    letzten geschriebenen Sicherung, baute der Job in unveränderten Wochen zu jedem Tick den
+    gesamten Bestand neu zusammen und verschlüsselte ihn, nur um ihn wieder wegzuwerfen.
+    Deshalb rückt `last_completed_at` auch beim übersprungenen Lauf vor.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+    assert (await client.post("/api/backup/server-backups/run-now", headers=kopf)).status_code == 200
+    vorzeiten = await faellig_machen(welt)
+
+    await run_scheduled_server_backup_check()
+
+    gespeichert = await welt.global_settings.find_one({"type": "server_backup_state"})
+    assert gespeichert["last_completed_at"] > vorzeiten, "Der Lauf ist durchgekommen, also ist der Tag erledigt"
+    assert not _server_backup_due(gespeichert), "Der nächste stündliche Tick fängt nicht noch einmal an"
+
+
+async def test_geschriebener_tageslauf_rueckt_last_run_at_vor(welt, client):
+    """Die Gegenprobe: entsteht wirklich eine Sicherung, muss der Zeitpunkt mitgehen.
+
+    Ohne sie bliebe ein `last_run_at`, das sich NIE mehr bewegt, unbemerkt - und die Meldung
+    "die neueste Sicherung ist von damals" wäre genauso falsch wie die zu frische.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+    assert (await client.post("/api/backup/server-backups/run-now", headers=kopf)).status_code == 200
+    vorzeiten = await faellig_machen(welt)
+    await welt.ipads.insert_one({
+        "id": "i2", "itnr": "IT-2", "snr": "SN-2", "status": "ok",
+        "bildungsgang_id": "bg_it", "is_in_pool": False, "user_id": "u_schaubach",
+    })
+
+    await run_scheduled_server_backup_check()
+
+    danach = await tageslauf_zustand(client, kopf)
+    assert danach["last_run_at"] > vorzeiten
+    assert danach["last_status"] == "success"
+    assert len((await client.get("/api/backup/server-backups", headers=kopf)).json()) == 2
+
+
+# --- Die Zeitangaben der Server-Backup-Liste ----------------------------------------------
+
+async def test_die_zeitangaben_der_serverliste_tragen_eine_zeitzone(welt, client):
+    """Jede Zeitangabe der Liste muss sagen, in welcher Zeitzone sie gilt.
+
+    GridFS legt `uploadDate` als UTC OHNE Kennzeichen ab, und so kommt es auch aus dem Treiber
+    zurück. Ohne Zeitzone liest der Browser die Angabe als Ortszeit - im Sommer zwei Stunden
+    daneben. Geprüft werden beide Wege in die Liste: die eben erstellte Sicherung und eine, die
+    schon länger in GridFS liegt.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+    await altes_serverbackup(welt, tage=3)
+    assert (await client.post("/api/backup/server-backups/run-now", headers=kopf)).status_code == 200
+
+    liste = (await client.get("/api/backup/server-backups", headers=kopf)).json()
+
+    assert len(liste) == 2, liste
+    for eintrag in liste:
+        zeitpunkt = datetime.fromisoformat(eintrag["created_at"])
+        assert zeitpunkt.utcoffset() is not None, f"{eintrag['filename']}: Zeitangabe ohne Zeitzone"
+
+
+async def test_dieselbe_sicherung_steht_nicht_zweimal_verschoben_da(welt, client):
+    """Der sichtbare Schaden, um den es ging.
+
+    Die Oberfläche zeigt die Liste und den Status nebeneinander. `last_run_at` trug schon immer
+    "+00:00", die Liste nicht - dieselbe Sicherung erschien dadurch an zwei Zeitpunkten, die um
+    den Zeitzonenversatz auseinanderlagen. Verglichen wird deshalb nicht die Zeichenkette,
+    sondern der Augenblick, den beide bezeichnen.
+    """
+    kopf = await anmelden(client, "admin")
+    await passwort_setzen(client, kopf)
+    await datenbestand(welt)
+    assert (await client.post("/api/backup/server-backups/run-now", headers=kopf)).status_code == 200
+
+    liste = (await client.get("/api/backup/server-backups", headers=kopf)).json()
+    gemeldet = datetime.fromisoformat((await tageslauf_zustand(client, kopf))["last_run_at"])
+
+    assert len(liste) == 1, liste
+    aus_der_liste = datetime.fromisoformat(liste[0]["created_at"])
+    assert aus_der_liste.utcoffset() is not None, "Ohne Zeitzone ließe sich hier gar nicht vergleichen"
+    assert abs(aus_der_liste - gemeldet) < timedelta(minutes=5), \
+        "Liste und Status meinen dieselbe Sicherung - also denselben Augenblick"
+
+
 # --- Aufräumen ----------------------------------------------------------------------------
 
 async def test_aufraeumen_behaelt_die_juengsten_serverbackups_unabhaengig_vom_alter(welt, client):
@@ -482,6 +685,40 @@ async def test_unlesbares_backup_passwort_meldet_sich_beim_backup_lauf(welt, cli
     assert antwort.status_code == 400
     assert "nicht mehr entpacken" in antwort.json()["detail"]
     assert (await client.get("/api/backup/server-backups", headers=kopf)).json() == []
+
+
+@pytest.mark.parametrize(
+    "gespeichert",
+    [b"nicht als Text abgelegt", bytearray(b"nicht als Text abgelegt"), None, 12345],
+    ids=["bytes", "bytearray", "nichts", "zahl"],
+)
+def test_ein_verpacktes_passwort_das_keine_zeichenkette_ist_gilt_als_unlesbar(gespeichert):
+    """In global_settings kann etwas anderes liegen als eine Zeichenkette.
+
+    bytes aus einem älteren Bestand, None aus einem halb geschriebenen Eintrag: Dann scheitert
+    schon ``.encode`` mit einem AttributeError, und der Aufrufer bekäme einen Absturz zu sehen
+    statt des Falles, den er ohnehin schon kennt und behandelt - nicht entpackbar.
+    """
+    assert unwrap_secret(gespeichert) is None
+
+
+async def test_backup_passwort_als_bytes_meldet_unlesbar_statt_abzustuerzen(welt, client):
+    """Derselbe Eintrag am Endpunkt: Der Admin soll lesen, was zu tun ist, und nicht einen
+    Serverfehler bekommen.
+
+    In der Datenbank landet so ein Wert als Binärfeld - und das ist genau der Zustand, in dem
+    der Admin nachsieht, warum seit Tagen keine Sicherung mehr entsteht.
+    """
+    kopf = await anmelden(client, "admin")
+    await welt.global_settings.insert_one({
+        "type": "backup_encryption", "wrapped_password": b"nicht als Text abgelegt",
+    })
+
+    antwort = await client.get("/api/settings/backup-encryption", headers=kopf)
+
+    assert antwort.status_code == 200, antwort.text
+    assert antwort.json()["password_state"] == "unlesbar"
+    assert antwort.json()["password_configured"] is False
 
 
 async def test_wiederherstellung_ohne_passwort_legt_kein_klartext_netz_an(welt, client):
@@ -649,7 +886,56 @@ async def test_datei_von_vor_dem_umbau_wird_als_solche_gemeldet(welt, client):
         "Das ist die Folge, vor der die Warnung steht"
 
 
-# --- Die Meldung zum eindeutigen Index ----------------------------------------------------
+# --- Der eindeutige Index auf ipads.itnr --------------------------------------------------
+
+async def test_ensure_itnr_index_legt_den_index_wirklich_an(db):
+    """Nachgesehen wird in der Datenbank, nicht im Rückgabewert.
+
+    Die Funktion berichtet über sich selbst; ob der Index danach wirklich steht, sagt allein
+    die Datenbank. Und "steht" heißt eindeutig: ohne die Eindeutigkeit nimmt sie zwei Geräte
+    mit derselben ITNr klaglos auf - genau darauf verlässt sich der Batch-Upload, dessen
+    atomares ``$setOnInsert`` das Wettrennen zweier gleichzeitiger Läufe nur schließt, wenn
+    die zweite Einfügung an diesem Index scheitert.
+    """
+    await db.ipads.insert_one({
+        "id": "i1", "itnr": "IT-1", "snr": "SN-1", "status": "ok", "bildungsgang_id": "bg_meda",
+    })
+    assert "itnr_eindeutig" not in await db.ipads.index_information()
+
+    ergebnis = await ensure_itnr_index()
+
+    assert ergebnis["ok"] is True
+    index = (await db.ipads.index_information())["itnr_eindeutig"]
+    assert index["key"] == [("itnr", 1)]
+    assert index.get("unique") is True
+    with pytest.raises(DuplicateKeyError):
+        await db.ipads.insert_one({
+            "id": "i2", "itnr": "IT-1", "snr": "SN-2", "status": "ok", "bildungsgang_id": "bg_meda",
+        })
+
+
+async def test_ensure_itnr_index_entsteht_bei_dubletten_nicht_und_nennt_die_zahl(db):
+    """Gegenprobe: Steht dieselbe ITNr schon zweimal im Bestand, lässt die Datenbank den Index
+    nicht zu.
+
+    Die Anwendung läuft trotzdem weiter - ein Deploy auf eine unsaubere Datenbank darf nicht
+    die ganze Verwaltung stillstellen. Die Meldung muss dann aber die ANZAHL nennen: "bitte
+    bereinigen" ohne Zahl lässt denjenigen, der es liest, ratlos zurück.
+    """
+    await db.ipads.insert_many([
+        {"id": "i1", "itnr": "IT-1", "snr": "SN-1", "status": "ok", "bildungsgang_id": "bg_meda"},
+        {"id": "i2", "itnr": "IT-1", "snr": "SN-2", "status": "ok", "bildungsgang_id": "bg_meda"},
+        {"id": "i3", "itnr": "IT-3", "snr": "SN-3", "status": "ok", "bildungsgang_id": "bg_meda"},
+    ])
+
+    ergebnis = await ensure_itnr_index()
+
+    assert ergebnis["ok"] is False
+    assert ergebnis["duplikate"] == 1
+    assert "1 ITNr kommt mehrfach vor" in ergebnis["meldung"]
+    assert "itnr_eindeutig" not in await db.ipads.index_information(), \
+        "Was die Datenbank ablehnt, darf hinterher nicht doch dastehen"
+
 
 async def test_fehlender_index_ohne_dubletten_behauptet_keine(welt, client):
     """Fehlt der Index, ohne dass es Dubletten gibt, darf die Meldung keine behaupten.

@@ -7,6 +7,10 @@ nirgends zu einem Namen auflösen.
 Zuständigkeiten werden nie gelöscht, sondern beendet (``bis`` gesetzt). Dadurch bleibt
 nachvollziehbar, wer wann verantwortlich war, und der Zugriff endet trotzdem sofort -
 siehe core.security.get_responsible_bildungsgang_ids.
+
+Diese Regel hat genau eine Ausnahme: mit einem gelöschten Bildungsgang verschwinden auch
+seine Zuständigkeiten, und zwar hart. Warum das die Historie nicht beschädigt, steht bei
+delete_bildungsgang an der Stelle selbst.
 """
 
 import re
@@ -156,6 +160,15 @@ async def delete_bildungsgang(bildungsgang_id: str, current_user: dict = Depends
             "Bitte diese zuerst einem anderen Bildungsgang zuordnen.",
         )
 
+    # Einzige Stelle, an der Zuständigkeits-Datensätze wirklich verschwinden statt beendet
+    # zu werden - entgegen der Regel im Modulkopf, und bewusst so:
+    # Die Historie beantwortet die Frage "wer war damals für dieses Gerät, diesen Schüler,
+    # diesen Vertrag zuständig?". Hier kann sie niemand mehr stellen, denn gelöscht wird nur
+    # ein Bildungsgang, dem nichts mehr gehört - die Sperre oben lässt nichts anderes durch.
+    # Lesbar wären die Einträge danach ohnehin nicht: jeder Leser geht entweder über die
+    # LAUFENDEN Zuständigkeiten (core.security, admin_users - beendete sieht er nie) oder
+    # über einen Bildungsgang (_zustaendige), den es dann nicht mehr gibt. Beendete Einträge
+    # blieben also unsichtbar liegen und wanderten in jede Sicherung mit.
     await db.zustaendigkeiten.delete_many({"bildungsgang_id": bildungsgang_id})
     await db.bildungsgaenge.delete_one({"id": bildungsgang_id})
     return {"message": f'Bildungsgang "{doc["name"]}" wurde gelöscht.'}

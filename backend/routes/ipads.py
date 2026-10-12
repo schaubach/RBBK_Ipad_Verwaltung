@@ -381,6 +381,12 @@ _VORLAGE_BEISPIEL_ITNRN = ("BEISPIEL-1", "BEISPIEL-2")
 # genauso wenig eine Lieferung.
 _BEISPIEL_ITNRN_VERGLEICH = frozenset(itnr.casefold() for itnr in _VORLAGE_BEISPIEL_ITNRN)
 
+# Die Namen aller gelesenen Spalten, kleingeschrieben - daran erkennt der Upload eine
+# mitkopierte Kopfzeile (siehe _ist_kopfzeile). Abgeleitet aus denselben Tabellen, aus denen
+# er die Zellen liest: eine spaeter ergaenzte Spalte ist damit sofort mitgedeckt, waehrend
+# eine eigene Liste hier beim ersten Zusatz auseinanderliefe.
+_SPALTENNAMEN_VERGLEICH = frozenset(spalte.casefold() for spalte in _VORLAGE_SPALTEN)
+
 
 def _zelle(row, spalte: str) -> Optional[str]:
     """Den Wert einer Importspalte lesen - None, wenn die Zelle leer ist.
@@ -395,6 +401,28 @@ def _zelle(row, spalte: str) -> Optional[str]:
     if isinstance(wert, float) and wert.is_integer():
         wert = int(wert)
     return safe_str(wert) or None
+
+
+def _ist_kopfzeile(itnr: str, row) -> bool:
+    """Ob die Zeile eine mitkopierte Ueberschriftenzeile ist statt einer Lieferzeile.
+
+    Wer mehrere Listen untereinander kopiert, nimmt die Ueberschriften der zweiten Liste mit.
+    pandas liest sie als gewoehnliche Datenzeile - und bis hierher legte der Upload daraus ein
+    Geraet mit der ITNr "ITNr" an, das anschliessend niemand zuordnen konnte.
+
+    Erkannt wird sie an den Spaltennamen selbst (_SPALTE_ITNR, _SPALTE_JE_FELD ueber
+    _SPALTENNAMEN_VERGLEICH) statt an einer eigenen Liste - kommt eine Spalte dazu, deckt die
+    Pruefung sie sofort mit ab.
+
+    Die Schluesselspalte muss ihren eigenen Namen tragen, und was sonst in der Zeile steht,
+    muss ebenfalls ein Spaltenname sein. Eine echte Lieferzeile faellt damit nicht herein: sie
+    traegt neben der ITNr eine Seriennummer oder einen Karton, und beides heisst nicht wie eine
+    Spalte.
+    """
+    if itnr.casefold() != _SPALTE_ITNR.casefold():
+        return False
+    uebrige = (_zelle(row, spalte) for spalte in _SPALTE_JE_FELD.values())
+    return all(wert.casefold() in _SPALTENNAMEN_VERGLEICH for wert in uebrige if wert)
 
 
 def _nachzutragen(vorhanden: dict, aus_datei: dict) -> dict:
@@ -508,7 +536,10 @@ async def batch_assign_import(
     die download_batch_assign_template ausgibt.
 
     Zeilen mit den Beispiel-ITNrn der eigenen Vorlage werden uebersprungen - die unveraendert
-    hochgeladene Vorlage ist keine Lieferliste, sondern der erste Versuch.
+    hochgeladene Vorlage ist keine Lieferliste, sondern der erste Versuch. Ebenso eine
+    mitkopierte Kopfzeile und jede ITNr, die in derselben Datei schon vorkam: beides sind
+    Eigenheiten der Liste, keine Geraete - gemeldet werden sie trotzdem, jede mit eigener
+    Zeile im Protokoll.
 
     Per row (matched globally by ITNr, atomically so concurrent runs can't create
     duplicate ITNr records for a brand-new device):
@@ -566,6 +597,10 @@ async def batch_assign_import(
     # ueber das outcome allein nicht auseinanderhaelt: im EIGENEN Bildungsgang wird quittiert
     # und nachgetragen, im fremden passiert nichts. Nur der zweite Fall ist "unveraendert".
     quittiert_im_eigenen_bildungsgang = 0
+    # Die ITNrn, die dieser Lauf bereits verarbeitet hat - gegen doppelte Zeilen in derselben
+    # Datei. Der eindeutige Index itnr_eindeutig hilft hier nicht: er verhindert ein zweites
+    # DOKUMENT, nicht eine zweite Buchung auf dasselbe Geraet.
+    gesehene_itnrn = set()
 
     for index, row in df.iterrows():
         row_number = index + 2  # account for header row
@@ -592,6 +627,23 @@ async def batch_assign_import(
             )
             continue
 
+        # Eigenes outcome, aus demselben Grund wie bei der Beispielzeile: die Kopfzeile ist
+        # kein Mangel der Liste, sondern gar keine Zeile. Unter "ungültig / Fehler" gezaehlt
+        # schickte sie den Admin auf die Suche nach einem Geraet, das es nicht gibt.
+        if _ist_kopfzeile(itnr, row):
+            rows_out.append(
+                {
+                    "row": row_number,
+                    "itnr": itnr,
+                    "snr": snr,
+                    "outcome": "kopfzeile",
+                    "assigned_to": None,
+                    "note": "Wiederholte Kopfzeile der Liste - übersprungen",
+                    "at": now_iso,
+                }
+            )
+            continue
+
         # Die Vorlage auszuprobieren heisst, sie herunterzuladen und wieder hochzuladen - und
         # bis hierher legte genau das zwei Geraete an, die es nie gab. Erkennbar unecht zu
         # sein reicht nicht: der Upload liest die Nummer, er liest sie nicht gegen.
@@ -611,6 +663,31 @@ async def batch_assign_import(
                 }
             )
             continue
+
+        # Dieselbe ITNr ein zweites Mal in DERSELBEN Datei: bis hierher lief die zweite Zeile
+        # in den Zweig "bereits im Bildungsgang" und haengte dem Geraet eine zweite
+        # Uebergabe-Quittung an - zwei Quittungen fuer eine Kiste, nur weil in der Lieferliste
+        # eine Zeile doppelt steht. Auch das ist kein Fehler der Daten, sondern eine Dublette
+        # der Liste, und bekommt deshalb ein eigenes outcome.
+        #
+        # Verglichen wird die ITNr unveraendert und nicht kleingeschrieben wie bei den
+        # Beispielzeilen: der Abgleich mit dem Bestand laeuft exakt ueber diesen Wert. Eine
+        # anders geschriebene Nummer IST dort ein anderes Geraet - sie hier zu schlucken,
+        # liesse ein Geraet stillschweigend unzugeordnet.
+        if itnr in gesehene_itnrn:
+            rows_out.append(
+                {
+                    "row": row_number,
+                    "itnr": itnr,
+                    "snr": snr,
+                    "outcome": "dublette",
+                    "assigned_to": None,
+                    "note": "ITNr steht in dieser Datei mehrfach - Zeile übersprungen",
+                    "at": now_iso,
+                }
+            )
+            continue
+        gesehene_itnrn.add(itnr)
 
         # Gross-/Kleinschreibung egal, wie im allgemeinen Import - "Defekt" und "defekt" sind
         # derselbe Status. Eine leere Status-Spalte ist kein Fehler; ein ausgefuellter Wert
@@ -834,6 +911,11 @@ async def batch_assign_import(
             # suchen. Ohne eigenen Zaehler fielen sie aus der Zusammenfassung heraus und die
             # Zahlen ergaeben nicht mehr die Zahl der Zeilen.
             "beispielzeile_count": counts["beispielzeile"],
+            # Aus demselben Grund eigene Zaehler: uebersprungen, aber kein Mangel der Daten -
+            # und ohne sie ergaeben die Zahlen der Zusammenfassung nicht mehr die Zahl der
+            # Zeilen.
+            "kopfzeile_count": counts["kopfzeile"],
+            "dublette_count": counts["dublette"],
             "invalid_rows": counts["invalid_row"],
             "error_count": counts["error"],
         },

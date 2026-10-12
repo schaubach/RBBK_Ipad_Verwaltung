@@ -44,6 +44,12 @@ async def geraet(db, ipad_id, bildungsgang_id):
     })
 
 
+async def zustaendigkeiten(db, bildungsgang_id: str) -> list:
+    """Die Datensätze selbst, nicht die Sicht darauf - in fester Reihenfolge vergleichbar."""
+    eintraege = await db.zustaendigkeiten.find({"bildungsgang_id": bildungsgang_id}).to_list(length=None)
+    return sorted(eintraege, key=lambda z: z["id"])
+
+
 async def sichtbare_ipads(client, kopf) -> list:
     antwort = await client.get("/api/ipads", headers=kopf)
     assert antwort.status_code == 200, antwort.text
@@ -302,6 +308,49 @@ async def test_loeschen_nimmt_die_zustaendigkeits_historie_mit(welt, client):
     assert (await client.delete(f"{PFAD}/bg_gym", headers=admin)).status_code == 200
     assert await welt.zustaendigkeiten.count_documents({"bildungsgang_id": "bg_gym"}) == 0
     assert await welt.zustaendigkeiten.count_documents({}) == 3, "Fremde Zuständigkeiten bleiben"
+
+
+async def test_abgelehntes_loeschen_laesst_die_zustaendigkeiten_unberuehrt(welt, client):
+    """Die Sperre ist die Begründung dafür, dass die Zuständigkeiten hart verschwinden dürfen.
+
+    Gelöscht wird nur ein Bildungsgang, dem nichts mehr gehört - erst deshalb kann die Frage
+    "wer war damals für dieses Gerät zuständig?" hinterher niemand mehr stellen. Hält die
+    Sperre nicht, oder wird vor ihr gelöscht, fällt die Begründung in sich zusammen: dann steht
+    das Gerät noch da und die Historie dazu ist weg.
+
+    Geprüft wird beides zusammen, weil nur das Zusammenspiel trägt: der Bildungsgang bleibt
+    stehen, seine Zuständigkeiten bleiben vollzählig, und der Zugriff besteht weiter.
+    """
+    await geraet(welt, "a", "bg_gym")
+    admin = await anmelden(client, "admin")
+    vorher = await zustaendigkeiten(welt, "bg_gym")
+    assert len(vorher) == 2, "eine laufende und eine beendete - beide stehen auf dem Spiel"
+
+    antwort = await client.delete(f"{PFAD}/bg_gym", headers=admin)
+
+    assert antwort.status_code == 400, antwort.text
+    assert await zustaendigkeiten(welt, "bg_gym") == vorher, "Ein abgelehntes Löschen darf nichts angefasst haben"
+    assert await sichtbare_ipads(client, await anmelden(client, "bakenecker")) == ["a"]
+
+
+async def test_loeschen_laesst_die_uebrigen_zustaendigkeiten_der_person_stehen(welt, client):
+    """Mitgelöscht wird nur, was an DIESEM Bildungsgang hing - nicht die Person.
+
+    Schaubach betreut MEDA und IT. Verschwindet IT, darf das weder sein Konto noch seinen
+    Zugriff auf MEDA berühren; nähme das Löschen die Person mit, verlöre jemand mit einem
+    einzigen Mausklick den Zugang zu seinem eigenen Bestand.
+    """
+    await geraet(welt, "a", "bg_meda")
+    admin = await anmelden(client, "admin")
+
+    antwort = await client.delete(f"{PFAD}/bg_it", headers=admin)
+
+    assert antwort.status_code == 200, antwort.text
+    assert await welt.zustaendigkeiten.count_documents({"bildungsgang_id": "bg_it"}) == 0
+    assert await welt.users.find_one({"id": "u_schaubach"}) is not None, "Die Person bleibt"
+    uebrig = await welt.zustaendigkeiten.find({"user_id": "u_schaubach"}).to_list(length=None)
+    assert [z["bildungsgang_id"] for z in uebrig] == ["bg_meda"]
+    assert await sichtbare_ipads(client, await anmelden(client, "schaubach")) == ["a"]
 
 
 async def test_loeschen_eines_unbekannten_bildungsgangs(welt, client):

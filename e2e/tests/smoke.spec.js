@@ -5,7 +5,7 @@ const { sammleSeitenfehler, oeffneTab } = require('./helpers');
 
 test.describe('Smoke @smoke', () => {
   test('Backend meldet sich gesund', async ({ request }) => {
-    const antwort = await request.get('http://localhost:8001/api/health');
+    const antwort = await request.get('/api/health');
     expect(antwort.ok()).toBeTruthy();
   });
 

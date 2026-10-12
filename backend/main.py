@@ -19,6 +19,7 @@ from core.config import client, limiter
 from core.middleware import SecurityHeadersMiddleware
 from core.router import api_router
 import routes  # noqa: F401  (import side-effect: registers all endpoints on api_router)
+from routes.auth import ensure_username_index
 from routes.backup import backup_scheduler_loop, ensure_itnr_index
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -66,6 +67,27 @@ async def create_indexes():
     sitzt, und nicht hier (ein Import in die andere Richtung waere ein Ringschluss).
     """
     await ensure_itnr_index()
+
+
+@app.on_event("startup")
+async def create_username_index():
+    """Der Benutzername ist der Schluessel der Anmeldung: das Konto wird allein ueber ihn
+    gesucht. Gibt es ihn zweimal, entscheidet der Zufall, wer sich anmeldet. Der Index sichert
+    die Eindeutigkeit in der Datenbank zu - die Ersteinrichtung und die Benutzerverwaltung
+    pruefen sie vorher, aber zwischen Pruefung und Einfuegen passt ein zweiter Aufruf.
+
+    Wie beim Index auf ipads.itnr gilt: laesst er sich nicht anlegen - praktisch immer wegen
+    doppelter Namen aus der Zeit davor -, laeuft die Anwendung trotzdem weiter. Sonst stuende
+    nach einem Deploy auf eine unsaubere Datenbank die ganze Verwaltung still, und niemand
+    kaeme mehr hinein, um die Dubletten zu bereinigen. Die Meldung im Log sagt, wie viele
+    Namen betroffen sind.
+
+    Anders als bei ipads.itnr braucht ihn keine Wiederherstellung neu: die ersetzt die
+    Benutzer mit delete_many/insert_many und laesst die Indexe stehen. Deshalb steht der
+    Aufruf nur hier, und die Funktion selbst in routes/auth.py - dort sitzt die
+    Ersteinrichtung, die ohne ihn ein zweites Admin-Konto anlegen koennte.
+    """
+    await ensure_username_index()
 
 
 @app.on_event("shutdown")

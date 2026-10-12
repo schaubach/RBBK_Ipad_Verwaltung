@@ -19,6 +19,7 @@ from core.security import (
     require_admin,
 )
 from fastapi import Depends, HTTPException
+from pymongo.errors import DuplicateKeyError
 from models.user import (
     User,
     UserCreate,
@@ -112,7 +113,14 @@ async def create_user(user_data: UserCreate, current_user: dict = Depends(get_cu
     )
 
     user_dict = prepare_for_mongo(new_user.dict())
-    await db.users.insert_one(user_dict)
+    try:
+        await db.users.insert_one(user_dict)
+    except DuplicateKeyError:
+        # Zwischen der Pruefung weiter oben und hier kann ein zweiter Aufruf denselben Namen
+        # angelegt haben. Seit username_eindeutig (siehe main.py) faengt die Datenbank das ab -
+        # der Aufrufer soll aber dieselbe Meldung sehen wie bei der Pruefung, nicht einen
+        # Serverfehler mit rohem Mongo-Text.
+        raise HTTPException(status_code=400, detail="Username already exists")
 
     # Return user response without password_hash
     return await _user_response(await db.users.find_one({"id": new_user.id}))

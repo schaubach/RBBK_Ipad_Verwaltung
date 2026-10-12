@@ -1407,6 +1407,127 @@ async def test_die_unveraendert_hochgeladene_vorlage_legt_kein_geraet_an(welt, c
     assert await welt.ipads.count_documents({}) == 0, "die Vorlage darf kein Gerät hinterlassen"
 
 
+# --- Eigenheiten der Liste: Kopfzeile und Dublette ----------------------------------------
+#
+# Beides sind keine Geräte und auch kein Mangel der Daten, sondern Spuren davon, wie die Liste
+# zustande kam. Sie gehören deshalb gemeldet und übersprungen - nicht unter "ungültig /
+# Fehler", wo sie den Admin auf die Suche nach einem Gerät schicken, das es nicht gibt.
+
+
+async def batch_import(client, kopf, inhalt):
+    return await client.post(
+        "/api/admin/ipads/batch-assign-import",
+        data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        files=anhang(inhalt),
+        headers=kopf,
+    )
+
+
+async def test_wiederholte_kopfzeile_legt_kein_geraet_namens_itnr_an(welt, client):
+    """Wer zwei Lieferlisten untereinander kopiert, nimmt die Überschriften der zweiten mit.
+
+    pandas liest sie als gewöhnliche Datenzeile - und bis vor kurzem entstand daraus ein Gerät
+    mit der ITNr "ITNr", das anschließend niemand zuordnen konnte und das im Bestand auch
+    niemand mehr als Versehen erkannte.
+
+    Die Zeilen davor und danach sind der eigentliche Gegenbeweis: die Liste wird nicht etwa
+    abgebrochen, sondern ganz normal weiterverarbeitet.
+    """
+    kopf = await anmelden(client, "admin")
+    liste = excel(
+        [
+            ("IT100", "SN100", "K-1", "ohne Apple Pencil", "iPad 9", "2024", "ok"),
+            SPALTEN_VOLL,
+            ("IT200", "SN200", "K-2", "ohne Apple Pencil", "iPad 9", "2024", "ok"),
+        ],
+        spalten=SPALTEN_VOLL,
+    )
+
+    antwort = await batch_import(client, kopf, liste)
+
+    assert antwort.status_code == 200, antwort.text
+    daten = antwort.json()
+    assert [zeile["outcome"] for zeile in daten["rows"]] == ["created", "kopfzeile", "created"], daten["rows"]
+    assert "Kopfzeile" in daten["rows"][1]["note"]
+
+    zusammenfassung = daten["summary"]
+    assert zusammenfassung["kopfzeile_count"] == 1
+    assert zusammenfassung["created_count"] == 2
+    assert zusammenfassung["invalid_rows"] == 0, "eine Kopfzeile ist kein Mangel der Liste"
+    assert zusammenfassung["error_count"] == 0
+    assert await welt.ipads.find_one({"itnr": "ITNr"}) is None, "die Überschrift ist kein Gerät"
+    assert sorted([g["itnr"] async for g in welt.ipads.find({})]) == ["IT100", "IT200"]
+
+
+async def test_kopfzeile_wird_auch_in_der_knappen_liste_erkannt(welt, client):
+    """Dieselbe Zeile in einer Liste aus nur ITNr und SNr - so sieht die Mehrheit aus.
+
+    Die Prüfung sieht die Spalten an, die die Datei MITBRINGT. Verlangte sie alle Spalten der
+    Vorlage, ginge sie an genau der Liste vorbei, die am häufigsten hochgeladen wird.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await batch_import(client, kopf, excel([("IT100", "SN100"), ("ITNr", "SNr")]))
+
+    assert antwort.status_code == 200, antwort.text
+    daten = antwort.json()
+    assert [zeile["outcome"] for zeile in daten["rows"]] == ["created", "kopfzeile"], daten["rows"]
+    assert await welt.ipads.find_one({"itnr": "ITNr"}) is None
+
+
+async def test_dieselbe_itnr_zweimal_quittiert_die_uebergabe_nur_einmal(welt, client):
+    """Eine doppelte Zeile in der Lieferliste darf keine zweite Quittung erzeugen.
+
+    Das Gerät gehört dem Bildungsgang schon; die zweite Zeile lief deshalb in den Zweig
+    "bereits im Bildungsgang" und hängte ihm eine weitere Übergabe an - zwei Quittungen für
+    eine Kiste, nur weil in der Liste eine Zeile doppelt steht. Später ließe sich dann nicht
+    mehr sagen, ob das Gerät einmal oder zweimal den Besitzer gewechselt hat.
+    """
+    await geraet(welt, "g1", "bg_meda", itnr="IT100")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await batch_import(client, kopf, excel([("IT100", "SN100"), ("IT100", "SN100")]))
+
+    assert antwort.status_code == 200, antwort.text
+    daten = antwort.json()
+    assert [zeile["outcome"] for zeile in daten["rows"]] == ["already_assigned", "dublette"], daten["rows"]
+    assert "mehrfach" in daten["rows"][1]["note"]
+
+    zusammenfassung = daten["summary"]
+    assert zusammenfassung["dublette_count"] == 1
+    assert zusammenfassung["quittiert_count"] == 1, "quittiert wurde genau einmal"
+    assert zusammenfassung["error_count"] == 0, "eine doppelte Zeile ist kein Fehler der Daten"
+    assert "1 bereits im Bildungsgang" in daten["message"]
+
+    verlauf = (await welt.ipads.find_one({"id": "g1"}))["pool_history"]
+    assert len(verlauf) == 1, verlauf
+    assert verlauf[0]["action"] == "assigned_by_admin"
+
+
+async def test_dieselbe_itnr_zweimal_legt_das_geraet_einmal_an(welt, client):
+    """Dasselbe bei einem Gerät, das die Liste erst anlegt - der häufigere Fall.
+
+    Die erste Zeile legt es an, die zweite fände es dann im eigenen Bildungsgang vor und
+    quittierte eine Übergabe, die nie stattgefunden hat. Der eindeutige Index auf ipads.itnr
+    hilft hier nicht: er verhindert ein zweites DOKUMENT, nicht eine zweite Buchung auf
+    dasselbe Gerät.
+    """
+    kopf = await anmelden(client, "admin")
+
+    antwort = await batch_import(client, kopf, excel([("IT500", "SN500"), ("IT500", "SN500")]))
+
+    assert antwort.status_code == 200, antwort.text
+    daten = antwort.json()
+    assert [zeile["outcome"] for zeile in daten["rows"]] == ["created", "dublette"], daten["rows"]
+    assert daten["summary"]["created_count"] == 1
+    assert daten["summary"]["dublette_count"] == 1
+
+    assert await welt.ipads.count_documents({}) == 1
+    neu = await welt.ipads.find_one({"itnr": "IT500"})
+    assert len(neu["pool_history"]) == 1, neu["pool_history"]
+    assert neu["pool_history"][0]["action"] == "created_and_assigned_by_admin"
+
+
 # --- Beim Anlegen und Bearbeiten: gekürzt speichern, leeren Typ auffüllen -----------------
 
 

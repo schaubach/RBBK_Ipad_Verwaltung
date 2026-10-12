@@ -58,7 +58,7 @@ test.describe.serial('Kernablauf', () => {
     await oeffneTab(page, 'Schüler');
     await page.getByRole('button', { name: 'Neuen Schüler anlegen' }).click();
 
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('alertdialog', { name: 'Neuen Schüler anlegen' });
     await dialog.locator('#sus_vorn').fill(SCHUELER.vorname);
     await dialog.locator('#sus_nachn').fill(SCHUELER.nachname);
     await dialog.locator('#sus_kl').fill(SCHUELER.klasse);
@@ -78,7 +78,7 @@ test.describe.serial('Kernablauf', () => {
     await oeffneTab(page, 'iPads');
     await page.getByRole('button', { name: 'Neues iPad anlegen' }).click();
 
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('alertdialog', { name: 'Neues iPad anlegen' });
     await dialog.locator('#itnr').fill(ITNR);
     await dialog.locator('#snr').fill(`SN${lauf}`);
     // Genau eine Zuständigkeit: keine Bildungsgang-Auswahl, das Backend setzt ihn selbst.
@@ -95,8 +95,7 @@ test.describe.serial('Kernablauf', () => {
     const zeile = page.getByRole('row').filter({ hasText: SCHUELER.nachname });
     await zeile.getByRole('button', { name: 'iPad zuordnen' }).click();
 
-    const dialog = page.getByRole('alertdialog');
-    await expect(dialog.getByText('Wählen Sie ein iPad für die Zuordnung aus.')).toBeVisible();
+    const dialog = page.getByRole('alertdialog', { name: 'iPad zuordnen' });
     await dialog.getByPlaceholder('iPad suchen (ITNr)...').fill(ITNR);
     await dialog.getByText(ITNR, { exact: true }).click();
 

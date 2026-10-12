@@ -17,6 +17,44 @@ import { downloadBlob } from '../../utils/download';
 // Zuständigkeiten tragen ISO-Zeitstempel; angezeigt wird nur das Datum.
 const formatDatum = (wert) => (wert ? new Date(wert).toLocaleDateString('de-DE') : '—');
 
+// Warum ein Abruf scheiterte, steht je nach Fall an anderer Stelle - ohne Antwort gibt es nur
+// die Meldung von axios ("Network Error"), und genau die ist der Unterschied zwischen
+// "nichts vorhanden" und "nicht gefragt".
+const fehlerText = (error) =>
+  error?.response?.data?.detail || error?.message || 'Unbekannter Fehler';
+
+// Die Antwort der Wiederherstellung nennt Sammlungen bei ihrem Datenbanknamen; in einer
+// Meldung an den Admin haben die nichts zu suchen.
+const SAMMLUNG_NAMEN = {
+  users: 'Benutzer',
+  bildungsgaenge: 'Bildungsgänge',
+  zustaendigkeiten: 'Zuständigkeiten',
+  students: 'Schüler',
+  ipads: 'Geräte',
+  assignments: 'Zuordnungen',
+  contracts: 'Verträge',
+  global_settings: 'Einstellungen',
+};
+const sammlungName = (name) => SAMMLUNG_NAMEN[name] || name;
+
+// „3 Schüler, 2 Geräte" - das Backend zählt je Sammlung, gelesen wird es am Stück.
+const ohneBildungsgangText = (ohne) => {
+  const eintraege = Object.entries(ohne || {});
+  if (eintraege.length === 0) return 'keine';
+  return eintraege.map(([name, anzahl]) => `${anzahl} ${sammlungName(name)}`).join(', ');
+};
+
+// itnr_index_ok kennt drei Antworten: steht, fehlt, ließ sich nicht feststellen (null).
+const itnrIndexText = (ergebnis) => {
+  if (ergebnis.itnr_index_ok) return 'steht';
+  if (ergebnis.itnr_index_ok === false) {
+    return ergebnis.itnr_duplikate
+      ? `fehlt — ${ergebnis.itnr_duplikate} ITNr ${ergebnis.itnr_duplikate === 1 ? 'kommt' : 'kommen'} mehrfach vor`
+      : 'fehlt';
+  }
+  return 'unbekannt';
+};
+
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -62,12 +100,20 @@ const UserManagement = () => {
   const [importingBackup, setImportingBackup] = useState(false);
   const [preRestoreBackups, setPreRestoreBackups] = useState([]);
   const [loadingPreRestoreBackups, setLoadingPreRestoreBackups] = useState(false);
+  // Was die letzte Wiederherstellung hinterlassen hat. Steht hier und nicht in einer
+  // Toast-Meldung: eine Wiederherstellung ist der folgenreichste Vorgang der Anwendung, und
+  // was sie an Warnungen meldet (herrenlose Datensätze, fehlende Sammlungen), ist nach drei
+  // Sekunden nicht erledigt.
+  const [importErgebnis, setImportErgebnis] = useState(null);
 
   // Central backup encryption password (any admin may set it). password_state kennt drei
   // Lagen ('fehlt' | 'unlesbar' | 'bereit'); password_configured allein verschweigt die
   // mittlere - siehe Backup-Sicherheit weiter unten.
   const [backupEncryption, setBackupEncryption] = useState({ password_configured: false, password_state: 'fehlt', message: '' });
   const [loadingBackupEncryption, setLoadingBackupEncryption] = useState(true);
+  // Grund, falls der Abruf scheitert. Ohne ihn bliebe der Anfangszustand stehen und „kein
+  // Passwort hinterlegt" sähe aus wie eine Auskunft, obwohl niemand gefragt hat.
+  const [backupEncryptionFehler, setBackupEncryptionFehler] = useState(null);
   const [newBackupPassword, setNewBackupPassword] = useState('');
   const [newBackupPasswordConfirm, setNewBackupPasswordConfirm] = useState('');
   const [savingBackupPassword, setSavingBackupPassword] = useState(false);
@@ -80,6 +126,9 @@ const UserManagement = () => {
   const [serverBackups, setServerBackups] = useState([]);
   const [serverBackupStatus, setServerBackupStatus] = useState(null);
   const [loadingServerBackups, setLoadingServerBackups] = useState(false);
+  // Dasselbe für Liste und Zustand der Server-Backups: „Noch keine vorhanden" ist eine
+  // Aussage über den Server, nicht über eine ausgebliebene Antwort.
+  const [serverBackupsFehler, setServerBackupsFehler] = useState(null);
   const [runningServerBackupNow, setRunningServerBackupNow] = useState(false);
 
   // Global settings (iPad defaults)
@@ -217,8 +266,10 @@ const UserManagement = () => {
     try {
       const response = await api.get('/settings/backup-encryption');
       setBackupEncryption(response.data);
+      setBackupEncryptionFehler(null);
     } catch (error) {
       console.error('Failed to load backup encryption status:', error);
+      setBackupEncryptionFehler(fehlerText(error));
     } finally {
       setLoadingBackupEncryption(false);
     }
@@ -233,8 +284,10 @@ const UserManagement = () => {
       ]);
       setServerBackups(listResponse.data);
       setServerBackupStatus(statusResponse.data);
+      setServerBackupsFehler(null);
     } catch (error) {
       console.error('Failed to load server backups:', error);
+      setServerBackupsFehler(fehlerText(error));
     } finally {
       setLoadingServerBackups(false);
     }
@@ -326,7 +379,14 @@ const UserManagement = () => {
     setRunningServerBackupNow(true);
     try {
       const response = await api.post('/backup/server-backups/run-now');
-      toast.success(response.data.message);
+      // Die Dateikopie ist der einzige Weg aus diesem Server heraus. Scheitert sie, gelingt
+      // das Backup trotzdem (GridFS) - aber es liegt dann nur in derselben Datenbank, die es
+      // sichern soll. Das ist keine Erfolgsmeldung.
+      if (response.data.file_error) {
+        toast.error(`Server-Backup erstellt, aber die Dateikopie ist fehlgeschlagen: ${response.data.file_error}`);
+      } else {
+        toast.success(response.data.message);
+      }
       await loadServerBackups();
     } catch (error) {
       toast.error(error.response?.data?.detail || 'Fehler beim Erstellen des Server-Backups');
@@ -425,6 +485,7 @@ const UserManagement = () => {
     }
 
     setImportingBackup(true);
+    setImportErgebnis(null);
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -435,12 +496,25 @@ const UserManagement = () => {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
-      toast.success(response.data.message);
+      // Die Bestandsaufnahme des Backends bleibt stehen, bis der Admin sie wegklickt. Der
+      // Toast sagt nur noch, dass es etwas zu lesen gibt - die Meldung selbst kann zehn
+      // Zeilen lang sein und nennt Dinge, die danach noch von Hand zu tun sind.
+      setImportErgebnis({ ok: true, ...response.data });
+      const warnungen = response.data.warnungen || [];
+      if (warnungen.length > 0) {
+        toast.warning('Wiederherstellung abgeschlossen — bitte die Hinweise unten lesen');
+      } else {
+        toast.success(response.data.message);
+      }
       await loadPreRestoreBackups();
 
     } catch (error) {
       console.error('Failed to import backup:', error);
-      toast.error(error.response?.data?.detail || 'Fehler beim Wiederherstellen des Backups');
+      // Auch das Scheitern bleibt stehen: die Meldung nennt den Namen des Sicherheitsnetzes,
+      // das danach von Hand zurückzuspielen ist.
+      const detail = error.response?.data?.detail || 'Fehler beim Wiederherstellen des Backups';
+      setImportErgebnis({ ok: false, detail });
+      toast.error(detail);
       await loadPreRestoreBackups();
     } finally {
       setImportingBackup(false);
@@ -547,7 +621,13 @@ const UserManagement = () => {
   // Drei Lagen, drei Anzeigen. "Hinterlegt, aber nicht entpackbar" sah bisher wie "alles gut"
   // aus, weil allein das Vorhandensein zaehlte - waehrend der Tagesjob seit Tagen scheiterte.
   // Dieser Fall ist ein Alarm, kein gruener Kasten.
-  const passwortZustand = backupEncryption.password_state || (backupEncryption.password_configured ? 'bereit' : 'fehlt');
+
+  // Vierte Lage, die nicht vom Server kommt: der Abruf ist gescheitert. Dann ist der Zustand
+  // unbekannt - und keine der drei Aussagen darf gemacht werden.
+  const passwortUnbekannt = Boolean(backupEncryptionFehler);
+  const passwortZustand = passwortUnbekannt
+    ? 'unbekannt'
+    : backupEncryption.password_state || (backupEncryption.password_configured ? 'bereit' : 'fehlt');
   const passwortBereit = passwortZustand === 'bereit';
   const passwortUnlesbar = passwortZustand === 'unlesbar';
 
@@ -939,7 +1019,9 @@ const UserManagement = () => {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            {passwortUnlesbar ? (
+            {passwortUnbekannt ? (
+              <AlertTriangle className="h-5 w-5 text-yellow-600" />
+            ) : passwortUnlesbar ? (
               <AlertTriangle className="h-5 w-5 text-red-600" />
             ) : passwortBereit ? (
               <Lock className="h-5 w-5 text-green-600" />
@@ -957,7 +1039,22 @@ const UserManagement = () => {
             <div className="text-center py-4">Lade Konfiguration...</div>
           ) : (
             <div className="space-y-6">
-              {passwortUnlesbar ? (
+              {passwortUnbekannt ? (
+                <div className="border-l-4 border-yellow-500 bg-yellow-50 p-3 rounded text-sm text-yellow-900 space-y-2">
+                  <div className="font-semibold flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                    Der Zustand des Backup-Passworts ließ sich nicht abrufen.
+                  </div>
+                  {/* "Der Server meldet" waere gelogen: oft kommt gar keine Antwort, und dann
+                      steht hier die Meldung des Browsers. */}
+                  <p>Grund: {backupEncryptionFehler}</p>
+                  <p>
+                    Ob ein Backup-Passwort hinterlegt ist und ob überhaupt Backups entstehen, ist damit
+                    offen — die Seite bitte neu laden, sobald der Server wieder antwortet. Ein Passwort
+                    lässt sich unten trotzdem setzen.
+                  </p>
+                </div>
+              ) : passwortUnlesbar ? (
                 <div className="border-l-4 border-red-500 bg-red-50 p-3 rounded text-sm text-red-800 space-y-2">
                   <div className="font-semibold flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 flex-shrink-0" />
@@ -984,7 +1081,7 @@ const UserManagement = () => {
               <div className="space-y-2 max-w-lg border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
                 <h4 className="font-medium text-blue-800 flex items-center gap-2">
                   <KeyRound className="h-4 w-4" />
-                  Backup-Passwort {passwortUnlesbar ? 'neu setzen' : passwortBereit ? 'ändern' : 'setzen'}
+                  Backup-Passwort {passwortUnbekannt ? 'setzen oder ändern' : passwortUnlesbar ? 'neu setzen' : passwortBereit ? 'ändern' : 'setzen'}
                 </h4>
                 <p className="text-xs text-blue-700 mb-2">
                   Mindestens 8 Zeichen. Gilt zentral für alle automatischen und manuellen Backups und wird
@@ -1068,11 +1165,13 @@ const UserManagement = () => {
             <Button
               onClick={handleRunServerBackupNow}
               disabled={runningServerBackupNow || !passwortBereit}
-              title={passwortUnlesbar
-                ? 'Das hinterlegte Backup-Passwort lässt sich nicht entpacken - bitte unter Backup-Sicherheit neu setzen'
-                : !passwortBereit
-                  ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)'
-                  : undefined}
+              title={passwortUnbekannt
+                ? 'Ob ein Backup-Passwort hinterlegt ist, ließ sich nicht abrufen (siehe Backup-Sicherheit)'
+                : passwortUnlesbar
+                  ? 'Das hinterlegte Backup-Passwort lässt sich nicht entpacken - bitte unter Backup-Sicherheit neu setzen'
+                  : !passwortBereit
+                    ? 'Bitte zuerst ein Backup-Passwort setzen (siehe Backup-Sicherheit)'
+                    : undefined}
               variant="outline"
             >
               <RefreshCw className="h-4 w-4 mr-2" />
@@ -1081,7 +1180,27 @@ const UserManagement = () => {
           </div>
         </CardHeader>
         <CardContent>
-          {!passwortBereit && (
+          {passwortUnbekannt && (
+            <div className="text-sm text-yellow-900 bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded flex items-start gap-2 mb-4">
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span>
+                Ob ein Backup-Passwort hinterlegt ist, ließ sich nicht abrufen — damit ist auch offen,
+                ob die täglichen Server-Backups überhaupt entstehen. Siehe <strong>Backup-Sicherheit</strong> oben.
+              </span>
+            </div>
+          )}
+          {/* Der Abruf von Liste und Zustand hängt an einem Aufruf: scheitert er, ist beides
+              unbekannt - und was darunter steht, ist der Anfangszustand, nicht der Server. */}
+          {serverBackupsFehler && (
+            <div className="text-sm text-yellow-900 bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded flex items-start gap-2 mb-4">
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span>
+                Die Server-Backups ließen sich nicht abrufen — weder die Liste noch das Ergebnis des
+                letzten Laufs. Grund: {serverBackupsFehler}
+              </span>
+            </div>
+          )}
+          {!passwortUnbekannt && !passwortBereit && (
             <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2 mb-4">
               {passwortUnlesbar ? <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" /> : <Unlock className="h-4 w-4 mt-0.5 flex-shrink-0" />}
               <span>
@@ -1117,14 +1236,50 @@ const UserManagement = () => {
               {serverBackupStatus.last_error ? `: ${serverBackupStatus.last_error}` : '.'}
             </div>
           )}
+          {/* Das Backup selbst gelingt, die Dateikopie scheitert: dann liegt die Sicherung nur in
+              derselben Datenbank, die sie sichern soll, und die Abholung außer Haus bekommt
+              nichts. Der Lauf zählt als Erfolg - sichtbar gehört es trotzdem. */}
+          {serverBackupStatus?.last_file_error && (
+            <div className="text-sm text-red-800 bg-red-50 border-l-4 border-red-400 p-3 rounded flex items-start gap-2 mb-4">
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span>
+                <strong>Die Dateikopie des letzten Backups ist fehlgeschlagen.</strong> Die Sicherung liegt
+                in der Datenbank, aber nicht als Datei — damit holt der Sync nichts außer Haus, und es gibt
+                keine Kopie außerhalb dieses Servers.
+                <div className="mt-1">{serverBackupStatus.last_file_error}</div>
+              </span>
+            </div>
+          )}
+          {/* Der Tageslauf ueberspringt, wenn sich am Bestand nichts geaendert hat. Ohne diesen
+              Zweig verschwaende die Statuszeile ab dem ersten uebersprungenen Lauf ganz - und
+              wer nachsieht, ob die Sicherung laeuft, fande gar nichts mehr vor. */}
+          {serverBackupStatus?.last_status === 'unveraendert' && serverBackupStatus.last_run_at && (
+            <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded mb-4">
+              Letztes automatisches Server-Backup: {new Date(serverBackupStatus.last_run_at).toLocaleString('de-DE')}
+              {' — '}<span className="text-green-700 font-medium">unverändert, keine neue Sicherung nötig</span>
+              {serverBackupStatus.last_completed_at && (
+                <div className="mt-1 text-gray-500">
+                  zuletzt geprüft: {new Date(serverBackupStatus.last_completed_at).toLocaleString('de-DE')}
+                </div>
+              )}
+            </div>
+          )}
           {serverBackupStatus && serverBackupStatus.last_status === 'success' && serverBackupStatus.last_run_at && (
             <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded mb-4">
               Letztes automatisches Server-Backup: {new Date(serverBackupStatus.last_run_at).toLocaleString('de-DE')}
-              {' — '}<span className="text-green-700 font-medium">erfolgreich</span>
+              {serverBackupStatus.last_file_error ? (
+                <>{' — '}<span className="text-red-700 font-medium">nur in der Datenbank, ohne Dateikopie</span></>
+              ) : (
+                <>{' — '}<span className="text-green-700 font-medium">erfolgreich</span></>
+              )}
             </div>
           )}
           {loadingServerBackups ? (
             <div className="text-center py-4">Lade Server-Backups...</div>
+          ) : serverBackupsFehler ? (
+            <div className="text-sm text-gray-500">
+              Die Liste ließ sich nicht abrufen — ob Server-Backups vorhanden sind, ist unbekannt.
+            </div>
           ) : serverBackups.length === 0 ? (
             <div className="text-sm text-gray-500">Noch keine Server-Backups vorhanden.</div>
           ) : (
@@ -1194,6 +1349,77 @@ const UserManagement = () => {
                 )}
               </div>
             </div>
+
+            {/* Das Ergebnis der letzten Wiederherstellung. Es verschwindet erst auf Klick: was hier
+                steht, ist nach dem Einspielen von Hand zu erledigen (ITNr nachtragen, Bildungsgänge
+                zuordnen, Wanderungsskript laufen lassen) - eine Meldung, die von allein geht, hätte
+                das schon vergessen, bevor jemand sie abarbeiten konnte. */}
+            {importErgebnis && (
+              <div
+                className={`border-l-4 p-4 rounded space-y-3 text-sm ${
+                  !importErgebnis.ok
+                    ? 'border-red-500 bg-red-50 text-red-800'
+                    : importErgebnis.warnungen?.length
+                      ? 'border-yellow-500 bg-yellow-50 text-yellow-900'
+                      : 'border-green-400 bg-green-50 text-green-800'
+                }`}
+              >
+                <div className="font-semibold flex items-center gap-2">
+                  {(!importErgebnis.ok || importErgebnis.warnungen?.length > 0) && (
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  )}
+                  {!importErgebnis.ok
+                    ? 'Die Wiederherstellung ist fehlgeschlagen'
+                    : importErgebnis.warnungen?.length
+                      ? 'Wiederherstellung abgeschlossen — mit Warnungen'
+                      : 'Wiederherstellung abgeschlossen'}
+                </div>
+
+                {!importErgebnis.ok ? (
+                  <p>{importErgebnis.detail}</p>
+                ) : (
+                  <>
+                    {(importErgebnis.warnungen || []).map((warnung, index) => (
+                      <div
+                        key={index}
+                        className="flex items-start gap-2 bg-white border border-yellow-300 rounded p-2"
+                      >
+                        <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0 text-yellow-700" />
+                        <span>{warnung}</span>
+                      </div>
+                    ))}
+                    <div className="bg-white border rounded p-3 space-y-1 text-gray-800">
+                      <div>
+                        <span className="font-medium">Sicherheits-Backup vorher angelegt:</span>{' '}
+                        {importErgebnis.pre_restore_backup || '—'}
+                      </div>
+                      <div>
+                        <span className="font-medium">Fehlende Sammlungen:</span>{' '}
+                        {importErgebnis.fehlende_sammlungen?.length
+                          ? importErgebnis.fehlende_sammlungen.map(sammlungName).join(', ')
+                          : 'keine'}
+                      </div>
+                      <div>
+                        <span className="font-medium">Datensätze ohne Bildungsgang:</span>{' '}
+                        {ohneBildungsgangText(importErgebnis.ohne_bildungsgang)}
+                      </div>
+                      <div>
+                        <span className="font-medium">Geräte ohne ITNr:</span>{' '}
+                        {importErgebnis.geraete_ohne_itnr || 0}
+                      </div>
+                      <div>
+                        <span className="font-medium">Eindeutiger Index auf ITNr:</span>{' '}
+                        {itnrIndexText(importErgebnis)}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <Button variant="outline" size="sm" onClick={() => setImportErgebnis(null)}>
+                  Hinweis gelesen
+                </Button>
+              </div>
+            )}
 
             <div className="border-l-4 border-gray-400 bg-gray-50 p-4 rounded mt-4">
               <h4 className="font-medium text-gray-800 mb-2 flex items-center gap-2">

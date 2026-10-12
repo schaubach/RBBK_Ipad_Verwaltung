@@ -221,6 +221,10 @@ wait_for_services() {
     echo ""
 }
 
+# Zustand des Admin-Kontos nach init_database: vorhanden | angelegt | fehlt. Vorbelegt mit dem
+# ungünstigsten Fall, damit der Abschlussbericht niemals Zugangsdaten nennt, die es nicht gibt.
+ADMIN_ZUSTAND="fehlt"
+
 # Initialisiere Datenbank mit Admin-User
 init_database() {
     print_step "Initialisiere Datenbank..."
@@ -229,19 +233,46 @@ init_database() {
     ADMIN_EXISTS=$(docker exec ipad_mongodb mongosh iPadDatabase --quiet --eval "db.users.countDocuments({role: 'admin'})")
 
     if [ "$ADMIN_EXISTS" -gt 0 ]; then
+        ADMIN_ZUSTAND="vorhanden"
         print_success "Admin-User bereits vorhanden"
     else
         print_warning "Erstelle Admin-User..."
 
-        # Der einzige echte Setup-Endpunkt: legt admin/admin123 an, falls noch kein Admin existiert.
-        # Idempotent - kann gefahrlos mehrfach aufgerufen werden.
+        # Der Setup-Endpunkt legt nur noch an, wenn die Benutzerliste völlig leer ist. In jedem
+        # anderen Fall antwortet er mit ein und derselben knappen Meldung - absichtlich, damit ein
+        # unangemeldeter Aufrufer nicht erfährt, in welchem Zustand die Anlage ist. Für uns heißt
+        # das: Nur der Anlege-Text zählt als Erfolg; eine Antwort mit irgendeinem "message"-Feld
+        # bedeutet gar nichts. Genau darauf hat diese Prüfung früher hereingefallen.
         RESPONSE=$(curl -s -X POST http://localhost:8001/api/auth/setup)
 
-        if echo "$RESPONSE" | grep -q "message"; then
-            print_success "Admin-Setup ausgeführt (Login mit admin/admin123 möglich)"
+        if echo "$RESPONSE" | grep -q "Admin user created successfully"; then
+            ADMIN_ZUSTAND="angelegt"
+            print_success "Admin-User angelegt (Login mit admin/admin123 möglich)"
         else
-            print_warning "Admin-User konnte nicht über die API erstellt werden - Antwort: $RESPONSE"
-            print_warning "Beim ersten Öffnen der Login-Seite wird der Setup-Aufruf automatisch wiederholt."
+            print_error "Es wurde KEIN Admin-User angelegt - Antwort des Servers: $RESPONSE"
+
+            # Warum nichts angelegt wurde, verrät der Endpunkt bewusst nicht. Hier läuft das
+            # Skript aber auf dem Server selbst - also fragen wir die Datenbank direkt, um dem
+            # Betreiber sagen zu können, was er nun tun muss. Ein Fehlschlag dieser Abfrage darf
+            # die Installation nicht abbrechen: Sie dient allein dem Hinweis.
+            BENUTZER_GESAMT=$(docker exec ipad_mongodb mongosh iPadDatabase --quiet --eval "db.users.countDocuments({})" 2>/dev/null || true)
+
+            if [ "${BENUTZER_GESAMT:-x}" -gt 0 ] 2>/dev/null; then
+                print_warning "Die Datenbank enthält $BENUTZER_GESAMT Benutzer, aber keinen Administrator."
+                print_warning "Der Setup-Endpunkt legt aus Sicherheitsgründen nur in eine völlig leere"
+                print_warning "Benutzerliste an - sonst stünde die Verwaltung jedem offen, der das"
+                print_warning "Standardpasswort kennt. Die Login-Seite wiederholt den Aufruf deshalb"
+                print_warning "auch NICHT. Ein Admin muss von Hand nachgetragen werden, zum Beispiel:"
+                echo ""
+                echo -e "  ${YELLOW}docker exec ipad_mongodb mongosh iPadDatabase --eval 'db.users.updateOne({username: \"IHR_BENUTZER\"}, {\$set: {role: \"admin\", is_active: true}})'${NC}"
+            elif [ "$BENUTZER_GESAMT" = "0" ]; then
+                print_warning "Die Benutzerliste ist leer - der Aufruf kam also gar nicht durch"
+                print_warning "(Backend noch nicht bereit oder nicht erreichbar)."
+                print_warning "Beim ersten Öffnen der Login-Seite wird der Setup-Aufruf wiederholt."
+            else
+                print_warning "Die Benutzerliste ließ sich nicht abfragen (Antwort: ${BENUTZER_GESAMT:-leer})."
+                print_warning "Bitte von Hand prüfen, ob ein Administrator-Konto existiert."
+            fi
         fi
     fi
 
@@ -260,12 +291,28 @@ print_final_info() {
     echo -e "  Backend:  ${GREEN}http://localhost:8001${NC}"
     echo -e "  API Docs: ${GREEN}http://localhost:8001/docs${NC}"
     echo ""
-    echo -e "${BLUE}Standard-Login:${NC}"
-    echo -e "  Benutzername: ${YELLOW}admin${NC}"
-    echo -e "  Passwort:     ${YELLOW}admin123${NC}"
-    echo -e "  Rolle:        ${YELLOW}Administrator${NC}"
-    echo ""
-    echo -e "${RED}⚠  WICHTIG: Ändern Sie das Admin-Passwort nach dem ersten Login!${NC}"
+    # Die Standard-Zugangsdaten nur nennen, wenn dieser Lauf das Konto auch wirklich angelegt
+    # hat. Sonst versprechen sie einen Login, den es nicht gibt - und im Fall "fehlt" wiegten
+    # sie den Betreiber in Sicherheit, obwohl er von Hand eingreifen muss.
+    case "$ADMIN_ZUSTAND" in
+        angelegt)
+            echo -e "${BLUE}Standard-Login:${NC}"
+            echo -e "  Benutzername: ${YELLOW}admin${NC}"
+            echo -e "  Passwort:     ${YELLOW}admin123${NC}"
+            echo -e "  Rolle:        ${YELLOW}Administrator${NC}"
+            echo ""
+            echo -e "${RED}⚠  WICHTIG: Ändern Sie das Admin-Passwort nach dem ersten Login!${NC}"
+            ;;
+        vorhanden)
+            echo -e "${BLUE}Login:${NC}"
+            echo -e "  Mit dem vorhandenen Administrator-Konto anmelden."
+            ;;
+        *)
+            echo -e "${RED}⚠  Es existiert KEIN Administrator-Konto!${NC}"
+            echo -e "${RED}   Die Anwendung läuft, aber niemand kann sie verwalten.${NC}"
+            echo -e "${RED}   Siehe die Hinweise oben unter \"Initialisiere Datenbank\".${NC}"
+            ;;
+    esac
     echo ""
     echo -e "${BLUE}Nützliche Befehle:${NC}"
     echo -e "  In config-Verzeichnis:   ${YELLOW}cd config${NC}"

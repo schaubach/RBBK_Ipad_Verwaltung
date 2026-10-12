@@ -427,6 +427,26 @@ def _geraete_ohne_itnr(records) -> int:
     return anzahl
 
 
+def _doppelte_benutzernamen_in_datei(records) -> list:
+    """Benutzernamen, die in der Datei mehrfach vorkommen - in der Reihenfolge ihres Auftretens.
+
+    Gegen denselben Index geprueft, den die Datenbank anlegt: fehlender Name und None sind
+    derselbe Schluessel, sonst liesse sich eine Datei einspielen, die beim Schreiben scheitert.
+    """
+    if not isinstance(records, list):
+        return []
+    gesehen, doppelt = set(), []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        name = record.get("username")
+        schluessel = name if isinstance(name, str) and name else None
+        if schluessel in gesehen and (schluessel or "") not in doppelt:
+            doppelt.append(schluessel or "(ohne Benutzernamen)")
+        gesehen.add(schluessel)
+    return doppelt
+
+
 def pruefe_backup_inhalt(backup_data: dict) -> dict:
     """Bestandsaufnahme einer hochgeladenen Datei: was fehlt, was ist herrenlos, wie alt ist sie.
 
@@ -632,6 +652,19 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
             "ein Gerät, deshalb wird nichts eingespielt. Bitte die Dubletten in der Datei bereinigen. "
             "Geräte ohne ITNr zählen dabei mit: für den eindeutigen Index sind auch zwei leere "
             "Felder dieselbe Nummer."
+        ))
+
+    # Seit username_eindeutig (siehe main.py) gilt fuer Benutzernamen dasselbe wie fuer die
+    # ITNr: eine Datei mit demselben Namen zweimal brachte die Wiederherstellung sonst mitten
+    # im Schreiben zu Fall, mit rohem Mongo-Text als Begruendung.
+    doppelte_namen = _doppelte_benutzernamen_in_datei(backup_data.get("users"))
+    if doppelte_namen:
+        gezeigt = ", ".join(doppelte_namen[:10])
+        rest = f" (und {len(doppelte_namen) - 10} weitere)" if len(doppelte_namen) > 10 else ""
+        raise HTTPException(status_code=400, detail=(
+            f"Die Datei enthält denselben Benutzernamen mehrfach: {gezeigt}{rest}. Ein Name "
+            "bezeichnet genau ein Konto, deshalb wird nichts eingespielt. Bitte die Dubletten "
+            "in der Datei bereinigen."
         ))
 
     befund = pruefe_backup_inhalt(backup_data)
@@ -885,8 +918,9 @@ async def set_backup_encryption_password(payload: BackupPasswordUpdate, current_
 
 BACKUP_SCHEDULE_CHECK_INTERVAL_SECONDS = 3600  # check hourly whether the daily backup is due
 async def _record_schedule_failure(settings_type: str, message: str):
-    """Record a failed scheduled run without touching ``last_run_at``, so the next hourly tick
-    retries instead of the failure silently counting as "done for today"."""
+    """Record a failed scheduled run without touching ``last_run_at`` or ``last_completed_at``,
+    so the next hourly tick retries instead of the failure silently counting as "done for
+    today"."""
     await db.global_settings.update_one(
         {"type": settings_type},
         {"$set": {
@@ -901,6 +935,11 @@ async def _record_schedule_failure(settings_type: str, message: str):
 # --- Daily server-side backup, stored in MongoDB via GridFS and as a file copy on the host. ---
 
 SERVER_BACKUP_RETENTION_DAYS = 20
+# Dritter Wert neben "success" und "error": der Tageslauf ist durchgelaufen, hat aber nichts
+# geschrieben, weil sich seit der letzten Sicherung nichts geaendert hat. Als "success" verbucht
+# haette er behauptet, es sei heute eine Sicherung entstanden - und genau darauf sieht, wer
+# wissen will, wie frisch die neueste ist.
+SERVER_BACKUP_STATUS_UNVERAENDERT = "unveraendert"
 # Beim Aufraeumen immer behalten, unabhaengig vom Alter. Noetig wegen der Entdoppelung weiter
 # unten: aendert sich ueber Wochen nichts (Ferien), entstehen keine neuen Backups - ohne diese
 # Untergrenze wuerden die vorhandenen nacheinander wegaltern, bis gar keines mehr da ist.
@@ -916,14 +955,22 @@ SERVER_BACKUP_CATCHUP_AFTER_DAYS = 2
 
 
 def _server_backup_due(state: dict, now_local: Optional[datetime] = None) -> bool:
-    """True if today has no successful backup yet and the configured hour has passed.
+    """True if today's run is still open and the configured hour has passed.
 
-    Ein fehlgeschlagener Lauf laesst ``last_run_at`` unberuehrt (siehe _record_schedule_failure)
-    und gilt hier deshalb weiter als "heute noch nichts" - er wird beim naechsten stuendlichen
-    Tick erneut versucht. ``now_local`` dient nur dem Test.
+    Massgeblich ist ``last_completed_at``, nicht ``last_run_at``: ein Lauf, der nichts
+    geschrieben hat, weil der Bestand unveraendert war, ist fuer heute trotzdem erledigt.
+    Wuerde hier der Zeitpunkt der letzten geschriebenen Sicherung zaehlen, baute der Job in
+    unveraenderten Wochen (Ferien) zu jedem stuendlichen Tick den gesamten Bestand neu
+    zusammen und verschluesselte ihn, nur um ihn wieder wegzuwerfen.
+
+    Ein fehlgeschlagener Lauf laesst beide Zeitpunkte unberuehrt (siehe
+    _record_schedule_failure) und gilt hier deshalb weiter als "heute noch nichts" - er wird
+    beim naechsten stuendlichen Tick erneut versucht. ``now_local`` dient nur dem Test.
     """
     now_local = now_local or datetime.now(SERVER_BACKUP_TIMEZONE)
-    last = _parse_iso_utc(state.get("last_run_at"))
+    # Vor diesem Feld stand nur last_run_at im Bestand; ohne den Rueckgriff liefe nach dem
+    # Aufspielen einmal ein Lauf los, der nicht faellig ist.
+    last = _parse_iso_utc(state.get("last_completed_at") or state.get("last_run_at"))
     if last is None:
         return True
     last_local = last.astimezone(SERVER_BACKUP_TIMEZONE)
@@ -1037,9 +1084,27 @@ async def save_server_backup(skip_if_unchanged: bool = False) -> dict:
     return result
 
 
+def _mit_zeitzone_iso(wert):
+    """Einen Zeitstempel aus der Datenbank mit Zeitzone ausliefern.
+
+    GridFS legt uploadDate als UTC OHNE Zeitzone ab, und so kommt es auch aus dem Treiber
+    zurueck. Ohne Kennzeichen liest der Browser den Zeitstempel als Ortszeit, waehrend
+    last_run_at daneben "+00:00" traegt und richtig umgerechnet wird - dieselbe Sicherung
+    erschien dadurch an zwei um den Zeitzonenversatz verschobenen Zeitpunkten. Was keine
+    Zeitangabe ist, geht unveraendert durch.
+    """
+    if isinstance(wert, datetime):
+        return (wert if wert.tzinfo else wert.replace(tzinfo=timezone.utc)).isoformat()
+    return wert
+
+
 @api_router.get("/backup/server-backups")
 async def list_server_backups(current_user: dict = Depends(get_current_user)):
-    """List the daily server-side backups stored in MongoDB (admin only, last 7 days retained)."""
+    """List the daily server-side backups stored in MongoDB (admin only).
+
+    Wie weit die Liste zurueckreicht, sagt das Aufraeumen in save_server_backup:
+    SERVER_BACKUP_RETENTION_DAYS, mindestens aber SERVER_BACKUP_KEEP_MINIMUM Sicherungen.
+    """
     require_admin(current_user)
     items = []
     cursor = db["backups.files"].find({}).sort("uploadDate", -1)
@@ -1048,7 +1113,7 @@ async def list_server_backups(current_user: dict = Depends(get_current_user)):
             "id": str(doc["_id"]),
             "filename": doc["filename"],
             "size_bytes": doc.get("length", 0),
-            "created_at": doc["uploadDate"].isoformat() if hasattr(doc["uploadDate"], "isoformat") else doc["uploadDate"],
+            "created_at": _mit_zeitzone_iso(doc.get("uploadDate")),
             "encrypted": bool((doc.get("metadata") or {}).get("encrypted")),
         })
     return items
@@ -1089,6 +1154,11 @@ async def get_server_backup_status(current_user: dict = Depends(get_current_user
 
     Without this the daily job could fail every night without anything surfacing in the UI -
     the backup list simply stayed empty.
+
+    Die drei Zeitpunkte sagen Verschiedenes: ``last_run_at`` ist die letzte GESCHRIEBENE
+    Sicherung, ``last_completed_at`` der letzte Lauf, der ohne Fehler durchkam (auch der
+    uebersprungene, siehe SERVER_BACKUP_STATUS_UNVERAENDERT), ``last_attempt_at`` auch der
+    gescheiterte Versuch. Wie frisch die neueste Sicherung ist, sagt allein last_run_at.
     """
     require_admin(current_user)
     state = await db.global_settings.find_one({"type": "server_backup_state"}) or {}
@@ -1097,6 +1167,7 @@ async def get_server_backup_status(current_user: dict = Depends(get_current_user
     index = await itnr_index_status()
     return {
         "last_run_at": state.get("last_run_at"),
+        "last_completed_at": state.get("last_completed_at"),
         "last_attempt_at": state.get("last_attempt_at"),
         "last_status": state.get("last_status"),
         "last_error": state.get("last_error"),
@@ -1120,6 +1191,9 @@ async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
             {"$set": {
                 "last_run_at": now_iso,
                 "last_attempt_at": now_iso,
+                # Von Hand ausgeloest, aber ein geschriebener Lauf wie jeder andere: damit ist
+                # der Tag erledigt und der Job um 16 Uhr faengt nicht noch einmal an.
+                "last_completed_at": now_iso,
                 "last_status": "success",
                 "last_error": None,
                 "last_file_path": result.get("file_path"),
@@ -1138,7 +1212,10 @@ async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
 
 async def run_scheduled_server_backup_check():
     """Create the daily server-side backup once per day from SERVER_BACKUP_HOUR onwards
-    (always on). A failed run is retried on the next hourly tick."""
+    (always on). A failed run is retried on the next hourly tick.
+
+    Ist der Bestand unveraendert, entsteht keine neue Sicherung; der Lauf wird dann auch nicht
+    als geschriebener verbucht (SERVER_BACKUP_STATUS_UNVERAENDERT)."""
     state = await db.global_settings.find_one({"type": "server_backup_state"}) or {}
     if not _server_backup_due(state):
         return
@@ -1146,14 +1223,23 @@ async def run_scheduled_server_backup_check():
     try:
         result = await save_server_backup(skip_if_unchanged=True)
         now_iso = datetime.now(timezone.utc).isoformat()
+        # Erledigt ist der Tageslauf in beiden Faellen - danach richtet sich, ob der naechste
+        # stuendliche Tick noch einmal anfaengt. Geschrieben wurde nur im einen, und nur dann
+        # darf last_run_at vorruecken: sonst meldete der Status eine Sicherung von heute,
+        # waehrend die neueste in Wirklichkeit Wochen alt ist. Dasselbe gilt fuer die
+        # Dateikopie - ohne neue Sicherung gibt es auch keinen neuen Pfad und keinen neuen
+        # Fehler dazu, der alte Vermerk bleibt stehen.
         update = {
-            "last_run_at": now_iso,
             "last_attempt_at": now_iso,
-            "last_status": "success",
+            "last_completed_at": now_iso,
             "last_error": None,
             "last_payload_sha256": result.get("payload_sha256"),
         }
-        if not result.get("skipped"):
+        if result.get("skipped"):
+            update["last_status"] = SERVER_BACKUP_STATUS_UNVERAENDERT
+        else:
+            update["last_run_at"] = now_iso
+            update["last_status"] = "success"
             update["last_file_path"] = result.get("file_path")
             update["last_file_error"] = result.get("file_error")
         await db.global_settings.update_one(
