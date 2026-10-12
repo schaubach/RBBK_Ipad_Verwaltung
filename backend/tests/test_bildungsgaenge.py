@@ -38,10 +38,17 @@ def beendete(bildungsgang: dict) -> set:
 
 
 async def geraet(db, ipad_id, bildungsgang_id):
-    await db.ipads.insert_one({
-        "id": ipad_id, "bildungsgang_id": bildungsgang_id, "is_in_pool": False,
-        "itnr": f"IT{ipad_id}", "snr": f"SN{ipad_id}", "status": "ok", "user_id": "u_admin",
-    })
+    await db.ipads.insert_one(
+        {
+            "id": ipad_id,
+            "bildungsgang_id": bildungsgang_id,
+            "is_in_pool": False,
+            "itnr": f"IT{ipad_id}",
+            "snr": f"SN{ipad_id}",
+            "status": "ok",
+            "user_id": "u_admin",
+        }
+    )
 
 
 async def zustaendigkeiten(db, bildungsgang_id: str) -> list:
@@ -102,9 +109,7 @@ async def test_nur_admin_darf_loeschen(welt, client):
 
 async def test_nur_admin_darf_zustaendige_eintragen(welt, client):
     lehrkraft = await anmelden(client, "schaubach")
-    antwort = await client.post(
-        f"{PFAD}/bg_meda/zustaendige", json={"user_id": "u_bakenecker"}, headers=lehrkraft
-    )
+    antwort = await client.post(f"{PFAD}/bg_meda/zustaendige", json={"user_id": "u_bakenecker"}, headers=lehrkraft)
     assert antwort.status_code == 403
     assert await welt.zustaendigkeiten.count_documents({"user_id": "u_bakenecker"}) == 1
 
@@ -360,8 +365,7 @@ async def test_loeschen_eines_unbekannten_bildungsgangs(welt, client):
 
 async def test_loeschen_zaehlt_den_gesamten_bestand_auf(welt, client):
     """Die Meldung muss sagen, was im Weg steht - sonst sucht der Admin blind."""
-    await welt.ipads.insert_many([{"id": "a", "bildungsgang_id": "bg_gym"},
-                                  {"id": "b", "bildungsgang_id": "bg_gym"}])
+    await welt.ipads.insert_many([{"id": "a", "bildungsgang_id": "bg_gym"}, {"id": "b", "bildungsgang_id": "bg_gym"}])
     await welt.students.insert_one({"id": "s", "bildungsgang_id": "bg_gym"})
     admin = await anmelden(client, "admin")
 
@@ -386,9 +390,7 @@ async def test_neuer_bildungsgang_wird_erst_durch_eine_zustaendigkeit_nutzbar(we
     lehrkraft = await anmelden(client, "bakenecker")
     assert await sichtbare_ipads(client, lehrkraft) == [], "Ein neuer Bildungsgang gehört niemandem"
 
-    antwort = await client.post(
-        f"{PFAD}/{neu['id']}/zustaendige", json={"user_id": "u_bakenecker"}, headers=admin
-    )
+    antwort = await client.post(f"{PFAD}/{neu['id']}/zustaendige", json={"user_id": "u_bakenecker"}, headers=admin)
     assert antwort.status_code == 200, antwort.text
     assert await sichtbare_ipads(client, lehrkraft) == ["p"]
 
@@ -426,17 +428,26 @@ async def test_dieselbe_person_kann_nicht_zweimal_eingetragen_werden(welt, clien
     antwort = await client.post(f"{PFAD}/bg_meda/zustaendige", json={"user_id": "u_schaubach"}, headers=admin)
     assert antwort.status_code == 400
     assert "bereits zuständig" in antwort.json()["detail"]
-    assert await welt.zustaendigkeiten.count_documents(
-        {"bildungsgang_id": "bg_meda", "user_id": "u_schaubach", "bis": None}
-    ) == 1
+    assert (
+        await welt.zustaendigkeiten.count_documents(
+            {"bildungsgang_id": "bg_meda", "user_id": "u_schaubach", "bis": None}
+        )
+        == 1
+    )
 
 
 async def test_deaktiviertes_konto_kann_nicht_zustaendig_werden(welt, client):
     """Ein deaktiviertes Konto kann sich nicht anmelden - eine Zuständigkeit daran wäre
     ein Bildungsgang, den niemand betreut, der aber betreut aussieht."""
-    await welt.users.insert_one({
-        "id": "u_ruhe", "username": "ruhe", "password_hash": "x", "role": "user", "is_active": False,
-    })
+    await welt.users.insert_one(
+        {
+            "id": "u_ruhe",
+            "username": "ruhe",
+            "password_hash": "x",
+            "role": "user",
+            "is_active": False,
+        }
+    )
     admin = await anmelden(client, "admin")
 
     antwort = await client.post(f"{PFAD}/bg_meda/zustaendige", json={"user_id": "u_ruhe"}, headers=admin)
@@ -500,12 +511,24 @@ async def test_zustaendige_stehen_je_gruppe_mit_dem_juengsten_beginn_zuerst(welt
 
     Wer nach einem Gerät aus 2023 sucht, fragt zuerst den Vorgänger, nicht den von 2019.
     """
-    await welt.zustaendigkeiten.insert_many([
-        {"id": "h_alt", "bildungsgang_id": "bg_meda", "user_id": "u_bakenecker",
-         "von": "2019-08-01T00:00:00+00:00", "bis": "2021-07-31T00:00:00+00:00"},
-        {"id": "h_neu", "bildungsgang_id": "bg_meda", "user_id": "u_ausgeschieden",
-         "von": "2021-08-01T00:00:00+00:00", "bis": "2023-07-31T00:00:00+00:00"},
-    ])
+    await welt.zustaendigkeiten.insert_many(
+        [
+            {
+                "id": "h_alt",
+                "bildungsgang_id": "bg_meda",
+                "user_id": "u_bakenecker",
+                "von": "2019-08-01T00:00:00+00:00",
+                "bis": "2021-07-31T00:00:00+00:00",
+            },
+            {
+                "id": "h_neu",
+                "bildungsgang_id": "bg_meda",
+                "user_id": "u_ausgeschieden",
+                "von": "2021-08-01T00:00:00+00:00",
+                "bis": "2023-07-31T00:00:00+00:00",
+            },
+        ]
+    )
     admin = await anmelden(client, "admin")
 
     namen = [z["username"] for z in (await hole(client, admin, "bg_meda"))["zustaendige"]]
@@ -518,12 +541,24 @@ async def test_aktuelle_zustaendige_stehen_ueber_den_beendeten(welt, client):
     Hier beginnt die beendete Zuständigkeit SPÄTER als die laufende. Sortierte die zweite
     Stufe (Beginn absteigend) die erste weg, stünde die ausgeschiedene Person oben.
     """
-    await welt.zustaendigkeiten.insert_many([
-        {"id": "h_frueh", "bildungsgang_id": "bg_meda", "user_id": "u_bakenecker",
-         "von": "2019-08-01T00:00:00+00:00", "bis": None},
-        {"id": "h_spaet", "bildungsgang_id": "bg_meda", "user_id": "u_ausgeschieden",
-         "von": "2025-08-01T00:00:00+00:00", "bis": "2026-07-31T00:00:00+00:00"},
-    ])
+    await welt.zustaendigkeiten.insert_many(
+        [
+            {
+                "id": "h_frueh",
+                "bildungsgang_id": "bg_meda",
+                "user_id": "u_bakenecker",
+                "von": "2019-08-01T00:00:00+00:00",
+                "bis": None,
+            },
+            {
+                "id": "h_spaet",
+                "bildungsgang_id": "bg_meda",
+                "user_id": "u_ausgeschieden",
+                "von": "2025-08-01T00:00:00+00:00",
+                "bis": "2026-07-31T00:00:00+00:00",
+            },
+        ]
+    )
     admin = await anmelden(client, "admin")
 
     zustaendige = (await hole(client, admin, "bg_meda"))["zustaendige"]
@@ -558,8 +593,6 @@ async def test_wiedereintragen_nach_dem_beenden_legt_einen_neuen_zeitraum_an(wel
     assert "ausgeschieden" in aktuelle(antwort.json())
     assert "ausgeschieden" in beendete(antwort.json()), "Der alte Zeitraum muss erhalten bleiben"
 
-    assert await welt.zustaendigkeiten.count_documents(
-        {"bildungsgang_id": "bg_gym", "user_id": "u_ausgeschieden"}
-    ) == 2
+    assert await welt.zustaendigkeiten.count_documents({"bildungsgang_id": "bg_gym", "user_id": "u_ausgeschieden"}) == 2
     rueckkehrer = await anmelden(client, "ausgeschieden")
     assert await sichtbare_ipads(client, rueckkehrer) == ["c"]

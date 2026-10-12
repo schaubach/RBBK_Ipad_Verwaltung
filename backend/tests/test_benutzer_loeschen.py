@@ -66,39 +66,43 @@ async def bestand_anlegen(db, user_id: str = "u_schaubach") -> dict:
     schueler += [_schueler(f"it{n}", "bg_it", user_id) for n in range(15)]
     await db.students.insert_many(schueler)
 
-    await db.assignments.insert_many([
-        {
-            "id": f"z_meda{n}",
-            "user_id": user_id,
-            "bildungsgang_id": "bg_meda",
-            "student_id": f"s_meda{n}",
-            "ipad_id": f"ip_meda{n}",
-            "itnr": f"ITmeda{n}",
-            "student_name": f"Vornamemeda{n} Nachnamemeda{n}",
-            "is_active": True,
-            "assigned_at": "2026-02-01T08:00:00+00:00",
-        }
-        for n in range(25)
-    ])
+    await db.assignments.insert_many(
+        [
+            {
+                "id": f"z_meda{n}",
+                "user_id": user_id,
+                "bildungsgang_id": "bg_meda",
+                "student_id": f"s_meda{n}",
+                "ipad_id": f"ip_meda{n}",
+                "itnr": f"ITmeda{n}",
+                "student_name": f"Vornamemeda{n} Nachnamemeda{n}",
+                "is_active": True,
+                "assigned_at": "2026-02-01T08:00:00+00:00",
+            }
+            for n in range(25)
+        ]
+    )
 
-    await db.contracts.insert_many([
-        {
-            "id": f"v_meda{n}",
-            "user_id": user_id,
-            "bildungsgang_id": "bg_meda",
-            "assignment_id": f"z_meda{n}",
-            "ipad_id": f"ip_meda{n}",
-            "student_id": f"s_meda{n}",
-            "itnr": f"ITmeda{n}",
-            "student_name": f"Vornamemeda{n} Nachnamemeda{n}",
-            "filename": f"Leihvertrag_meda{n}.pdf",
-            "file_data": PDF,
-            "form_fields": {"NutzungEinhaltung": "/Yes", "erz1Ort": "Dortmund"},
-            "uploaded_at": "2026-02-01T09:00:00+00:00",
-            "is_active": True,
-        }
-        for n in range(18)
-    ])
+    await db.contracts.insert_many(
+        [
+            {
+                "id": f"v_meda{n}",
+                "user_id": user_id,
+                "bildungsgang_id": "bg_meda",
+                "assignment_id": f"z_meda{n}",
+                "ipad_id": f"ip_meda{n}",
+                "student_id": f"s_meda{n}",
+                "itnr": f"ITmeda{n}",
+                "student_name": f"Vornamemeda{n} Nachnamemeda{n}",
+                "filename": f"Leihvertrag_meda{n}.pdf",
+                "file_data": PDF,
+                "form_fields": {"NutzungEinhaltung": "/Yes", "erz1Ort": "Dortmund"},
+                "uploaded_at": "2026-02-01T09:00:00+00:00",
+                "is_active": True,
+            }
+            for n in range(18)
+        ]
+    )
 
     return {"ipads": 124, "students": 45, "assignments": 25, "contracts": 18}
 
@@ -253,13 +257,19 @@ async def test_geraetehistorie_ueberlebt_die_loeschung(welt, client):
     await bestand_anlegen(welt)
     await welt.ipads.update_one(
         {"id": "ip_meda0"},
-        {"$set": {"pool_history": [{
-            "action": "batch_assign",
-            "by": "u_schaubach",
-            "bildungsgang_id": "bg_meda",
-            "uebergeben_an": {"user_id": "u_schaubach", "username": "schaubach"},
-            "at": "2026-02-01T08:00:00+00:00",
-        }]}},
+        {
+            "$set": {
+                "pool_history": [
+                    {
+                        "action": "batch_assign",
+                        "by": "u_schaubach",
+                        "bildungsgang_id": "bg_meda",
+                        "uebergeben_an": {"user_id": "u_schaubach", "username": "schaubach"},
+                        "at": "2026-02-01T08:00:00+00:00",
+                    }
+                ]
+            }
+        },
     )
     kopf_admin = await anmelden(client, "admin")
 
@@ -475,9 +485,7 @@ async def test_geloeschte_person_kann_sich_nicht_mehr_anmelden(welt, client):
     kopf = await anmelden(client, "admin")
     await client.delete(LOESCHEN.format("u_schaubach"), headers=kopf)
 
-    antwort = await client.post(
-        "/api/auth/login", json={"username": "schaubach", "password": "pw_schaubach_123"}
-    )
+    antwort = await client.post("/api/auth/login", json={"username": "schaubach", "password": "pw_schaubach_123"})
     assert antwort.status_code == 401
 
 

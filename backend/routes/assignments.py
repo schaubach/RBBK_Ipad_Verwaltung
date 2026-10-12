@@ -8,6 +8,9 @@ from datetime import UTC, datetime
 from typing import List, Optional
 
 import PyPDF2
+from fastapi import Depends, File, HTTPException, UploadFile
+from starlette.requests import Request
+
 from core.config import (
     MAX_IPADS_PER_STUDENT,
     db,
@@ -23,13 +26,11 @@ from core.security import (
     validate_resource_ownership,
 )
 from core.validators import validate_uploaded_file
-from fastapi import Depends, File, HTTPException, UploadFile
 from models.assignment import (
     Assignment,
     ManualAssignmentRequest,
 )
 from models.contract import Contract
-from starlette.requests import Request
 
 
 @api_router.post("/assignments/manual")
@@ -141,9 +142,7 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
 
         # Student update removed - no current_assignment_id field anymore (1:n relationship)
         # Assigning an iPad clears a prior "verweigert" mark - the person now has a device.
-        await db.students.update_one(
-            {"id": student["id"]}, {"$set": {"updated_at": now_iso, "ipad_refused": False}}
-        )
+        await db.students.update_one({"id": student["id"]}, {"$set": {"updated_at": now_iso, "ipad_refused": False}})
 
         return {
             "message": f"iPad {ipad['itnr']} erfolgreich {student['sus_vorn']} {student['sus_nachn']} zugewiesen",

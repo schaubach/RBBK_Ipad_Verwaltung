@@ -7,6 +7,10 @@ import io
 from datetime import datetime
 from typing import List
 
+from fastapi import Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
 from contract_generator import create_contracts_from_assignments
 from core.config import (
     db,
@@ -16,9 +20,6 @@ from core.security import (
     get_current_user,
     get_user_filter,
 )
-from fastapi import Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 
 # Contract Generation
@@ -63,9 +64,7 @@ async def generate_contracts(
             # Aufrufers: fuer einen Admin ist user_filter leer, die Zusicherung oben griffe
             # dann ausgerechnet dort nicht, wo sie gebraucht wird.
             herkunft = (
-                {"bildungsgang_id": assignment["bildungsgang_id"]}
-                if assignment.get("bildungsgang_id")
-                else user_filter
+                {"bildungsgang_id": assignment["bildungsgang_id"]} if assignment.get("bildungsgang_id") else user_filter
             )
             # Get student data
             student = await db.students.find_one({"id": assignment["student_id"], **herkunft})

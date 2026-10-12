@@ -11,18 +11,23 @@ the operating-system level moves it off site - see scripts/BACKUP-OFFSITE.md.
 
 import asyncio
 import base64
-import json
 import hashlib
+import json
 import logging
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 from bson.binary import Binary
+from fastapi import Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
+from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+from pydantic import BaseModel
+
 from core.config import ROOT_DIR, db
 from core.crypto import (
     decrypt_backup_bytes,
@@ -33,10 +38,6 @@ from core.crypto import (
 )
 from core.router import api_router
 from core.security import get_current_user, require_admin
-from fastapi import Depends, File, HTTPException, UploadFile
-from fastapi.responses import Response
-from motor.motor_asyncio import AsyncIOMotorGridFSBucket
-from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,7 @@ async def restore_backup_payload(backup_data: dict):
     # admin/admin123 zu bekommen.
     await db[SYSTEM_STATE].update_one(
         {"type": "restore_running"},
-        {"$set": {"type": "restore_running", "seit": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"type": "restore_running", "seit": datetime.now(UTC).isoformat()}},
         upsert=True,
     )
     try:
@@ -190,7 +191,7 @@ async def laeuft_wiederherstellung() -> bool:
     seit = _parse_iso_utc(eintrag.get("seit"))
     if seit is None:
         return True
-    return (datetime.now(timezone.utc) - seit).total_seconds() < RESTORE_RIEGEL_MAX_SEKUNDEN
+    return (datetime.now(UTC) - seit).total_seconds() < RESTORE_RIEGEL_MAX_SEKUNDEN
 
 
 async def _restore_sammlungen(backup_data: dict, eigenes_passwort: Optional[dict]):
@@ -208,8 +209,7 @@ async def _restore_sammlungen(backup_data: dict, eigenes_passwort: Optional[dict
             decoded_records.append(decoded_record)
         if coll_name == "global_settings":
             decoded_records = [
-                r for r in decoded_records
-                if not (isinstance(r, dict) and r.get("type") == "backup_encryption")
+                r for r in decoded_records if not (isinstance(r, dict) and r.get("type") == "backup_encryption")
             ]
             if eigenes_passwort is not None:
                 decoded_records.append(eigenes_passwort)
@@ -228,7 +228,7 @@ def _parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
         parsed = datetime.fromisoformat(value)
     except (TypeError, ValueError):
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 async def get_backup_password_state() -> tuple:
@@ -266,8 +266,7 @@ def _serialize_and_encrypt(backup_data: dict, password: str) -> tuple:
     # nicht als inhaltliche Aenderung.
     fuer_pruefsumme = dict(backup_data)
     fuer_pruefsumme["global_settings"] = [
-        g for g in backup_data.get("global_settings", [])
-        if g.get("type") not in BACKUP_EIGENE_ZUSTAENDE
+        g for g in backup_data.get("global_settings", []) if g.get("type") not in BACKUP_EIGENE_ZUSTAENDE
     ]
     pruef_bytes = json.dumps(fuer_pruefsumme, ensure_ascii=False, sort_keys=True).encode("utf-8")
     return encrypt_backup_bytes(json_bytes, password), hashlib.sha256(pruef_bytes).hexdigest()
@@ -357,6 +356,7 @@ async def export_backup(current_user: dict = Depends(get_current_user)):
 
 
 # --- Pruefungen vor dem Einspielen ------------------------------------------------------
+
 
 def _itnr_schluessel(itnr) -> tuple:
     """Zwei ITNr so vergleichbar machen, wie der eindeutige Index auf ipads.itnr sie vergleicht.
@@ -459,7 +459,8 @@ def pruefe_backup_inhalt(backup_data: dict) -> dict:
     ohne_bildungsgang = {}
     for name in BILDUNGSGANG_SAMMLUNGEN:
         anzahl = sum(
-            1 for record in backup_data.get(name) or []
+            1
+            for record in backup_data.get(name) or []
             if isinstance(record, dict) and not record.get("bildungsgang_id")
         )
         if anzahl:
@@ -475,13 +476,14 @@ def pruefe_backup_inhalt(backup_data: dict) -> dict:
     if vor_dem_umbau:
         warnungen.append(
             "ACHTUNG: Diese Datei stammt aus der Zeit vor der Umstellung auf Bildungsgänge (sie "
-            "enthält \"departments\" bzw. keine \"bildungsgaenge\"). Geräte und Schüler gehören "
+            'enthält "departments" bzw. keine "bildungsgaenge"). Geräte und Schüler gehören '
             "danach zu keinem Bildungsgang, und ausser Admins sieht niemand mehr etwas. Bitte "
             "anschließend das Wanderungsskript scripts/migrate-to-bildungsgang.py laufen lassen."
         )
     if fehlende:
         warnungen.append(
-            "ACHTUNG: In der Datei fehlen diese erwarteten Sammlungen: " + ", ".join(fehlende)
+            "ACHTUNG: In der Datei fehlen diese erwarteten Sammlungen: "
+            + ", ".join(fehlende)
             + ". Sie werden beim Einspielen nicht angefasst - dort bleibt der heutige Stand stehen."
         )
     if ohne_bildungsgang:
@@ -506,18 +508,20 @@ def pruefe_backup_inhalt(backup_data: dict) -> dict:
 
 
 def _dubletten_satz(anzahl: int) -> str:
-    """"1 ITNr kommt mehrfach vor" bzw. "N ITNr kommen mehrfach vor"."""
+    """ "1 ITNr kommt mehrfach vor" bzw. "N ITNr kommen mehrfach vor"."""
     return f"{anzahl} ITNr {'kommt' if anzahl == 1 else 'kommen'} mehrfach vor"
 
 
 async def _doppelte_itnr_im_bestand() -> Optional[int]:
     """Wie viele ITNr im Bestand mehrfach vorkommen; None, wenn sich das nicht zaehlen laesst."""
     try:
-        gruppen = await db.ipads.aggregate([
-            {"$group": {"_id": "$itnr", "anzahl": {"$sum": 1}}},
-            {"$match": {"anzahl": {"$gt": 1}}},
-            {"$count": "doppelte"},
-        ]).to_list(length=1)
+        gruppen = await db.ipads.aggregate(
+            [
+                {"$group": {"_id": "$itnr", "anzahl": {"$sum": 1}}},
+                {"$match": {"anzahl": {"$gt": 1}}},
+                {"$count": "doppelte"},
+            ]
+        ).to_list(length=1)
     except Exception as e:
         logger.error(f"Doppelte ITNr konnten nicht gezaehlt werden: {str(e)}")
         return None
@@ -552,8 +556,11 @@ async def ensure_itnr_index() -> dict:
                 "zwei gleichzeitige Batch-Läufe dieselbe ITNr doppelt anlegen."
             )
         else:
-            befund = ("doppelte ITNr gibt es dabei keine" if duplikate == 0
-                      else "ob ITNr mehrfach vorkommen, ließ sich nicht feststellen")
+            befund = (
+                "doppelte ITNr gibt es dabei keine"
+                if duplikate == 0
+                else "ob ITNr mehrfach vorkommen, ließ sich nicht feststellen"
+            )
             meldung = (
                 "ACHTUNG: Der eindeutige Index auf ipads.itnr konnte nicht angelegt werden - "
                 f"{befund}. Die Datenbank meldet: {str(e)}. Bis der Index steht, können zwei "
@@ -611,7 +618,9 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
     auf ipads.itnr danach steht."""
     require_admin(current_user)
     if not (file.filename.endswith(".json") or file.filename.endswith(".json.enc")):
-        raise HTTPException(status_code=400, detail="Es muss eine .json oder verschlüsselte .json.enc Datei hochgeladen werden.")
+        raise HTTPException(
+            status_code=400, detail="Es muss eine .json oder verschlüsselte .json.enc Datei hochgeladen werden."
+        )
 
     # Ohne entpackbares Passwort gibt es keine Wiederherstellung. Das Sicherheitsnetz weiter
     # unten ist ein vollstaendiges Abbild samt Namen, Adressen und unterschriebenen Vertraegen;
@@ -620,10 +629,13 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
     # hier darf es nicht anders sein, nur weil der Weg ein anderer ist.
     passwort_zustand, backup_password = await get_backup_password_state()
     if not backup_password:
-        raise HTTPException(status_code=400, detail=(
-            "Vor dem Einspielen wird der aktuelle Bestand als Sicherheitsnetz gespeichert, und das "
-            "muss verschlüsselt geschehen - es enthält Schülerdaten. " + PASSWORT_MELDUNG[passwort_zustand]
-        ))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Vor dem Einspielen wird der aktuelle Bestand als Sicherheitsnetz gespeichert, und das "
+                "muss verschlüsselt geschehen - es enthält Schülerdaten. " + PASSWORT_MELDUNG[passwort_zustand]
+            ),
+        )
 
     raw_content = await file.read()
     try:
@@ -647,12 +659,15 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
     if doppelte:
         gezeigt = ", ".join(doppelte[:10])
         rest = f" (und {len(doppelte) - 10} weitere)" if len(doppelte) > 10 else ""
-        raise HTTPException(status_code=400, detail=(
-            f"Die Datei enthält dieselbe ITNr mehrfach: {gezeigt}{rest}. Eine ITNr bezeichnet genau "
-            "ein Gerät, deshalb wird nichts eingespielt. Bitte die Dubletten in der Datei bereinigen. "
-            "Geräte ohne ITNr zählen dabei mit: für den eindeutigen Index sind auch zwei leere "
-            "Felder dieselbe Nummer."
-        ))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Die Datei enthält dieselbe ITNr mehrfach: {gezeigt}{rest}. Eine ITNr bezeichnet genau "
+                "ein Gerät, deshalb wird nichts eingespielt. Bitte die Dubletten in der Datei bereinigen. "
+                "Geräte ohne ITNr zählen dabei mit: für den eindeutigen Index sind auch zwei leere "
+                "Felder dieselbe Nummer."
+            ),
+        )
 
     # Seit username_eindeutig (siehe main.py) gilt fuer Benutzernamen dasselbe wie fuer die
     # ITNr: eine Datei mit demselben Namen zweimal brachte die Wiederherstellung sonst mitten
@@ -661,11 +676,14 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
     if doppelte_namen:
         gezeigt = ", ".join(doppelte_namen[:10])
         rest = f" (und {len(doppelte_namen) - 10} weitere)" if len(doppelte_namen) > 10 else ""
-        raise HTTPException(status_code=400, detail=(
-            f"Die Datei enthält denselben Benutzernamen mehrfach: {gezeigt}{rest}. Ein Name "
-            "bezeichnet genau ein Konto, deshalb wird nichts eingespielt. Bitte die Dubletten "
-            "in der Datei bereinigen."
-        ))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Die Datei enthält denselben Benutzernamen mehrfach: {gezeigt}{rest}. Ein Name "
+                "bezeichnet genau ein Konto, deshalb wird nichts eingespielt. Bitte die Dubletten "
+                "in der Datei bereinigen."
+            ),
+        )
 
     befund = pruefe_backup_inhalt(backup_data)
 
@@ -678,19 +696,32 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
         pre_restore_filename = _write_pre_restore_backup(pre_restore_content)
     except OSError as e:
         logger.error(f"Could not write pre-restore backup: {str(e)}")
-        raise HTTPException(status_code=500, detail="Sicherheits-Backup konnte nicht gespeichert werden. Wiederherstellung abgebrochen.")
+        raise HTTPException(
+            status_code=500, detail="Sicherheits-Backup konnte nicht gespeichert werden. Wiederherstellung abgebrochen."
+        )
 
     try:
         await restore_backup_payload(backup_data)
         # Der Index gehoert zur Datenbank, nicht zur Datei - nach dem Einspielen in eine frische
         # Datenbank fehlt er. Jetzt anlegen, solange noch jemand davorsitzt und es liest.
         index = await ensure_itnr_index()
+        # Derselbe Grund fuer die Benutzernamen: scheiterte der Index beim Start an Dubletten
+        # und bringt die Datei saubere Daten mit, versucht es sonst nie wieder jemand - und
+        # die Ersteinrichtung koennte ein zweites Konto "admin" anlegen.
+        # Lokal importiert: routes.auth holt sich laeuft_wiederherstellung von hier, ein
+        # Import am Dateikopf waere also ein Ringschluss.
+        from routes.auth import ensure_username_index
+
+        # Sie meldet ihr Ergebnis nur ins Log, anders als ensure_itnr_index - fuer die
+        # Antwort gibt es hier also nichts nachzutragen.
+        await ensure_username_index()
         meldungen = list(befund["warnungen"])
         if index["meldung"]:
             meldungen.append(index["meldung"])
         return {
-            # Die Oberflaeche zeigt nur "message" an, deshalb stehen die Warnungen auch darin
-            # und nicht nur im Feld daneben.
+            # Die Warnungen stehen in "message" UND im Feld daneben: die Oberflaeche zeigt
+            # inzwischen beides, und wer die Antwort auswertet, soll sie nicht aus einem Satz
+            # heraussuchen muessen.
             "message": " ".join(["System-Backup erfolgreich wiederhergestellt."] + meldungen),
             "pre_restore_backup": pre_restore_filename,
             "warnungen": meldungen,
@@ -734,12 +765,14 @@ async def list_pre_restore_backups(current_user: dict = Depends(get_current_user
     items = []
     for path in sorted(backups_dir.glob("pre_restore_backup_*.json*"), reverse=True):
         stat = path.stat()
-        items.append({
-            "filename": path.name,
-            "size_bytes": stat.st_size,
-            "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            "encrypted": path.name.endswith(".enc"),
-        })
+        items.append(
+            {
+                "filename": path.name,
+                "size_bytes": stat.st_size,
+                "created_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                "encrypted": path.name.endswith(".enc"),
+            }
+        )
     return items
 
 
@@ -764,6 +797,7 @@ async def download_pre_restore_backup(filename: str, current_user: dict = Depend
 
 
 # --- Central backup encryption password (any admin may view its status and set it) ---
+
 
 @api_router.get("/settings/backup-encryption")
 async def get_backup_encryption_settings(current_user: dict = Depends(get_current_user)):
@@ -803,7 +837,7 @@ def _sicherung_laesst_sich_oeffnen(inhalt: bytes, passwort: str) -> bool:
 
 
 def _sicherungen_satz(anzahl: int) -> str:
-    """"1 vorhandene Sicherung lässt sich" bzw. "N vorhandene Sicherungen lassen sich"."""
+    """ "1 vorhandene Sicherung lässt sich" bzw. "N vorhandene Sicherungen lassen sich"."""
     if anzahl == 1:
         return "1 vorhandene Sicherung lässt sich"
     return f"{anzahl} vorhandene Sicherungen lassen sich"
@@ -873,7 +907,7 @@ async def set_backup_encryption_password(payload: BackupPasswordUpdate, current_
 
     await db.global_settings.update_one(
         {"type": "backup_encryption"},
-        {"$set": {"wrapped_password": wrap_secret(payload.password), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"wrapped_password": wrap_secret(payload.password), "updated_at": datetime.now(UTC).isoformat()}},
         upsert=True,
     )
 
@@ -904,9 +938,7 @@ async def set_backup_encryption_password(payload: BackupPasswordUpdate, current_
         if lesbar:
             meldung += f" {_sicherungen_satz(lesbar)} damit weiterhin öffnen."
     if befund["ungeprueft"]:
-        meldung += (
-            f" Bei {befund['ungeprueft']} Sicherungen ließ sich das nicht prüfen (siehe Server-Protokoll)."
-        )
+        meldung += f" Bei {befund['ungeprueft']} Sicherungen ließ sich das nicht prüfen (siehe Server-Protokoll)."
 
     return {
         "message": meldung,
@@ -917,17 +949,21 @@ async def set_backup_encryption_password(payload: BackupPasswordUpdate, current_
 
 
 BACKUP_SCHEDULE_CHECK_INTERVAL_SECONDS = 3600  # check hourly whether the daily backup is due
+
+
 async def _record_schedule_failure(settings_type: str, message: str):
     """Record a failed scheduled run without touching ``last_run_at`` or ``last_completed_at``,
     so the next hourly tick retries instead of the failure silently counting as "done for
     today"."""
     await db.global_settings.update_one(
         {"type": settings_type},
-        {"$set": {
-            "last_attempt_at": datetime.now(timezone.utc).isoformat(),
-            "last_status": "error",
-            "last_error": message,
-        }},
+        {
+            "$set": {
+                "last_attempt_at": datetime.now(UTC).isoformat(),
+                "last_status": "error",
+                "last_error": message,
+            }
+        },
         upsert=True,
     )
 
@@ -980,6 +1016,7 @@ def _server_backup_due(state: dict, now_local: Optional[datetime] = None) -> boo
         return False
     return last_local.date() < now_local.date()
 
+
 # Zusaetzliche Dateikopie jedes Tagesbackups. Das Verzeichnis ist aus dem Host in den
 # Container gemountet, damit ein Sync-Werkzeug auf Betriebssystemebene (rclone/rsync)
 # die Dateien abholen und ausser Haus schieben kann - siehe scripts/sync-backups.sh.
@@ -995,10 +1032,13 @@ def _backups_gridfs_bucket() -> AsyncIOMotorGridFSBucket:
 
 def _prune_server_backup_files():
     """Delete file copies older than the retention window, but never below the minimum count."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=SERVER_BACKUP_RETENTION_DAYS)
+    cutoff = datetime.now(UTC) - timedelta(days=SERVER_BACKUP_RETENTION_DAYS)
     candidates = sorted(
-        (f for f in SERVER_BACKUP_FILE_DIR.glob("rbbk_ipad_verwaltung_backup_*")
-         if SERVER_BACKUP_FILENAME_RE.match(f.name)),
+        (
+            f
+            for f in SERVER_BACKUP_FILE_DIR.glob("rbbk_ipad_verwaltung_backup_*")
+            if SERVER_BACKUP_FILENAME_RE.match(f.name)
+        ),
         key=lambda f: f.name,
     )
     # Die jüngsten nach Dateinamen (der traegt den Zeitstempel) sind geschuetzt.
@@ -1007,7 +1047,7 @@ def _prune_server_backup_files():
         if old in protected:
             continue
         try:
-            if datetime.fromtimestamp(old.stat().st_mtime, timezone.utc) < cutoff:
+            if datetime.fromtimestamp(old.stat().st_mtime, UTC) < cutoff:
                 old.unlink()
         except OSError as e:
             logger.error(f"Could not prune old backup file {old}: {str(e)}")
@@ -1051,12 +1091,12 @@ async def save_server_backup(skip_if_unchanged: bool = False) -> dict:
     file_id = await bucket.upload_from_stream(
         filename,
         content_bytes,
-        metadata={"encrypted": is_encrypted, "created_at": datetime.now(timezone.utc).isoformat()},
+        metadata={"encrypted": is_encrypted, "created_at": datetime.now(UTC).isoformat()},
     )
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=SERVER_BACKUP_RETENTION_DAYS)
-    newest = await db["backups.files"].find({}, {"_id": 1}).sort("uploadDate", -1).to_list(
-        length=SERVER_BACKUP_KEEP_MINIMUM
+    cutoff = datetime.now(UTC) - timedelta(days=SERVER_BACKUP_RETENTION_DAYS)
+    newest = (
+        await db["backups.files"].find({}, {"_id": 1}).sort("uploadDate", -1).to_list(length=SERVER_BACKUP_KEEP_MINIMUM)
     )
     protected = {d["_id"] for d in newest}
     cursor = db["backups.files"].find({"uploadDate": {"$lt": cutoff}}, {"_id": 1})
@@ -1068,8 +1108,13 @@ async def save_server_backup(skip_if_unchanged: bool = False) -> dict:
         except Exception as e:
             logger.error(f"Could not prune old server backup {old_file['_id']}: {str(e)}")
 
-    result = {"file_id": str(file_id), "filename": filename, "encrypted": is_encrypted,
-              "skipped": False, "payload_sha256": payload_sha256}
+    result = {
+        "file_id": str(file_id),
+        "filename": filename,
+        "encrypted": is_encrypted,
+        "skipped": False,
+        "payload_sha256": payload_sha256,
+    }
 
     # Dateikopie fuer die Uebertragung ausser Haus. Schlaegt sie fehl, ist das Backup selbst
     # trotzdem gelungen (GridFS) - deshalb nur vermerken, nicht den ganzen Lauf scheitern lassen.
@@ -1094,7 +1139,7 @@ def _mit_zeitzone_iso(wert):
     Zeitangabe ist, geht unveraendert durch.
     """
     if isinstance(wert, datetime):
-        return (wert if wert.tzinfo else wert.replace(tzinfo=timezone.utc)).isoformat()
+        return (wert if wert.tzinfo else wert.replace(tzinfo=UTC)).isoformat()
     return wert
 
 
@@ -1109,13 +1154,15 @@ async def list_server_backups(current_user: dict = Depends(get_current_user)):
     items = []
     cursor = db["backups.files"].find({}).sort("uploadDate", -1)
     async for doc in cursor:
-        items.append({
-            "id": str(doc["_id"]),
-            "filename": doc["filename"],
-            "size_bytes": doc.get("length", 0),
-            "created_at": _mit_zeitzone_iso(doc.get("uploadDate")),
-            "encrypted": bool((doc.get("metadata") or {}).get("encrypted")),
-        })
+        items.append(
+            {
+                "id": str(doc["_id"]),
+                "filename": doc["filename"],
+                "size_bytes": doc.get("length", 0),
+                "created_at": _mit_zeitzone_iso(doc.get("uploadDate")),
+                "encrypted": bool((doc.get("metadata") or {}).get("encrypted")),
+            }
+        )
     return items
 
 
@@ -1185,21 +1232,23 @@ async def run_server_backup_now(current_user: dict = Depends(get_current_user)):
     require_admin(current_user)
     try:
         result = await save_server_backup()
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         await db.global_settings.update_one(
             {"type": "server_backup_state"},
-            {"$set": {
-                "last_run_at": now_iso,
-                "last_attempt_at": now_iso,
-                # Von Hand ausgeloest, aber ein geschriebener Lauf wie jeder andere: damit ist
-                # der Tag erledigt und der Job um 16 Uhr faengt nicht noch einmal an.
-                "last_completed_at": now_iso,
-                "last_status": "success",
-                "last_error": None,
-                "last_file_path": result.get("file_path"),
-                "last_file_error": result.get("file_error"),
-                "last_payload_sha256": result.get("payload_sha256"),
-            }},
+            {
+                "$set": {
+                    "last_run_at": now_iso,
+                    "last_attempt_at": now_iso,
+                    # Von Hand ausgeloest, aber ein geschriebener Lauf wie jeder andere: damit ist
+                    # der Tag erledigt und der Job um 16 Uhr faengt nicht noch einmal an.
+                    "last_completed_at": now_iso,
+                    "last_status": "success",
+                    "last_error": None,
+                    "last_file_path": result.get("file_path"),
+                    "last_file_error": result.get("file_error"),
+                    "last_payload_sha256": result.get("payload_sha256"),
+                }
+            },
             upsert=True,
         )
         return {"message": "Server-Backup erfolgreich erstellt.", **result}
@@ -1222,7 +1271,7 @@ async def run_scheduled_server_backup_check():
 
     try:
         result = await save_server_backup(skip_if_unchanged=True)
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         # Erledigt ist der Tageslauf in beiden Faellen - danach richtet sich, ob der naechste
         # stuendliche Tick noch einmal anfaengt. Geschrieben wurde nur im einen, und nur dann
         # darf last_run_at vorruecken: sonst meldete der Status eine Sicherung von heute,
@@ -1242,9 +1291,7 @@ async def run_scheduled_server_backup_check():
             update["last_status"] = "success"
             update["last_file_path"] = result.get("file_path")
             update["last_file_error"] = result.get("file_error")
-        await db.global_settings.update_one(
-            {"type": "server_backup_state"}, {"$set": update}, upsert=True
-        )
+        await db.global_settings.update_one({"type": "server_backup_state"}, {"$set": update}, upsert=True)
         if result.get("skipped"):
             logger.info("Daily server-side backup: data unchanged, no new snapshot written")
         else:

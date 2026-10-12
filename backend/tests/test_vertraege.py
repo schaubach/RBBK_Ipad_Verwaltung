@@ -30,15 +30,15 @@ def pdf(felder: dict | None = None) -> bytes:
     eintraege = ArrayObject()
     for name, wert in (felder or {}).items():
         feld = DictionaryObject()
-        feld.update({
-            NameObject("/T"): TextStringObject(name),
-            NameObject("/V"): TextStringObject(wert),
-            NameObject("/FT"): NameObject("/Tx"),
-        })
+        feld.update(
+            {
+                NameObject("/T"): TextStringObject(name),
+                NameObject("/V"): TextStringObject(wert),
+                NameObject("/FT"): NameObject("/Tx"),
+            }
+        )
         eintraege.append(feld)
-    writer._root_object.update(
-        {NameObject("/AcroForm"): DictionaryObject({NameObject("/Fields"): eintraege})}
-    )
+    writer._root_object.update({NameObject("/AcroForm"): DictionaryObject({NameObject("/Fields"): eintraege})})
 
     puffer = io.BytesIO()
     writer.write(puffer)
@@ -51,37 +51,72 @@ def datei(name: str, felder: dict | None = None) -> list:
 
 
 async def schueler(db, sid, bildungsgang_id, vorn="Max", nachn="Mustermann", klasse="M1"):
-    await db.students.insert_one({
-        "id": sid, "user_id": "u_admin", "bildungsgang_id": bildungsgang_id,
-        "sus_vorn": vorn, "sus_nachn": nachn, "sus_kl": klasse, "sus_geb": "01.01.2008",
-        "sus_str_hnr": "Musterweg 1", "sus_plz": "44137", "sus_ort": "Dortmund",
-    })
+    await db.students.insert_one(
+        {
+            "id": sid,
+            "user_id": "u_admin",
+            "bildungsgang_id": bildungsgang_id,
+            "sus_vorn": vorn,
+            "sus_nachn": nachn,
+            "sus_kl": klasse,
+            "sus_geb": "01.01.2008",
+            "sus_str_hnr": "Musterweg 1",
+            "sus_plz": "44137",
+            "sus_ort": "Dortmund",
+        }
+    )
 
 
 async def geraet(db, gid, bildungsgang_id, itnr):
-    await db.ipads.insert_one({
-        "id": gid, "user_id": "u_admin", "bildungsgang_id": bildungsgang_id,
-        "itnr": itnr, "snr": f"SN-{gid}", "typ": "iPad 9", "status": "ok", "is_in_pool": False,
-    })
+    await db.ipads.insert_one(
+        {
+            "id": gid,
+            "user_id": "u_admin",
+            "bildungsgang_id": bildungsgang_id,
+            "itnr": itnr,
+            "snr": f"SN-{gid}",
+            "typ": "iPad 9",
+            "status": "ok",
+            "is_in_pool": False,
+        }
+    )
 
 
-async def zuordnung(db, aid, bildungsgang_id, student_id, ipad_id, itnr,
-                    student_name="Max Mustermann", contract_id=None):
-    await db.assignments.insert_one({
-        "id": aid, "user_id": "u_admin", "bildungsgang_id": bildungsgang_id,
-        "student_id": student_id, "ipad_id": ipad_id, "itnr": itnr,
-        "student_name": student_name, "is_active": True,
-        "assigned_at": "2026-02-01T00:00:00+00:00", "contract_id": contract_id,
-    })
+async def zuordnung(
+    db, aid, bildungsgang_id, student_id, ipad_id, itnr, student_name="Max Mustermann", contract_id=None
+):
+    await db.assignments.insert_one(
+        {
+            "id": aid,
+            "user_id": "u_admin",
+            "bildungsgang_id": bildungsgang_id,
+            "student_id": student_id,
+            "ipad_id": ipad_id,
+            "itnr": itnr,
+            "student_name": student_name,
+            "is_active": True,
+            "assigned_at": "2026-02-01T00:00:00+00:00",
+            "contract_id": contract_id,
+        }
+    )
 
 
 async def vertrag(db, cid, bildungsgang_id, **abweichend):
     """Ein fertiger Vertrag in der Datenbank - für alles, was keinen Upload prüft."""
     daten = {
-        "id": cid, "user_id": "u_admin", "bildungsgang_id": bildungsgang_id,
-        "assignment_id": None, "ipad_id": None, "student_id": None, "itnr": None,
-        "student_name": None, "filename": f"{cid}.pdf", "file_data": pdf(),
-        "form_fields": {}, "uploaded_at": "2026-02-01T00:00:00+00:00", "is_active": True,
+        "id": cid,
+        "user_id": "u_admin",
+        "bildungsgang_id": bildungsgang_id,
+        "assignment_id": None,
+        "ipad_id": None,
+        "student_id": None,
+        "itnr": None,
+        "student_name": None,
+        "filename": f"{cid}.pdf",
+        "file_data": pdf(),
+        "form_fields": {},
+        "uploaded_at": "2026-02-01T00:00:00+00:00",
+        "is_active": True,
     }
     daten.update(abweichend)
     await db.contracts.insert_one(daten)
@@ -228,9 +263,7 @@ async def test_unzuordenbarer_vertrag_verlangt_vom_admin_eine_wahl(welt, client)
     Lieber eine Rückfrage als ein Vertrag, der unbemerkt im falschen Bestand landet.
     """
     kopf = await anmelden(client, "admin")
-    antwort = await client.post(
-        "/api/contracts/upload-multiple", files=datei("ohne_zuordnung.pdf"), headers=kopf
-    )
+    antwort = await client.post("/api/contracts/upload-multiple", files=datei("ohne_zuordnung.pdf"), headers=kopf)
     assert antwort.status_code == 200
     ergebnis = antwort.json()["results"][0]
     assert ergebnis["status"] == "error"
@@ -360,8 +393,13 @@ async def test_detailseite_zeigt_keine_vertraege_eines_gleichnamigen_schuelers(w
     await schueler(welt, "s_gym", "bg_gym", vorn="Max", nachn="Mustermann")
     await vertrag(welt, "c_meda", "bg_meda", student_id="s_meda", student_name="Max Mustermann")
     await vertrag(
-        welt, "c_gym", "bg_gym", student_id="s_gym", student_name="Max Mustermann",
-        filename="GYM_Geheim.pdf", itnr="IT-900",
+        welt,
+        "c_gym",
+        "bg_gym",
+        student_id="s_gym",
+        student_name="Max Mustermann",
+        filename="GYM_Geheim.pdf",
+        itnr="IT-900",
     )
 
     kopf = await anmelden(client, "schaubach")
@@ -382,7 +420,12 @@ async def test_geraetehistorie_zeigt_keine_fremden_vertraege_mit_gleicher_itnr(w
     await geraet(welt, "g_gym", "bg_gym", "IT-500")
     await vertrag(welt, "c_meda", "bg_meda", ipad_id="g_meda", itnr="IT-500")
     await vertrag(
-        welt, "c_gym", "bg_gym", ipad_id="g_gym", itnr="IT-500", filename="GYM_Geheim.pdf",
+        welt,
+        "c_gym",
+        "bg_gym",
+        ipad_id="g_gym",
+        itnr="IT-500",
+        filename="GYM_Geheim.pdf",
         form_fields={"SuSStrHnr": "Geheimweg 1", "Erz1Nachn": "Fremdeltern"},
     )
 
@@ -402,8 +445,12 @@ async def test_geraetehistorie_zeigt_keine_fremden_vertraege_mit_gleicher_itnr(w
 async def vertraege_fuer(db, student_id, bildungsgang_id, anzahl, is_active=True):
     for n in range(anzahl):
         await vertrag(
-            db, f"c_{student_id}_{n}", bildungsgang_id,
-            student_id=student_id, student_name="Max Mustermann", is_active=is_active,
+            db,
+            f"c_{student_id}_{n}",
+            bildungsgang_id,
+            student_id=student_id,
+            student_name="Max Mustermann",
+            is_active=is_active,
         )
 
 
@@ -502,9 +549,7 @@ async def test_stapelloeschung_laesst_fremde_vertraege_stehen(welt, client):
     await vertrag(welt, "c_gym", "bg_gym")
 
     kopf = await anmelden(client, "schaubach")
-    antwort = await client.post(
-        "/api/contracts/batch-delete", json={"contract_ids": ["c_meda", "c_gym"]}, headers=kopf
-    )
+    antwort = await client.post("/api/contracts/batch-delete", json={"contract_ids": ["c_meda", "c_gym"]}, headers=kopf)
     assert antwort.status_code == 200
     assert antwort.json()["deleted_count"] == 1
     assert [f["contract_id"] for f in antwort.json()["errors"]] == ["c_gym"]
@@ -544,9 +589,7 @@ async def test_vertragserstellung_ohne_auswahl_wird_abgewiesen(welt, client):
     ohne = await client.post("/api/assignments/generate-contracts", json={}, headers=kopf)
     assert ohne.status_code == 400
     # Die alten Namensfilter als Query-Parameter öffnen keinen Hintertürweg mehr.
-    gefiltert = await client.post(
-        "/api/assignments/generate-contracts?sus_nachn=Mustermann", json={}, headers=kopf
-    )
+    gefiltert = await client.post("/api/assignments/generate-contracts?sus_nachn=Mustermann", json={}, headers=kopf)
     assert gefiltert.status_code == 400
     assert await welt.contracts.count_documents({}) == 0
 
@@ -557,8 +600,6 @@ async def test_vertragserstellung_fuer_fremde_auswahl_findet_nichts(welt, client
     await zuordnung(welt, "a_gym", "bg_gym", "s_gym", "g_gym", "IT-200")
 
     kopf = await anmelden(client, "schaubach")
-    antwort = await client.post(
-        "/api/assignments/generate-contracts", json={"assignment_ids": ["a_gym"]}, headers=kopf
-    )
+    antwort = await client.post("/api/assignments/generate-contracts", json={"assignment_ids": ["a_gym"]}, headers=kopf)
     assert antwort.status_code == 404
     assert await welt.contracts.count_documents({}) == 0

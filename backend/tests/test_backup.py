@@ -13,7 +13,7 @@ import base64
 import hashlib
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography.fernet import Fernet
@@ -57,24 +57,51 @@ async def passwort_setzen(client, kopf, passwort="Backup-Passwort-123"):
 
 async def datenbestand(db):
     """Ein kleiner, aber vollständiger Bestand über alle gesicherten Sammlungen hinweg."""
-    await db.students.insert_one({
-        "id": "s1", "name": "Mustermann", "vorname": "Erika",
-        "bildungsgang_id": "bg_meda", "user_id": "u_schaubach",
-    })
-    await db.ipads.insert_one({
-        "id": "i1", "itnr": "IT-1", "snr": "SN-1", "status": "ok",
-        "bildungsgang_id": "bg_meda", "is_in_pool": False, "user_id": "u_schaubach",
-    })
-    await db.assignments.insert_one({
-        "id": "a1", "student_id": "s1", "ipad_id": "i1", "itnr": "IT-1", "is_active": True,
-        "bildungsgang_id": "bg_meda", "user_id": "u_schaubach",
-        "assigned_at": datetime(2026, 2, 1, 8, 0, tzinfo=timezone.utc),
-    })
-    await db.contracts.insert_one({
-        "id": "v1", "assignment_id": "a1", "student_id": "s1", "ipad_id": "i1",
-        "student_name": "Erika Mustermann", "filename": "vertrag_mustermann.pdf",
-        "file_data": PDF_INHALT, "bildungsgang_id": "bg_meda", "user_id": "u_schaubach",
-    })
+    await db.students.insert_one(
+        {
+            "id": "s1",
+            "name": "Mustermann",
+            "vorname": "Erika",
+            "bildungsgang_id": "bg_meda",
+            "user_id": "u_schaubach",
+        }
+    )
+    await db.ipads.insert_one(
+        {
+            "id": "i1",
+            "itnr": "IT-1",
+            "snr": "SN-1",
+            "status": "ok",
+            "bildungsgang_id": "bg_meda",
+            "is_in_pool": False,
+            "user_id": "u_schaubach",
+        }
+    )
+    await db.assignments.insert_one(
+        {
+            "id": "a1",
+            "student_id": "s1",
+            "ipad_id": "i1",
+            "itnr": "IT-1",
+            "is_active": True,
+            "bildungsgang_id": "bg_meda",
+            "user_id": "u_schaubach",
+            "assigned_at": datetime(2026, 2, 1, 8, 0, tzinfo=UTC),
+        }
+    )
+    await db.contracts.insert_one(
+        {
+            "id": "v1",
+            "assignment_id": "a1",
+            "student_id": "s1",
+            "ipad_id": "i1",
+            "student_name": "Erika Mustermann",
+            "filename": "vertrag_mustermann.pdf",
+            "file_data": PDF_INHALT,
+            "bildungsgang_id": "bg_meda",
+            "user_id": "u_schaubach",
+        }
+    )
 
 
 async def wiederherstellen(client, kopf, inhalt: bytes, dateiname="backup.json.enc"):
@@ -89,12 +116,13 @@ async def altes_serverbackup(db, tage: int) -> str:
     """Ein Server-Backup, das vor ``tage`` Tagen entstanden ist, direkt in GridFS ablegen."""
     bucket = AsyncIOMotorGridFSBucket(db, bucket_name="backups")
     datei_id = await bucket.upload_from_stream(
-        f"rbbk_ipad_verwaltung_backup_alt-{tage:04d}.json.enc", b"alter Inhalt",
+        f"rbbk_ipad_verwaltung_backup_alt-{tage:04d}.json.enc",
+        b"alter Inhalt",
         metadata={"encrypted": True},
     )
     await db["backups.files"].update_one(
         {"_id": datei_id},
-        {"$set": {"uploadDate": datetime.now(timezone.utc) - timedelta(days=tage)}},
+        {"$set": {"uploadDate": datetime.now(UTC) - timedelta(days=tage)}},
     )
     return str(datei_id)
 
@@ -123,10 +151,12 @@ def fremd_verpacktes_passwort(passwort: str) -> str:
 async def unlesbares_passwort_hinterlegen(db):
     """Ein Eintrag, der wie ein gesetztes Backup-Passwort aussieht, sich hier aber nicht mehr
     auspacken lässt."""
-    await db.global_settings.insert_one({
-        "type": "backup_encryption",
-        "wrapped_password": fremd_verpacktes_passwort("Backup-Passwort-123"),
-    })
+    await db.global_settings.insert_one(
+        {
+            "type": "backup_encryption",
+            "wrapped_password": fremd_verpacktes_passwort("Backup-Passwort-123"),
+        }
+    )
 
 
 def sicherheitsnetze() -> list:
@@ -142,6 +172,7 @@ def sicherheitsnetze() -> list:
 
 
 # --- Ohne Backup-Passwort darf nichts entstehen ------------------------------------------
+
 
 async def test_ohne_backup_passwort_entsteht_kein_download(welt, client):
     """Schülerdaten dürfen den Server nicht unverschlüsselt verlassen - lieber kein Backup."""
@@ -190,6 +221,7 @@ async def test_lehrkraft_bekommt_kein_backup(welt, client):
 
 
 # --- Verschlüsselung ----------------------------------------------------------------------
+
 
 async def test_export_verlaesst_den_server_nur_verschluesselt(welt, client):
     kopf = await anmelden(client, "admin")
@@ -250,6 +282,7 @@ async def test_import_lehnt_fremdes_dateiformat_ab(welt, client):
 
 # --- Hin und zurück ------------------------------------------------------------------------
 
+
 async def test_wiederherstellung_bringt_alle_sammlungen_zurueck(welt, client):
     """Der vollständige Weg: verschlüsselt exportieren, alles verlieren, zurückspielen.
 
@@ -279,8 +312,9 @@ async def test_wiederherstellung_bringt_alle_sammlungen_zurueck(welt, client):
     assert bytes(vertrag["file_data"]) == PDF_INHALT, "Das unterschriebene PDF muss unverändert zurückkommen"
 
     assert await welt.users.find_one({"id": "u_admin"}) is not None
-    assert await welt.users.find_one({"id": "u_spaeter"}) is None, \
-        "Wiederherstellung stellt den Stand des Backups her, sie ergänzt ihn nicht"
+    assert (
+        await welt.users.find_one({"id": "u_spaeter"}) is None
+    ), "Wiederherstellung stellt den Stand des Backups her, sie ergänzt ihn nicht"
     assert (await client.get("/api/settings/backup-encryption", headers=kopf)).json()["password_configured"] is True
 
 
@@ -291,10 +325,17 @@ async def test_geraet_gehoert_nach_der_wiederherstellung_demselben_bildungsgang(
     kopf = await anmelden(client, "admin")
     await passwort_setzen(client, kopf)
     await datenbestand(welt)
-    await welt.ipads.insert_one({
-        "id": "i_gym", "itnr": "IT-9", "snr": "SN-9", "status": "ok",
-        "bildungsgang_id": "bg_gym", "is_in_pool": False, "user_id": "u_bakenecker",
-    })
+    await welt.ipads.insert_one(
+        {
+            "id": "i_gym",
+            "itnr": "IT-9",
+            "snr": "SN-9",
+            "status": "ok",
+            "bildungsgang_id": "bg_gym",
+            "is_in_pool": False,
+            "user_id": "u_bakenecker",
+        }
+    )
 
     sicherung = (await client.get("/api/backup/export", headers=kopf)).content
     await welt.ipads.delete_many({})
@@ -334,6 +375,7 @@ async def test_zustaendigkeiten_ueberleben_die_wiederherstellung(welt, client):
 
 # --- Das Backup-Passwort gehört dem Server, nicht der Datei -------------------------------
 
+
 async def test_wiederherstellung_behaelt_das_eigene_backup_passwort(welt, client):
     """Der Fehler, der die Anlage im Oktober lahmgelegt hat.
 
@@ -351,28 +393,32 @@ async def test_wiederherstellung_behaelt_das_eigene_backup_passwort(welt, client
     await datenbestand(welt)
     eigener_eintrag = await welt.global_settings.find_one({"type": "backup_encryption"})
 
-    datei = backup_datei({
-        "bildungsgaenge": [],
-        "students": [],
-        "global_settings": [
-            {"type": "backup_encryption", "wrapped_password": fremd_verpacktes_passwort("Passwort von damals")},
-            {"type": "schuljahr", "wert": "2026/27"},
-        ],
-    })
+    datei = backup_datei(
+        {
+            "bildungsgaenge": [],
+            "students": [],
+            "global_settings": [
+                {"type": "backup_encryption", "wrapped_password": fremd_verpacktes_passwort("Passwort von damals")},
+                {"type": "schuljahr", "wert": "2026/27"},
+            ],
+        }
+    )
     antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
     assert antwort.status_code == 200, antwort.text
 
     eintraege = await welt.global_settings.find({"type": "backup_encryption"}).to_list(length=None)
     assert eintraege == [eigener_eintrag], "Der Eintrag des Servers steht unverändert da"
-    assert await welt.global_settings.find_one({"type": "schuljahr"}) is not None, \
-        "Nur dieser eine Eintrag bleibt stehen - die Sammlung wird nicht weggeworfen"
+    assert (
+        await welt.global_settings.find_one({"type": "schuljahr"}) is not None
+    ), "Nur dieser eine Eintrag bleibt stehen - die Sammlung wird nicht weggeworfen"
 
     zustand = (await client.get("/api/settings/backup-encryption", headers=kopf)).json()
     assert zustand["password_state"] == "bereit", "Das Passwort lässt sich weiterhin entpacken"
     sicherung = (await client.get("/api/backup/export", headers=kopf)).content
     entpackt = decrypt_backup_bytes(sicherung, "Backup-Passwort-123")
-    assert json.loads(entpackt.decode("utf-8"))["global_settings"], \
-        "Und der Backup-Lauf arbeitet weiter mit genau diesem Passwort"
+    assert json.loads(entpackt.decode("utf-8"))[
+        "global_settings"
+    ], "Und der Backup-Lauf arbeitet weiter mit genau diesem Passwort"
 
 
 async def test_vor_jeder_wiederherstellung_entsteht_ein_sicherheitsnetz(welt, client):
@@ -401,6 +447,7 @@ async def test_download_gibt_nur_selbst_erzeugte_sicherheitsnetze_heraus(welt, c
     """
     kopf = await anmelden(client, "admin")
     import routes.backup as backup
+
     backup.PRE_RESTORE_BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
     (backup.PRE_RESTORE_BACKUPS_DIR / "geheim.txt").write_bytes(b"nicht fuer den Download")
 
@@ -415,6 +462,7 @@ async def test_download_gibt_nur_selbst_erzeugte_sicherheitsnetze_heraus(welt, c
 
 
 # --- Entdoppelung: unveränderte Daten erzeugen kein neues Backup --------------------------
+
 
 async def test_pruefsumme_bleibt_bei_unveraendertem_bestand_gleich(welt, client):
     kopf = await anmelden(client, "admin")
@@ -449,10 +497,17 @@ async def test_veraenderter_bestand_erzeugt_ein_neues_tagesbackup(welt, client):
     await datenbestand(welt)
     assert (await client.post("/api/backup/server-backups/run-now", headers=kopf)).status_code == 200
 
-    await welt.ipads.insert_one({
-        "id": "i2", "itnr": "IT-2", "snr": "SN-2", "status": "ok",
-        "bildungsgang_id": "bg_it", "is_in_pool": False, "user_id": "u_schaubach",
-    })
+    await welt.ipads.insert_one(
+        {
+            "id": "i2",
+            "itnr": "IT-2",
+            "snr": "SN-2",
+            "status": "ok",
+            "bildungsgang_id": "bg_it",
+            "is_in_pool": False,
+            "user_id": "u_schaubach",
+        }
+    )
     ergebnis = await save_server_backup(skip_if_unchanged=True)
 
     assert ergebnis["skipped"] is False
@@ -460,6 +515,7 @@ async def test_veraenderter_bestand_erzeugt_ein_neues_tagesbackup(welt, client):
 
 
 # --- Was der Tageslauf vermerkt -----------------------------------------------------------
+
 
 async def faellig_machen(welt, tage=3) -> str:
     """Den Tageslauf fällig stellen und den Zeitpunkt zurückgeben, den er vorfindet.
@@ -471,7 +527,7 @@ async def faellig_machen(welt, tage=3) -> str:
     Die Prüfsumme bleibt ausdrücklich stehen: nur so trifft der Lauf auf einen Bestand, den er
     als unverändert erkennt.
     """
-    vorzeiten = (datetime.now(timezone.utc) - timedelta(days=tage)).isoformat()
+    vorzeiten = (datetime.now(UTC) - timedelta(days=tage)).isoformat()
     await welt.global_settings.update_one(
         {"type": "server_backup_state"},
         {"$set": {"last_run_at": vorzeiten, "last_completed_at": vorzeiten}},
@@ -506,10 +562,12 @@ async def test_uebersprungener_tageslauf_laesst_last_run_at_stehen(welt, client)
 
     danach = await tageslauf_zustand(client, kopf)
     assert danach["last_run_at"] == vorzeiten, "Die letzte GESCHRIEBENE Sicherung ist die von damals"
-    assert danach["last_status"] == SERVER_BACKUP_STATUS_UNVERAENDERT, \
-        "'success' hieße: heute ist eine Sicherung entstanden"
-    assert len((await client.get("/api/backup/server-backups", headers=kopf)).json()) == 1, \
-        "Und es ist auch wirklich keine entstanden"
+    assert (
+        danach["last_status"] == SERVER_BACKUP_STATUS_UNVERAENDERT
+    ), "'success' hieße: heute ist eine Sicherung entstanden"
+    assert (
+        len((await client.get("/api/backup/server-backups", headers=kopf)).json()) == 1
+    ), "Und es ist auch wirklich keine entstanden"
 
 
 async def test_uebersprungener_tageslauf_gilt_trotzdem_als_erledigt(welt, client):
@@ -544,10 +602,17 @@ async def test_geschriebener_tageslauf_rueckt_last_run_at_vor(welt, client):
     await datenbestand(welt)
     assert (await client.post("/api/backup/server-backups/run-now", headers=kopf)).status_code == 200
     vorzeiten = await faellig_machen(welt)
-    await welt.ipads.insert_one({
-        "id": "i2", "itnr": "IT-2", "snr": "SN-2", "status": "ok",
-        "bildungsgang_id": "bg_it", "is_in_pool": False, "user_id": "u_schaubach",
-    })
+    await welt.ipads.insert_one(
+        {
+            "id": "i2",
+            "itnr": "IT-2",
+            "snr": "SN-2",
+            "status": "ok",
+            "bildungsgang_id": "bg_it",
+            "is_in_pool": False,
+            "user_id": "u_schaubach",
+        }
+    )
 
     await run_scheduled_server_backup_check()
 
@@ -558,6 +623,7 @@ async def test_geschriebener_tageslauf_rueckt_last_run_at_vor(welt, client):
 
 
 # --- Die Zeitangaben der Server-Backup-Liste ----------------------------------------------
+
 
 async def test_die_zeitangaben_der_serverliste_tragen_eine_zeitzone(welt, client):
     """Jede Zeitangabe der Liste muss sagen, in welcher Zeitzone sie gilt.
@@ -600,11 +666,13 @@ async def test_dieselbe_sicherung_steht_nicht_zweimal_verschoben_da(welt, client
     assert len(liste) == 1, liste
     aus_der_liste = datetime.fromisoformat(liste[0]["created_at"])
     assert aus_der_liste.utcoffset() is not None, "Ohne Zeitzone ließe sich hier gar nicht vergleichen"
-    assert abs(aus_der_liste - gemeldet) < timedelta(minutes=5), \
-        "Liste und Status meinen dieselbe Sicherung - also denselben Augenblick"
+    assert abs(aus_der_liste - gemeldet) < timedelta(
+        minutes=5
+    ), "Liste und Status meinen dieselbe Sicherung - also denselben Augenblick"
 
 
 # --- Aufräumen ----------------------------------------------------------------------------
+
 
 async def test_aufraeumen_behaelt_die_juengsten_serverbackups_unabhaengig_vom_alter(welt, client):
     """Ohne diese Untergrenze gäbe es einen Pfad zu null Backups: entsteht über Wochen nichts
@@ -632,7 +700,7 @@ async def test_aufraeumen_behaelt_die_juengsten_dateikopien_unabhaengig_vom_alte
     await datenbestand(welt)
 
     backup_verzeichnisse.mkdir(parents=True, exist_ok=True)
-    vorzeiten = (datetime.now(timezone.utc) - timedelta(days=400)).timestamp()
+    vorzeiten = (datetime.now(UTC) - timedelta(days=400)).timestamp()
     for jahr in (2020, 2021, 2022, 2023, 2024):
         pfad = backup_verzeichnisse / f"rbbk_ipad_verwaltung_backup_{jahr}-01-01_12-00-00.json.enc"
         pfad.write_bytes(b"alter Inhalt")
@@ -650,6 +718,7 @@ async def test_aufraeumen_behaelt_die_juengsten_dateikopien_unabhaengig_vom_alte
 
 
 # --- Ein Passwort, das keines mehr ist ----------------------------------------------------
+
 
 async def test_unlesbares_backup_passwort_gilt_nicht_als_gesetzt(welt, client):
     """Der heimtückischste Zustand der ganzen Sicherung.
@@ -710,9 +779,12 @@ async def test_backup_passwort_als_bytes_meldet_unlesbar_statt_abzustuerzen(welt
     der Admin nachsieht, warum seit Tagen keine Sicherung mehr entsteht.
     """
     kopf = await anmelden(client, "admin")
-    await welt.global_settings.insert_one({
-        "type": "backup_encryption", "wrapped_password": b"nicht als Text abgelegt",
-    })
+    await welt.global_settings.insert_one(
+        {
+            "type": "backup_encryption",
+            "wrapped_password": b"nicht als Text abgelegt",
+        }
+    )
 
     antwort = await client.get("/api/settings/backup-encryption", headers=kopf)
 
@@ -757,6 +829,7 @@ async def test_wiederherstellung_mit_unlesbarem_passwort_legt_kein_klartext_netz
 
 # --- Was die hochgeladene Datei mitbringt -------------------------------------------------
 
+
 async def test_doppelte_itnr_in_der_datei_wird_mit_nummer_abgelehnt(welt, client):
     """Eine ITNr bezeichnet genau ein Gerät - zweimal dieselbe ist keine Sicherung.
 
@@ -768,13 +841,15 @@ async def test_doppelte_itnr_in_der_datei_wird_mit_nummer_abgelehnt(welt, client
     await passwort_setzen(client, kopf)
     await datenbestand(welt)
 
-    datei = backup_datei({
-        "students": [],
-        "ipads": [
-            {"id": "i7", "itnr": "IT-7", "snr": "SN-7", "status": "ok", "bildungsgang_id": "bg_meda"},
-            {"id": "i8", "itnr": "IT-7", "snr": "SN-8", "status": "ok", "bildungsgang_id": "bg_meda"},
-        ],
-    })
+    datei = backup_datei(
+        {
+            "students": [],
+            "ipads": [
+                {"id": "i7", "itnr": "IT-7", "snr": "SN-7", "status": "ok", "bildungsgang_id": "bg_meda"},
+                {"id": "i8", "itnr": "IT-7", "snr": "SN-8", "status": "ok", "bildungsgang_id": "bg_meda"},
+            ],
+        }
+    )
     antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
 
     assert antwort.status_code == 400
@@ -811,13 +886,15 @@ async def test_doppelte_itnr_wird_auch_ohne_richtige_nummer_erkannt(welt, client
     await passwort_setzen(client, kopf)
     await datenbestand(welt)
 
-    datei = backup_datei({
-        "students": [],
-        "ipads": [
-            {"id": "i7", "snr": "SN-7", "status": "ok", "bildungsgang_id": "bg_meda", **itnr_felder},
-            {"id": "i8", "snr": "SN-8", "status": "ok", "bildungsgang_id": "bg_meda", **itnr_felder},
-        ],
-    })
+    datei = backup_datei(
+        {
+            "students": [],
+            "ipads": [
+                {"id": "i7", "snr": "SN-7", "status": "ok", "bildungsgang_id": "bg_meda", **itnr_felder},
+                {"id": "i8", "snr": "SN-8", "status": "ok", "bildungsgang_id": "bg_meda", **itnr_felder},
+            ],
+        }
+    )
     antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
 
     assert antwort.status_code == 400, antwort.text
@@ -839,13 +916,15 @@ async def test_zahl_und_zeichenkette_sind_keine_dublette(welt, client):
     await passwort_setzen(client, kopf)
     await datenbestand(welt)
 
-    datei = backup_datei({
-        "students": [],
-        "ipads": [
-            {"id": "i7", "itnr": 7, "snr": "SN-7", "status": "ok", "bildungsgang_id": "bg_meda"},
-            {"id": "i8", "itnr": "7", "snr": "SN-8", "status": "ok", "bildungsgang_id": "bg_meda"},
-        ],
-    })
+    datei = backup_datei(
+        {
+            "students": [],
+            "ipads": [
+                {"id": "i7", "itnr": 7, "snr": "SN-7", "status": "ok", "bildungsgang_id": "bg_meda"},
+                {"id": "i8", "itnr": "7", "snr": "SN-8", "status": "ok", "bildungsgang_id": "bg_meda"},
+            ],
+        }
+    )
     antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
 
     assert antwort.status_code == 200, antwort.text
@@ -866,11 +945,13 @@ async def test_datei_von_vor_dem_umbau_wird_als_solche_gemeldet(welt, client):
     await passwort_setzen(client, kopf)
     await datenbestand(welt)
 
-    datei = backup_datei({
-        "departments": [{"id": "d_meda", "name": "MEDA", "user_id": "u_schaubach"}],
-        "students": [{"id": "s_alt", "sus_vorn": "Alt", "sus_nachn": "Bestand", "user_id": "u_schaubach"}],
-        "ipads": [{"id": "i_alt", "itnr": "IT-ALT", "snr": "SN-ALT", "status": "ok", "user_id": "u_schaubach"}],
-    })
+    datei = backup_datei(
+        {
+            "departments": [{"id": "d_meda", "name": "MEDA", "user_id": "u_schaubach"}],
+            "students": [{"id": "s_alt", "sus_vorn": "Alt", "sus_nachn": "Bestand", "user_id": "u_schaubach"}],
+            "ipads": [{"id": "i_alt", "itnr": "IT-ALT", "snr": "SN-ALT", "status": "ok", "user_id": "u_schaubach"}],
+        }
+    )
     antwort = await wiederherstellen(client, kopf, datei, dateiname="backup.json")
 
     assert antwort.status_code == 200, antwort.text
@@ -882,11 +963,13 @@ async def test_datei_von_vor_dem_umbau_wird_als_solche_gemeldet(welt, client):
     assert "bildungsgaenge" in befund["fehlende_sammlungen"]
 
     lehrkraft = await anmelden(client, "schaubach")
-    assert (await client.get("/api/ipads", headers=lehrkraft)).json() == [], \
-        "Das ist die Folge, vor der die Warnung steht"
+    assert (
+        await client.get("/api/ipads", headers=lehrkraft)
+    ).json() == [], "Das ist die Folge, vor der die Warnung steht"
 
 
 # --- Der eindeutige Index auf ipads.itnr --------------------------------------------------
+
 
 async def test_ensure_itnr_index_legt_den_index_wirklich_an(db):
     """Nachgesehen wird in der Datenbank, nicht im Rückgabewert.
@@ -897,9 +980,15 @@ async def test_ensure_itnr_index_legt_den_index_wirklich_an(db):
     atomares ``$setOnInsert`` das Wettrennen zweier gleichzeitiger Läufe nur schließt, wenn
     die zweite Einfügung an diesem Index scheitert.
     """
-    await db.ipads.insert_one({
-        "id": "i1", "itnr": "IT-1", "snr": "SN-1", "status": "ok", "bildungsgang_id": "bg_meda",
-    })
+    await db.ipads.insert_one(
+        {
+            "id": "i1",
+            "itnr": "IT-1",
+            "snr": "SN-1",
+            "status": "ok",
+            "bildungsgang_id": "bg_meda",
+        }
+    )
     assert "itnr_eindeutig" not in await db.ipads.index_information()
 
     ergebnis = await ensure_itnr_index()
@@ -909,9 +998,15 @@ async def test_ensure_itnr_index_legt_den_index_wirklich_an(db):
     assert index["key"] == [("itnr", 1)]
     assert index.get("unique") is True
     with pytest.raises(DuplicateKeyError):
-        await db.ipads.insert_one({
-            "id": "i2", "itnr": "IT-1", "snr": "SN-2", "status": "ok", "bildungsgang_id": "bg_meda",
-        })
+        await db.ipads.insert_one(
+            {
+                "id": "i2",
+                "itnr": "IT-1",
+                "snr": "SN-2",
+                "status": "ok",
+                "bildungsgang_id": "bg_meda",
+            }
+        )
 
 
 async def test_ensure_itnr_index_entsteht_bei_dubletten_nicht_und_nennt_die_zahl(db):
@@ -922,19 +1017,22 @@ async def test_ensure_itnr_index_entsteht_bei_dubletten_nicht_und_nennt_die_zahl
     die ganze Verwaltung stillstellen. Die Meldung muss dann aber die ANZAHL nennen: "bitte
     bereinigen" ohne Zahl lässt denjenigen, der es liest, ratlos zurück.
     """
-    await db.ipads.insert_many([
-        {"id": "i1", "itnr": "IT-1", "snr": "SN-1", "status": "ok", "bildungsgang_id": "bg_meda"},
-        {"id": "i2", "itnr": "IT-1", "snr": "SN-2", "status": "ok", "bildungsgang_id": "bg_meda"},
-        {"id": "i3", "itnr": "IT-3", "snr": "SN-3", "status": "ok", "bildungsgang_id": "bg_meda"},
-    ])
+    await db.ipads.insert_many(
+        [
+            {"id": "i1", "itnr": "IT-1", "snr": "SN-1", "status": "ok", "bildungsgang_id": "bg_meda"},
+            {"id": "i2", "itnr": "IT-1", "snr": "SN-2", "status": "ok", "bildungsgang_id": "bg_meda"},
+            {"id": "i3", "itnr": "IT-3", "snr": "SN-3", "status": "ok", "bildungsgang_id": "bg_meda"},
+        ]
+    )
 
     ergebnis = await ensure_itnr_index()
 
     assert ergebnis["ok"] is False
     assert ergebnis["duplikate"] == 1
     assert "1 ITNr kommt mehrfach vor" in ergebnis["meldung"]
-    assert "itnr_eindeutig" not in await db.ipads.index_information(), \
-        "Was die Datenbank ablehnt, darf hinterher nicht doch dastehen"
+    assert (
+        "itnr_eindeutig" not in await db.ipads.index_information()
+    ), "Was die Datenbank ablehnt, darf hinterher nicht doch dastehen"
 
 
 async def test_fehlender_index_ohne_dubletten_behauptet_keine(welt, client):
@@ -962,10 +1060,12 @@ async def test_fehlender_index_mit_dubletten_nennt_die_zahl(welt, client):
     ob er eine Nummer sucht oder hundert.
     """
     kopf = await anmelden(client, "admin")
-    await welt.ipads.insert_many([
-        {"id": "i1", "itnr": "IT-1", "snr": "SN-1", "status": "ok", "bildungsgang_id": "bg_meda"},
-        {"id": "i2", "itnr": "IT-1", "snr": "SN-2", "status": "ok", "bildungsgang_id": "bg_meda"},
-    ])
+    await welt.ipads.insert_many(
+        [
+            {"id": "i1", "itnr": "IT-1", "snr": "SN-1", "status": "ok", "bildungsgang_id": "bg_meda"},
+            {"id": "i2", "itnr": "IT-1", "snr": "SN-2", "status": "ok", "bildungsgang_id": "bg_meda"},
+        ]
+    )
 
     status = (await client.get("/api/backup/server-backups/status", headers=kopf)).json()
 
@@ -975,6 +1075,7 @@ async def test_fehlender_index_mit_dubletten_nennt_die_zahl(welt, client):
 
 
 # --- Ein neues Backup-Passwort und das, was es kostet --------------------------------------
+
 
 async def test_neues_backup_passwort_nennt_die_zahl_der_unlesbaren_sicherungen(welt, client):
     """Ein Passwortwechsel macht jede vorhandene Sicherung dauerhaft unlesbar.

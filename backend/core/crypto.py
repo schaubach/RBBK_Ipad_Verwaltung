@@ -70,8 +70,8 @@ def is_encrypted_backup(blob: bytes) -> bool:
 def decrypt_backup_bytes(blob: bytes, password: str) -> bytes:
     if not is_encrypted_backup(blob):
         raise ValueError("Kein verschlüsseltes Backup-Format erkannt.")
-    salt = blob[len(BACKUP_ENCRYPTION_MAGIC):len(BACKUP_ENCRYPTION_MAGIC) + 16]
-    token = blob[len(BACKUP_ENCRYPTION_MAGIC) + 16:]
+    salt = blob[len(BACKUP_ENCRYPTION_MAGIC) : len(BACKUP_ENCRYPTION_MAGIC) + 16]
+    token = blob[len(BACKUP_ENCRYPTION_MAGIC) + 16 :]
     try:
         return _derive_backup_fernet(password, salt).decrypt(token)
     except InvalidToken:

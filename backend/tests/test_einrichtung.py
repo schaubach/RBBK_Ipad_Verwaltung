@@ -24,7 +24,7 @@ werden.
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pymongo.errors import DuplicateKeyError
@@ -36,10 +36,15 @@ from routes.backup import RESTORE_RIEGEL_MAX_SEKUNDEN, SYSTEM_STATE
 
 async def lehrkraft(db, name="lehrkraft"):
     """Ein gewöhnliches Benutzerkonto, wie es in jeder gewachsenen Anlage steht."""
-    await db.users.insert_one({
-        "id": f"u_{name}", "username": name, "password_hash": get_password_hash(f"pw_{name}_123"),
-        "role": "user", "is_active": True,
-    })
+    await db.users.insert_one(
+        {
+            "id": f"u_{name}",
+            "username": name,
+            "password_hash": get_password_hash(f"pw_{name}_123"),
+            "role": "user",
+            "is_active": True,
+        }
+    )
 
 
 async def riegel_legen(db, alter_sekunden=0):
@@ -49,11 +54,12 @@ async def riegel_legen(db, alter_sekunden=0):
     "system_state", die bewusst NICHT gesichert wird. Stünde er in einer gesicherten Sammlung,
     räumte die Wiederherstellung ihn mitten im eigenen Lauf weg.
     """
-    seit = datetime.now(timezone.utc) - timedelta(seconds=alter_sekunden)
+    seit = datetime.now(UTC) - timedelta(seconds=alter_sekunden)
     await db[SYSTEM_STATE].insert_one({"type": "restore_running", "seit": seit.isoformat()})
 
 
 # --- Der lesende Einrichtungsstand -------------------------------------------------------
+
 
 async def test_setup_status_meldet_die_ausstehende_ersteinrichtung(db, client):
     """Leere Datenbank: ja, die Einrichtung steht aus - und die Frage legt nichts an.
@@ -97,6 +103,7 @@ async def test_setup_status_verraet_den_verlorenen_admin_nicht(db, client):
 
 
 # --- Die Ersteinrichtung selbst ----------------------------------------------------------
+
 
 async def test_ersteinrichtung_nennt_das_passwort_nicht(db, client):
     """Der Erstlauf auf leerer Datenbank: Konto ja, Passwort in der Antwort nein."""
@@ -143,11 +150,12 @@ async def test_vorhandener_admin_wird_nicht_angetastet(db, client):
     """
     admin_hash = get_password_hash("Admin-Passwort-123")
     alt_hash = get_password_hash("Altes-Passwort-123")
-    await db.users.insert_many([
-        {"id": "u_wieners", "username": "wieners", "password_hash": admin_hash,
-         "role": "admin", "is_active": True},
-        {"id": "u_alt", "username": "admin", "password_hash": alt_hash, "is_active": True},
-    ])
+    await db.users.insert_many(
+        [
+            {"id": "u_wieners", "username": "wieners", "password_hash": admin_hash, "role": "admin", "is_active": True},
+            {"id": "u_alt", "username": "admin", "password_hash": alt_hash, "is_active": True},
+        ]
+    )
 
     antwort = await client.post("/api/auth/setup")
 
@@ -181,6 +189,7 @@ async def test_ohne_admin_aber_mit_benutzern_entsteht_kein_standardkonto(db, cli
 
 
 # --- Der Riegel während einer Wiederherstellung -------------------------------------------
+
 
 async def test_waehrend_einer_wiederherstellung_entsteht_kein_standardkonto(db, client):
     """Zwischen Leeren und Füllen ist die Benutzersammlung kurz leer - und genau auf diesen
@@ -223,15 +232,21 @@ async def test_liegengebliebener_riegel_sperrt_die_ersteinrichtung_nicht_dauerha
 
 # --- Was "Altbestand" heißt und was nicht ------------------------------------------------
 
+
 async def test_altbestands_admin_bekommt_die_rolle_ohne_passwort_in_der_antwort(db, client):
     """Ein "admin" aus der Zeit vor den Rollen bekommt seine Rolle nachgetragen.
 
     Sein Passwort bleibt, wie es ist - und steht erst recht nicht in der Antwort.
     """
     eigener_hash = get_password_hash("Eigenes-Passwort-123")
-    await db.users.insert_one({
-        "id": "u_alt", "username": "admin", "password_hash": eigener_hash, "is_active": True,
-    })
+    await db.users.insert_one(
+        {
+            "id": "u_alt",
+            "username": "admin",
+            "password_hash": eigener_hash,
+            "is_active": True,
+        }
+    )
 
     antwort = await client.post("/api/auth/setup")
 
@@ -252,10 +267,15 @@ async def test_entzogene_adminrolle_holt_der_setup_endpunkt_nicht_zurueck(db, cl
     stand vor dem Riegel gegen das Standardkonto, fiel also auch dort nicht auf.
     """
     alt_hash = get_password_hash("Altes-Passwort-123")
-    await db.users.insert_one({
-        "id": "u_ex", "username": "admin", "password_hash": alt_hash,
-        "role": "user", "is_active": False,
-    })
+    await db.users.insert_one(
+        {
+            "id": "u_ex",
+            "username": "admin",
+            "password_hash": alt_hash,
+            "role": "user",
+            "is_active": False,
+        }
+    )
 
     antwort = await client.post("/api/auth/setup")
 
@@ -274,10 +294,14 @@ async def test_abgeschalteter_altbestands_admin_bleibt_abgeschaltet(db, client):
     ``is_active`` steht ausdrücklich auf false, und das bleibt so. Sonst machte ein Aufruf
     ohne Anmeldung aus einem stillgelegten Konto wieder ein benutzbares.
     """
-    await db.users.insert_one({
-        "id": "u_alt", "username": "admin", "password_hash": get_password_hash("Altes-Passwort-123"),
-        "is_active": False,
-    })
+    await db.users.insert_one(
+        {
+            "id": "u_alt",
+            "username": "admin",
+            "password_hash": get_password_hash("Altes-Passwort-123"),
+            "is_active": False,
+        }
+    )
 
     antwort = await client.post("/api/auth/setup")
 
@@ -285,18 +309,23 @@ async def test_abgeschalteter_altbestands_admin_bleibt_abgeschaltet(db, client):
     alt = await db.users.find_one({"username": "admin"})
     assert alt["role"] == "admin", "Die fehlende Rolle gehört nachgetragen"
     assert alt["is_active"] is False, "Das abgeschaltete Konto bleibt abgeschaltet"
-    anmeldung = await client.post("/api/auth/login",
-                                  json={"username": "admin", "password": "Altes-Passwort-123"})
+    anmeldung = await client.post("/api/auth/login", json={"username": "admin", "password": "Altes-Passwort-123"})
     assert anmeldung.status_code == 401, "Ein abgeschaltetes Konto meldet sich nicht an"
 
 
 # --- Der eindeutige Index auf users.username ----------------------------------------------
 
+
 async def konto(db, name, konto_id=None, passwort="Eigenes-Passwort-123"):
-    await db.users.insert_one({
-        "id": konto_id or f"u_{name}", "username": name,
-        "password_hash": get_password_hash(passwort), "role": "admin", "is_active": True,
-    })
+    await db.users.insert_one(
+        {
+            "id": konto_id or f"u_{name}",
+            "username": name,
+            "password_hash": get_password_hash(passwort),
+            "role": "admin",
+            "is_active": True,
+        }
+    )
 
 
 def konkurrierender_aufruf(db, monkeypatch, konto_id="u_schneller", passwort="Eigenes-Passwort-123"):
@@ -324,11 +353,15 @@ def konkurrierender_aufruf(db, monkeypatch, konto_id="u_schneller", passwort="Ei
             schon_dagewesen.append(True)
             sync = MongoClient(MONGO_URL)
             try:
-                sync[db.name].users.insert_one({
-                    "id": konto_id, "username": "admin",
-                    "password_hash": get_password_hash(passwort),
-                    "role": "admin", "is_active": True,
-                })
+                sync[db.name].users.insert_one(
+                    {
+                        "id": konto_id,
+                        "username": "admin",
+                        "password_hash": get_password_hash(passwort),
+                        "role": "admin",
+                        "is_active": True,
+                    }
+                )
             finally:
                 sync.close()
         return echt(dokument)
@@ -364,9 +397,7 @@ async def test_der_index_laesst_den_namen_kein_zweites_mal_zu(db):
     ],
     ids=["einer", "zwei"],
 )
-async def test_doppelte_namen_verhindern_den_index_und_die_meldung_nennt_die_zahl(
-    db, caplog, namen, erwartet
-):
+async def test_doppelte_namen_verhindern_den_index_und_die_meldung_nennt_die_zahl(db, caplog, namen, erwartet):
     """Gegenprobe: Stehen die Namen schon doppelt im Bestand, lässt die Datenbank den Index
     nicht zu.
 
@@ -382,8 +413,9 @@ async def test_doppelte_namen_verhindern_den_index_und_die_meldung_nennt_die_zah
     with caplog.at_level(logging.ERROR, logger="routes.auth"):
         await ensure_username_index()
 
-    assert "username_eindeutig" not in await db.users.index_information(), \
-        "Was die Datenbank ablehnt, darf hinterher nicht doch dastehen"
+    assert (
+        "username_eindeutig" not in await db.users.index_information()
+    ), "Was die Datenbank ablehnt, darf hinterher nicht doch dastehen"
     assert erwartet in caplog.text, caplog.text
 
 
@@ -407,7 +439,6 @@ async def test_gleichzeitige_ersteinrichtung_legt_kein_zweites_konto_an(db, clie
     assert "password" not in antwort.json()
     assert await db.users.count_documents({}) == 1, "Ein zweites Konto desselben Namens darf nicht entstehen"
     assert (await db.users.find_one({"username": "admin"}))["id"] == "u_schneller"
-    anmeldung = await client.post("/api/auth/login",
-                                  json={"username": "admin", "password": "Eigenes-Passwort-123"})
+    anmeldung = await client.post("/api/auth/login", json={"username": "admin", "password": "Eigenes-Passwort-123"})
     assert anmeldung.status_code == 200, anmeldung.text
     assert anmeldung.json()["role"] == "admin"

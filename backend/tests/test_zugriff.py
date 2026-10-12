@@ -4,16 +4,21 @@ Der wichtigste Testbereich der Anwendung. Ein Fehler hier bedeutet, dass jemand 
 Schülerdaten sieht - oder die eigenen nicht mehr.
 """
 
-import pytest
-
 from tests.conftest import anmelden
 
 
 async def geraet(db, ipad_id, bildungsgang_id, pool=False):
-    await db.ipads.insert_one({
-        "id": ipad_id, "bildungsgang_id": bildungsgang_id, "is_in_pool": pool,
-        "itnr": f"IT{ipad_id}", "snr": f"SN{ipad_id}", "status": "ok", "user_id": "u_admin",
-    })
+    await db.ipads.insert_one(
+        {
+            "id": ipad_id,
+            "bildungsgang_id": bildungsgang_id,
+            "is_in_pool": pool,
+            "itnr": f"IT{ipad_id}",
+            "snr": f"SN{ipad_id}",
+            "status": "ok",
+            "user_id": "u_admin",
+        }
+    )
 
 
 async def test_sieht_alle_eigenen_bildungsgaenge(welt, client):
@@ -39,10 +44,17 @@ async def test_fremder_bildungsgang_bleibt_unsichtbar(welt, client):
 
 async def test_beendete_zustaendigkeit_entzieht_zugriff(welt, client):
     """Wer ausgeschieden ist, sieht nichts mehr - auch nicht, was er selbst angelegt hat."""
-    await welt.ipads.insert_one({
-        "id": "x", "bildungsgang_id": "bg_gym", "is_in_pool": False,
-        "itnr": "ITx", "snr": "SNx", "status": "ok", "user_id": "u_ausgeschieden",
-    })
+    await welt.ipads.insert_one(
+        {
+            "id": "x",
+            "bildungsgang_id": "bg_gym",
+            "is_in_pool": False,
+            "itnr": "ITx",
+            "snr": "SNx",
+            "status": "ok",
+            "user_id": "u_ausgeschieden",
+        }
+    )
     kopf = await anmelden(client, "ausgeschieden")
     assert (await client.get("/api/ipads", headers=kopf)).json() == []
 

@@ -7,6 +7,10 @@ import re
 from datetime import UTC, datetime
 from typing import List, Optional
 
+from fastapi import Depends, HTTPException
+from pydantic import BaseModel
+from starlette.requests import Request
+
 from core.config import (
     MAX_IPADS_PER_STUDENT,
     db,
@@ -21,10 +25,7 @@ from core.security import (
     resolve_bildungsgang,
     validate_resource_ownership,
 )
-from fastapi import Depends, HTTPException
 from models.student import Student, StudentWithAssignmentCount
-from pydantic import BaseModel
-from starlette.requests import Request
 
 
 async def _vertrag_ids_des_schuelers(student_id: str) -> List[str]:
@@ -335,9 +336,7 @@ async def update_student(
 
 
 @api_router.put("/students/{student_id}/ipad-refused")
-async def set_student_ipad_refused(
-    student_id: str, request: dict, current_user: dict = Depends(get_current_user)
-):
+async def set_student_ipad_refused(student_id: str, request: dict, current_user: dict = Depends(get_current_user)):
     """Mark/unmark that this person generally declines being given an iPad.
 
     Independent of any concrete assignment - used to distinguish "nicht zugeordnet"

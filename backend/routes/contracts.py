@@ -10,6 +10,11 @@ from datetime import UTC, datetime
 from typing import List, Optional
 
 import PyPDF2
+from fastapi import Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from starlette.requests import Request
+
 from core.config import (
     MAX_CONTRACTS_PER_STUDENT,
     db,
@@ -25,11 +30,7 @@ from core.security import (
     validate_resource_ownership,
 )
 from core.validators import validate_uploaded_file
-from fastapi import Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
 from models.contract import Contract
-from pydantic import BaseModel
-from starlette.requests import Request
 
 
 @api_router.post("/contracts/upload-multiple")
@@ -436,9 +437,7 @@ async def assign_contract_to_assignment(
         # nicht wie viele davon der Aufrufer sehen darf. Der Zugriff ist eine Zeile vorher
         # bereits geprueft; mit Filter zaehlten Altbestaende ohne Bildungsgang nicht mit, und
         # die Obergrenze liesse sich dadurch ueberschreiten.
-        existing_contracts = await db.contracts.count_documents(
-            {"student_id": student_id, "is_active": True}
-        )
+        existing_contracts = await db.contracts.count_documents({"student_id": student_id, "is_active": True})
 
         if existing_contracts >= MAX_CONTRACTS_PER_STUDENT:
             raise HTTPException(

@@ -7,6 +7,11 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 
+from fastapi import Depends, HTTPException
+from fastapi.responses import JSONResponse
+from pymongo.errors import DuplicateKeyError
+from starlette.requests import Request
+
 from core.config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     db,
@@ -20,15 +25,11 @@ from core.security import (
     get_password_hash,
     verify_password,
 )
-from fastapi import Depends, HTTPException
-from fastapi.responses import JSONResponse
 from models.user import (
     User,
     UserLogin,
 )
-from pymongo.errors import DuplicateKeyError
 from routes.backup import laeuft_wiederherstellung
-from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +42,13 @@ SETUP_NICHT_NOETIG = "Setup not required"
 async def _doppelte_benutzernamen() -> Optional[int]:
     """Wie viele Benutzernamen mehrfach vorkommen; None, wenn sich das nicht zaehlen laesst."""
     try:
-        gruppen = await db.users.aggregate([
-            {"$group": {"_id": "$username", "anzahl": {"$sum": 1}}},
-            {"$match": {"anzahl": {"$gt": 1}}},
-            {"$count": "doppelte"},
-        ]).to_list(length=1)
+        gruppen = await db.users.aggregate(
+            [
+                {"$group": {"_id": "$username", "anzahl": {"$sum": 1}}},
+                {"$match": {"anzahl": {"$gt": 1}}},
+                {"$count": "doppelte"},
+            ]
+        ).to_list(length=1)
     except Exception as e:
         logger.error("Doppelte Benutzernamen konnten nicht gezaehlt werden: %s", str(e))
         return None
@@ -78,7 +81,8 @@ async def ensure_username_index() -> None:
         doppelte = await _doppelte_benutzernamen()
         if doppelte:
             befund = (
-                f"{doppelte} Benutzername kommt mehrfach vor" if doppelte == 1
+                f"{doppelte} Benutzername kommt mehrfach vor"
+                if doppelte == 1
                 else f"{doppelte} Benutzernamen kommen mehrfach vor"
             )
         elif doppelte == 0:
@@ -174,9 +178,7 @@ async def setup_admin():
     # kurz leer. Ohne diese Abfrage reichte ein Aufruf in genau diesem Augenblick, um sich
     # admin/admin123 anlegen zu lassen - die Hintertuer waere durch die Hintertuer zurueck.
     if await laeuft_wiederherstellung():
-        logger.warning(
-            "Setup-Endpunkt waehrend einer laufenden Wiederherstellung aufgerufen - abgelehnt."
-        )
+        logger.warning("Setup-Endpunkt waehrend einer laufenden Wiederherstellung aufgerufen - abgelehnt.")
         return {"message": SETUP_NICHT_NOETIG}
 
     # Es gibt kein Admin-Konto mehr, aber noch Benutzer: Das ist keine Ersteinrichtung, sondern

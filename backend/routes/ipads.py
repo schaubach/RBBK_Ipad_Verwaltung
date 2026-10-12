@@ -9,6 +9,13 @@ from datetime import UTC, datetime
 from typing import List, Optional
 
 import pandas as pd
+from fastapi import Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
+from starlette.requests import Request
+
 from core.config import (
     db,
     limiter,
@@ -18,22 +25,16 @@ from core.router import api_router
 from core.security import (
     get_current_user,
     get_ipad_filter,
-    mit_ansicht,
     get_user_filter,
-    resolve_bildungsgang,
+    mit_ansicht,
     require_admin_user,
+    resolve_bildungsgang,
 )
 from core.validators import read_excel_upload, safe_str, validate_uploaded_file
-from fastapi import Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
 from models.assignment import (
     Assignment,
 )
 from models.ipad import iPad
-from pydantic import BaseModel
-from pymongo import ReturnDocument
-from pymongo.errors import DuplicateKeyError
-from starlette.requests import Request
 
 # iPad management endpoints
 
@@ -190,8 +191,8 @@ async def create_ipad(ipad_data: dict, current_user: dict = Depends(require_admi
 
         is_in_pool = bool(ipad_data.get("is_in_pool", False))
         # Poolgeraete gehoeren keinem Bildungsgang - sie liegen zentral, bis jemand sie holt.
-        bildungsgang_id = None if is_in_pool else await resolve_bildungsgang(
-            current_user, ipad_data.get("bildungsgang_id")
+        bildungsgang_id = (
+            None if is_in_pool else await resolve_bildungsgang(current_user, ipad_data.get("bildungsgang_id"))
         )
 
         # Die ITNr bezeichnet ein Stueck Hardware und ist schulweit eindeutig - siehe
@@ -966,7 +967,9 @@ async def download_batch_assign_template(current_user: dict = Depends(require_ad
 
 @api_router.post("/ipads/bulk-claim")
 @limiter.limit("30/minute")
-async def bulk_claim_ipads(payload: BulkClaimRequest, request: Request, current_user: dict = Depends(require_admin_user)):
+async def bulk_claim_ipads(
+    payload: BulkClaimRequest, request: Request, current_user: dict = Depends(require_admin_user)
+):
     """Claim multiple iPads from the pool. Reports success and failure counts. Admin-only."""
     if not payload.ipad_ids:
         raise HTTPException(status_code=400, detail="Keine iPads ausgewählt")
@@ -976,9 +979,7 @@ async def bulk_claim_ipads(payload: BulkClaimRequest, request: Request, current_
 
     bildungsgang_id = await resolve_bildungsgang(current_user, payload.bildungsgang_id)
     for ipad_id in payload.ipad_ids:
-        result = await _claim_pool_ipad_for_bildungsgang(
-            ipad_id, bildungsgang_id, "claimed", current_user["id"]
-        )
+        result = await _claim_pool_ipad_for_bildungsgang(ipad_id, bildungsgang_id, "claimed", current_user["id"])
         if result:
             success.append(result.get("itnr"))
         else:
@@ -1252,9 +1253,9 @@ async def get_ipad_history(ipad_id: str, current_user: dict = Depends(get_curren
     # form_fields eines fremden Vertrags - darin stehen Anschrift des Schuelers sowie Namen
     # und Anschriften beider Erziehungsberechtigten.
     user_filter = await get_user_filter(current_user)
-    contracts = await db.contracts.find(
-        {**user_filter, "$or": [{"ipad_id": ipad_id}, {"itnr": ipad["itnr"]}]}
-    ).to_list(length=None)
+    contracts = await db.contracts.find({**user_filter, "$or": [{"ipad_id": ipad_id}, {"itnr": ipad["itnr"]}]}).to_list(
+        length=None
+    )
 
     # Parse data safely
     try:

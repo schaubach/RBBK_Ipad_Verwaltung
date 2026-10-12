@@ -12,22 +12,26 @@ from tests.conftest import anmelden
 
 
 async def schueler(client, kopf, vorname="Max", nachname="Mustermann", **felder):
-    return await client.post(
-        "/api/students", json={"sus_vorn": vorname, "sus_nachn": nachname, **felder}, headers=kopf
-    )
+    return await client.post("/api/students", json={"sus_vorn": vorname, "sus_nachn": nachname, **felder}, headers=kopf)
 
 
 async def geraet(client, kopf, itnr="IT-100", **felder):
-    return await client.post(
-        "/api/ipads", json={"itnr": itnr, "snr": f"SN-{itnr}", **felder}, headers=kopf
-    )
+    return await client.post("/api/ipads", json={"itnr": itnr, "snr": f"SN-{itnr}", **felder}, headers=kopf)
 
 
 async def poolgeraet(db, ipad_id, itnr="IT-POOL"):
-    await db.ipads.insert_one({
-        "id": ipad_id, "bildungsgang_id": None, "is_in_pool": True,
-        "itnr": itnr, "snr": f"SN-{itnr}", "status": "ok", "user_id": "u_admin", "pool_history": [],
-    })
+    await db.ipads.insert_one(
+        {
+            "id": ipad_id,
+            "bildungsgang_id": None,
+            "is_in_pool": True,
+            "itnr": itnr,
+            "snr": f"SN-{itnr}",
+            "status": "ok",
+            "user_id": "u_admin",
+            "pool_history": [],
+        }
+    )
 
 
 # --- Vorauswahl aus der Zuständigkeit ------------------------------------------------
@@ -76,8 +80,9 @@ async def test_beendete_zustaendigkeit_erlaubt_kein_anlegen_im_alten_bildungsgan
     kopf = await anmelden(client, "ausgeschieden")
     antwort = await schueler(client, kopf, bildungsgang_id="bg_gym")
     assert antwort.status_code == 403
-    assert await welt.zustaendigkeiten.count_documents({"user_id": "u_ausgeschieden"}) == 1, \
-        "Die beendete Zuständigkeit ist Historie und muss erhalten bleiben"
+    assert (
+        await welt.zustaendigkeiten.count_documents({"user_id": "u_ausgeschieden"}) == 1
+    ), "Die beendete Zuständigkeit ist Historie und muss erhalten bleiben"
 
 
 # --- Die beiden Admin-Fälle, die sich unterscheiden -----------------------------------
@@ -318,15 +323,11 @@ async def test_umbenennen_folgt_derselben_dublettenregel_wie_das_anlegen(welt, c
     assert zu_korrigieren.status_code == 200, zu_korrigieren.text
 
     # Auf eine schulweit belegte Nummer darf nicht korrigiert werden - wie beim Anlegen.
-    korrektur = await client.put(
-        f"/api/ipads/{zu_korrigieren.json()['id']}", json={"itnr": "IT-100"}, headers=kopf
-    )
+    korrektur = await client.put(f"/api/ipads/{zu_korrigieren.json()['id']}", json={"itnr": "IT-100"}, headers=kopf)
     assert korrektur.status_code == 400, korrektur.text
 
     # Auf eine freie Nummer sehr wohl.
-    freie = await client.put(
-        f"/api/ipads/{zu_korrigieren.json()['id']}", json={"itnr": "IT-901"}, headers=kopf
-    )
+    freie = await client.put(f"/api/ipads/{zu_korrigieren.json()['id']}", json={"itnr": "IT-901"}, headers=kopf)
     assert freie.status_code == 200, freie.text
 
 

@@ -17,11 +17,12 @@ import re
 from datetime import UTC, datetime
 from typing import List
 
+from fastapi import Depends, HTTPException
+
 from core.config import db
 from core.mongo import prepare_for_mongo
 from core.router import api_router
 from core.security import get_current_user, require_admin_user
-from fastapi import Depends, HTTPException
 from models.bildungsgang import (
     Bildungsgang,
     BildungsgangCreate,
@@ -199,21 +200,15 @@ async def add_zustaendigkeit(
 
 
 @api_router.delete("/bildungsgaenge/{bildungsgang_id}/zustaendige/{user_id}", response_model=BildungsgangResponse)
-async def end_zustaendigkeit(
-    bildungsgang_id: str, user_id: str, current_user: dict = Depends(require_admin_user)
-):
+async def end_zustaendigkeit(bildungsgang_id: str, user_id: str, current_user: dict = Depends(require_admin_user)):
     """Zuständigkeit beenden (nur Admin).
 
     Der Datensatz wird NICHT gelöscht, sondern mit ``bis`` abgeschlossen: der Zugriff endet
     sofort, die Historie bleibt. Die Daten des Bildungsgangs bleiben unberührt.
     """
-    laufend = await db.zustaendigkeiten.find_one(
-        {"bildungsgang_id": bildungsgang_id, "user_id": user_id, "bis": None}
-    )
+    laufend = await db.zustaendigkeiten.find_one({"bildungsgang_id": bildungsgang_id, "user_id": user_id, "bis": None})
     if not laufend:
         raise HTTPException(status_code=404, detail="Keine laufende Zuständigkeit gefunden.")
 
-    await db.zustaendigkeiten.update_one(
-        {"id": laufend["id"]}, {"$set": {"bis": datetime.now(UTC).isoformat()}}
-    )
+    await db.zustaendigkeiten.update_one({"id": laufend["id"]}, {"$set": {"bis": datetime.now(UTC).isoformat()}})
     return await _to_response(await db.bildungsgaenge.find_one({"id": bildungsgang_id}))

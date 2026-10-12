@@ -15,10 +15,10 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.cors import CORSMiddleware
 
+import routes  # noqa: F401  (import side-effect: registers all endpoints on api_router)
 from core.config import client, limiter
 from core.middleware import SecurityHeadersMiddleware
 from core.router import api_router
-import routes  # noqa: F401  (import side-effect: registers all endpoints on api_router)
 from routes.auth import ensure_username_index
 from routes.backup import backup_scheduler_loop, ensure_itnr_index
 

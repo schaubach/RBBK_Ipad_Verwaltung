@@ -5,6 +5,8 @@ Auto-extracted from monolithic server.py during refactor (Session 12).
 
 from datetime import UTC, datetime, timedelta
 
+from fastapi import Depends, HTTPException
+
 from core.config import (
     db,
 )
@@ -13,7 +15,6 @@ from core.security import (
     get_current_user,
     require_admin,
 )
-from fastapi import Depends, HTTPException
 
 
 @api_router.post("/data-protection/cleanup-old-data")

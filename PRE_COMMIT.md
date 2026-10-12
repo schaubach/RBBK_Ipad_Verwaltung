@@ -1,62 +1,53 @@
-# Pre-Commit-Hook mit Ruff
+# Prüfungen: lokal beim Commit, auf GitHub bei jedem Push
 
-Automatischer Code-Check bevor jeder `git commit` durchgeht. Verhindert,
-dass typische Bugs (unbenutzte Imports, tote Variablen, kaputter Code) ins
-Repository gelangen.
+Zwei Stufen, damit das Committen schnell bleibt und trotzdem nichts ungeprüft auf `main` landet:
 
-## Setup (einmalig)
+| Wann | Was | Dauer |
+|---|---|---|
+| **`git commit`** (lokal, pre-commit-Hook) | Ruff (Lint + Format) für `backend/`, YAML-Syntax | Sekunden |
+| **`git push`** (GitHub Actions, `.github/workflows/ci.yml`) | `lint`: dieselben Hooks noch einmal · `backend`: pytest gegen MongoDB · `frontend`: Produktions-Build inkl. ESLint · `e2e`: Playwright-Smoke-Test und Kernablauf im Browser | einige Minuten |
+
+Die langsamen Prüfungen (Backend-Suite ~6 min, E2E mit Docker-Build) laufen bewusst NICHT beim
+Commit, sondern nur in der CI. Das Ergebnis steht auf GitHub unter **Actions** und als
+Haken/Kreuz am Commit.
+
+## Einrichtung (einmalig je Rechner)
 
 ```bash
-pip install pre-commit
-cd /app
-pre-commit install
+brew install pre-commit      # oder: pip install pre-commit
+pre-commit install           # im Repo-Wurzelverzeichnis
 ```
 
-Das war's. Ab jetzt läuft der Hook **automatisch bei jedem `git commit`**.
+Ab jetzt läuft der Hook bei jedem `git commit`. Was Ruff selbst beheben kann (Import-Reihenfolge,
+Formatierung), behebt er - der Commit bricht dann einmal ab, die Änderungen liegen im
+Arbeitsverzeichnis: anschauen, `git add`, nochmal committen.
 
 ## Was wird geprüft?
 
 | Hook | Wirkung |
 |---|---|
-| **ruff** (`--fix`) | Lintet Python-Code im `backend/`-Ordner; behebt sichere Issues automatisch (unbenutzte Imports, Reihenfolge, etc.); bricht ab bei echten Bugs |
-| **ruff-format** | Formatiert Python-Code (PEP8, Zeilenumbrüche, Quotes) |
-| **check-yaml** | Prüft alle YAML-Dateien auf Syntax-Fehler |
+| **ruff** (`--fix`) | Lintet Python-Code in `backend/`; behebt sichere Fälle selbst (unbenutzte Imports, Reihenfolge, ...); bricht ab bei echten Fehlern |
+| **ruff-format** | Formatiert Python-Code einheitlich |
+| **check-yaml** | Prüft alle YAML-Dateien auf Syntaxfehler (u. a. die CI-Definition und die Compose-Dateien) |
+
+Ruff ist kein Test, sondern ein Linter: Er führt den Code nicht aus, sondern liest ihn und
+erkennt typische Fehlermuster. Beispiel: `routes/data_protection.py` importierte einst
+`require_admin`, rief es aber nie auf - die Rechteprüfung fehlte. Ruff meldet so etwas als
+`F401: imported but unused` und hält den Commit an.
 
 ## Manuell auslösen
 
 ```bash
-# Alle Dateien prüfen (z.B. nach Refactor):
-pre-commit run --all-files
-
-# Nur bestimmte Datei:
-pre-commit run --files backend/routes/ipads.py
-
-# Einzelnen Hook erzwingen:
-pre-commit run ruff --all-files
+pre-commit run --all-files                       # alles
+pre-commit run --files backend/routes/ipads.py   # eine Datei
+pre-commit run ruff --all-files                  # ein Hook
 ```
-
-## Real-World-Beispiel (Bug der gefangen würde)
-
-Der `require_admin`-Security-Bug aus Session 17 (data_protection.py) wäre nie
-ins Repo gelangt: `routes/data_protection.py` importierte `require_admin`, rief
-es aber nie auf. Ruff hätte `F401: 'require_admin' imported but unused`
-gemeldet und den Commit blockiert.
 
 ## Konfiguration
 
-- **Hook-Definition**: `/app/.pre-commit-config.yaml`
-- **Ruff-Regeln**: `/app/ruff.toml`
-
-Aktivierte Regel-Gruppen:
-- `E`/`W` — pycodestyle Errors/Warnings
-- `F` — pyflakes (unused imports, unused vars)
-- `B` — bugbear (Mutable defaults, etc.)
-- `I` — Import-Sortierung
-- `UP` — Modernisierungs-Hinweise
-- `S` — Security (Bandit-Regeln)
-
-Bewusst ignoriert (mit Begründung in `ruff.toml`): E501, E722, B008, B904,
-UP006/UP007/UP035, S101/S104/S105/S106/S110/S113/S311.
+- Hooks: `.pre-commit-config.yaml`
+- Ruff-Regeln: `ruff.toml` (Regelgruppen E/W, F, B, I, UP, S; bewusste Ausnahmen mit Begründung dort)
+- CI: `.github/workflows/ci.yml`
 
 ## Hook umgehen (nur Notfall)
 
@@ -64,4 +55,4 @@ UP006/UP007/UP035, S101/S104/S105/S106/S110/S113/S311.
 git commit --no-verify -m "..."
 ```
 
-Bitte nur in Ausnahmefällen — der Hook ist dein Sicherheitsnetz.
+Der `lint`-Job in der CI prüft trotzdem - ein übergangener Hook fällt spätestens dort auf.

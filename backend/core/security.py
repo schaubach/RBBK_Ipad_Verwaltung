@@ -214,9 +214,7 @@ async def resolve_bildungsgang(user: dict, explicit_id: Optional[str] = None) ->
             "Bitte an die Administration wenden.",
         )
 
-    namen = [
-        b["name"] async for b in db.bildungsgaenge.find({"id": {"$in": verfuegbar}}, {"name": 1}).sort("name", 1)
-    ]
+    namen = [b["name"] async for b in db.bildungsgaenge.find({"id": {"$in": verfuegbar}}, {"name": 1}).sort("name", 1)]
     raise HTTPException(
         status_code=400,
         detail="Bitte einen Bildungsgang auswählen: " + ", ".join(namen),

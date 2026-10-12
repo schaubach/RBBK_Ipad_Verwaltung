@@ -26,19 +26,35 @@ EXCEL_TYP = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 async def poolgeraet(db, ipad_id, itnr=None, angelegt_von="u_admin"):
     """Gerät im Pool: ohne Bildungsgang, also ohne Besitzer."""
-    await db.ipads.insert_one({
-        "id": ipad_id, "bildungsgang_id": None, "is_in_pool": True,
-        "itnr": itnr or f"IT{ipad_id}", "snr": f"SN{ipad_id}", "status": "ok",
-        "user_id": angelegt_von, "pool_history": [], "current_assignment_id": None,
-    })
+    await db.ipads.insert_one(
+        {
+            "id": ipad_id,
+            "bildungsgang_id": None,
+            "is_in_pool": True,
+            "itnr": itnr or f"IT{ipad_id}",
+            "snr": f"SN{ipad_id}",
+            "status": "ok",
+            "user_id": angelegt_von,
+            "pool_history": [],
+            "current_assignment_id": None,
+        }
+    )
 
 
 async def geraet(db, ipad_id, bildungsgang_id, itnr=None, angelegt_von="u_admin"):
-    await db.ipads.insert_one({
-        "id": ipad_id, "bildungsgang_id": bildungsgang_id, "is_in_pool": False,
-        "itnr": itnr or f"IT{ipad_id}", "snr": f"SN{ipad_id}", "status": "ok",
-        "user_id": angelegt_von, "pool_history": [], "current_assignment_id": None,
-    })
+    await db.ipads.insert_one(
+        {
+            "id": ipad_id,
+            "bildungsgang_id": bildungsgang_id,
+            "is_in_pool": False,
+            "itnr": itnr or f"IT{ipad_id}",
+            "snr": f"SN{ipad_id}",
+            "status": "ok",
+            "user_id": angelegt_von,
+            "pool_history": [],
+            "current_assignment_id": None,
+        }
+    )
 
 
 async def geraet_ohne_poolfeld(db, ipad_id, bildungsgang_id, itnr=None, angelegt_von="u_admin"):
@@ -49,11 +65,18 @@ async def geraet_ohne_poolfeld(db, ipad_id, bildungsgang_id, itnr=None, angelegt
     vorbei, in der jede Abfrage auf {"is_in_pool": False} ins Leere läuft. Deshalb wird hier
     direkt in die Datenbank geschrieben: über die API entstünde das Feld unvermeidlich.
     """
-    await db.ipads.insert_one({
-        "id": ipad_id, "bildungsgang_id": bildungsgang_id,
-        "itnr": itnr or f"IT{ipad_id}", "snr": f"SN{ipad_id}", "status": "ok",
-        "user_id": angelegt_von, "pool_history": [], "current_assignment_id": None,
-    })
+    await db.ipads.insert_one(
+        {
+            "id": ipad_id,
+            "bildungsgang_id": bildungsgang_id,
+            "itnr": itnr or f"IT{ipad_id}",
+            "snr": f"SN{ipad_id}",
+            "status": "ok",
+            "user_id": angelegt_von,
+            "pool_history": [],
+            "current_assignment_id": None,
+        }
+    )
 
 
 async def einstellungen(db, ipad_typ, pencil):
@@ -108,9 +131,7 @@ async def test_poolanlage_ignoriert_den_angegebenen_bildungsgang(welt, client):
 async def test_poolgeraet_taucht_in_keinem_bestand_auf(welt, client):
     """Niemandes Gerät: für die Lehrkraft unsichtbar, für die zentrale Verwaltung sichtbar."""
     admin = await anmelden(client, "admin")
-    erzeugt = await client.post(
-        "/api/ipads", json={"itnr": "IT901", "snr": "SN901", "is_in_pool": True}, headers=admin
-    )
+    erzeugt = await client.post("/api/ipads", json={"itnr": "IT901", "snr": "SN901", "is_in_pool": True}, headers=admin)
     assert erzeugt.status_code == 200, erzeugt.text
 
     lehrkraft = await anmelden(client, "schaubach")
@@ -129,9 +150,7 @@ async def test_claim_holt_das_geraet_in_den_bildungsgang(welt, client):
 
     assert (await client.get("/api/ipads", headers=lehrkraft)).json() == []
 
-    antwort = await client.post(
-        "/api/ipads/g1/claim", json={"bildungsgang_id": "bg_meda"}, headers=admin
-    )
+    antwort = await client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_meda"}, headers=admin)
     assert antwort.status_code == 200, antwort.text
 
     bestand = (await client.get("/api/ipads", headers=lehrkraft)).json()
@@ -169,9 +188,7 @@ async def test_claim_in_unbekannten_bildungsgang_wird_abgelehnt(welt, client):
     await poolgeraet(welt, "g1")
     kopf = await anmelden(client, "admin")
 
-    antwort = await client.post(
-        "/api/ipads/g1/claim", json={"bildungsgang_id": "bg_gibtsnicht"}, headers=kopf
-    )
+    antwort = await client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_gibtsnicht"}, headers=kopf)
     assert antwort.status_code == 400
     assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is True
 
@@ -213,9 +230,7 @@ async def test_zwei_gleichzeitige_claims_koennen_nicht_beide_gewinnen(welt, clie
 
 async def test_claim_auf_unbekanntes_geraet_meldet_404(welt, client):
     kopf = await anmelden(client, "admin")
-    antwort = await client.post(
-        "/api/ipads/gibtsnicht/claim", json={"bildungsgang_id": "bg_meda"}, headers=kopf
-    )
+    antwort = await client.post("/api/ipads/gibtsnicht/claim", json={"bildungsgang_id": "bg_meda"}, headers=kopf)
     assert antwort.status_code == 404
 
 
@@ -253,7 +268,9 @@ async def test_bulk_claim_holt_nur_was_noch_im_pool_liegt(welt, client):
 async def test_bulk_claim_ohne_auswahl_wird_abgelehnt(welt, client):
     kopf = await anmelden(client, "admin")
     antwort = await client.post(
-        "/api/ipads/bulk-claim", json={"ipad_ids": [], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"}, headers=kopf
+        "/api/ipads/bulk-claim",
+        json={"ipad_ids": [], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        headers=kopf,
     )
     assert antwort.status_code == 400
 
@@ -272,14 +289,17 @@ async def test_bulk_claim_ohne_zustaendigkeit_verlangt_eine_auswahl(welt, client
 
 async def zuordnung_anlegen(welt, client, kopf, ipad_id="g1", bildungsgang_id="bg_meda"):
     """Ein ausgegebenes Gerät samt Schüler und aktiver Zuordnung - Ausgangslage für die Freigabe."""
-    await welt.students.insert_one({
-        "id": "s1", "bildungsgang_id": bildungsgang_id, "user_id": "u_admin",
-        "sus_vorn": "Ada", "sus_nachn": "Lovelace",
-    })
-    await geraet(welt, ipad_id, bildungsgang_id)
-    antwort = await client.post(
-        "/api/assignments/manual", json={"student_id": "s1", "ipad_id": ipad_id}, headers=kopf
+    await welt.students.insert_one(
+        {
+            "id": "s1",
+            "bildungsgang_id": bildungsgang_id,
+            "user_id": "u_admin",
+            "sus_vorn": "Ada",
+            "sus_nachn": "Lovelace",
+        }
     )
+    await geraet(welt, ipad_id, bildungsgang_id)
+    antwort = await client.post("/api/assignments/manual", json={"student_id": "s1", "ipad_id": ipad_id}, headers=kopf)
     assert antwort.status_code == 200, antwort.text
     return antwort.json()["assignment_id"]
 
@@ -305,11 +325,20 @@ async def test_freigabe_setzt_den_vertrag_inaktiv(welt, client):
     """Der Vertrag bleibt als Beleg erhalten, gilt aber nicht mehr - gelöscht wird nichts."""
     kopf = await anmelden(client, "admin")
     zuordnung_id = await zuordnung_anlegen(welt, client, kopf)
-    await welt.contracts.insert_one({
-        "id": "v1", "assignment_id": zuordnung_id, "ipad_id": "g1", "student_id": "s1",
-        "bildungsgang_id": "bg_meda", "user_id": "u_admin", "itnr": "ITg1",
-        "student_name": "Ada Lovelace", "filename": "v1.pdf", "is_active": True,
-    })
+    await welt.contracts.insert_one(
+        {
+            "id": "v1",
+            "assignment_id": zuordnung_id,
+            "ipad_id": "g1",
+            "student_id": "s1",
+            "bildungsgang_id": "bg_meda",
+            "user_id": "u_admin",
+            "itnr": "ITg1",
+            "student_name": "Ada Lovelace",
+            "filename": "v1.pdf",
+            "is_active": True,
+        }
+    )
 
     assert (await client.post("/api/ipads/g1/release-to-pool", headers=kopf)).status_code == 200
 
@@ -679,10 +708,12 @@ async def test_lieferliste_legt_das_geraet_mit_allen_angaben_an(welt, client):
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
         data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        files=anhang(excel(
-            [("IT500", "SN500", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "defekt")],
-            spalten=SPALTEN_VOLL,
-        )),
+        files=anhang(
+            excel(
+                [("IT500", "SN500", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "defekt")],
+                spalten=SPALTEN_VOLL,
+            )
+        ),
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -736,10 +767,12 @@ async def test_lieferliste_ergaenzt_am_poolgeraet_nur_was_fehlt(welt, client):
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
         data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        files=anhang(excel(
-            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad", "2024", "ok")],
-            spalten=SPALTEN_VOLL,
-        )),
+        files=anhang(
+            excel(
+                [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad", "2024", "ok")],
+                spalten=SPALTEN_VOLL,
+            )
+        ),
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -764,10 +797,12 @@ async def test_nachlieferung_ergaenzt_im_eigenen_bildungsgang_nur_was_fehlt(welt
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
         data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        files=anhang(excel(
-            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "ok")],
-            spalten=SPALTEN_VOLL,
-        )),
+        files=anhang(
+            excel(
+                [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "ok")],
+                spalten=SPALTEN_VOLL,
+            )
+        ),
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -794,10 +829,12 @@ async def test_nachlieferung_erreicht_auch_geraete_ohne_poolfeld(welt, client):
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
         data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        files=anhang(excel(
-            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "ok")],
-            spalten=SPALTEN_VOLL,
-        )),
+        files=anhang(
+            excel(
+                [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "ok")],
+                spalten=SPALTEN_VOLL,
+            )
+        ),
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -834,10 +871,12 @@ async def test_fremder_bildungsgang_bekommt_keine_stammdaten(welt, client):
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
         data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        files=anhang(excel(
-            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "defekt")],
-            spalten=SPALTEN_VOLL,
-        )),
+        files=anhang(
+            excel(
+                [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "defekt")],
+                spalten=SPALTEN_VOLL,
+            )
+        ),
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -856,10 +895,12 @@ async def test_fremdes_geraet_behaelt_anleger_und_historie(welt, client):
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
         data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        files=anhang(excel(
-            [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "ok")],
-            spalten=SPALTEN_VOLL,
-        )),
+        files=anhang(
+            excel(
+                [("IT100", "SNg1", "K7", "mit Apple Pencil", "Apple iPad 9. Gen, 64 GB", "2024", "ok")],
+                spalten=SPALTEN_VOLL,
+            )
+        ),
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -932,7 +973,7 @@ async def test_unbekannter_status_wird_zu_ok_und_gemeldet(welt, client):
 
 
 async def test_unbekannter_status_wird_auch_am_vorhandenen_geraet_gemeldet(welt, client):
-    """"kaputt" in der Liste ist der Grund, warum jemand das Gerät ansehen soll.
+    """ "kaputt" in der Liste ist der Grund, warum jemand das Gerät ansehen soll.
 
     Am Bestand ändert die Spalte bei einem vorhandenen Gerät nichts - gerade deshalb muss die
     Zeile sagen, dass dort etwas stand, das sie nicht deuten konnte. Gemeldet wurde der
@@ -1001,8 +1042,7 @@ async def test_abweichender_status_wird_auch_bei_der_nachlieferung_gemeldet(welt
     zeile = antwort.json()["rows"][0]
     assert zeile["outcome"] == "already_assigned"
     assert zeile["note"] == (
-        "Bereits zugeordnet zu MEDA - Übergabe quittiert"
-        " - Status weicht ab: im Bestand 'ok', in der Liste 'defekt'"
+        "Bereits zugeordnet zu MEDA - Übergabe quittiert" " - Status weicht ab: im Bestand 'ok', in der Liste 'defekt'"
     ), zeile["note"]
 
     assert (await welt.ipads.find_one({"id": "g1"}))["status"] == "ok", "der Bestand bleibt stehen"
@@ -1051,7 +1091,7 @@ async def test_leere_statusspalte_meldet_keine_abweichung(welt, client):
 
 
 async def test_grossschreibung_allein_ist_keine_abweichung(welt, client):
-    """"Defekt" und "defekt" sind dieselbe Angabe - auf beiden Seiten des Vergleichs.
+    """ "Defekt" und "defekt" sind dieselbe Angabe - auf beiden Seiten des Vergleichs.
 
     Der Wert aus der Datei wird schon beim Lesen kleingeschrieben, der aus dem Bestand erst im
     Vergleich. Beides wird gebraucht: die erste Zeile kommt großgeschrieben aus der Liste, die
@@ -1067,10 +1107,12 @@ async def test_grossschreibung_allein_ist_keine_abweichung(welt, client):
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
         data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        files=anhang(excel(
-            [("IT100", "SNg1", "Defekt"), ("IT101", "SNg2", "defekt")],
-            spalten=("ITNr", "SNr", "Status"),
-        )),
+        files=anhang(
+            excel(
+                [("IT100", "SNg1", "Defekt"), ("IT101", "SNg2", "defekt")],
+                spalten=("ITNr", "SNr", "Status"),
+            )
+        ),
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -1080,7 +1122,7 @@ async def test_grossschreibung_allein_ist_keine_abweichung(welt, client):
 
 
 async def test_unbekannter_status_meldet_nicht_zusaetzlich_eine_abweichung(welt, client):
-    """"kaputt" weicht nicht vom Bestand ab - es ist überhaupt kein Status.
+    """ "kaputt" weicht nicht vom Bestand ab - es ist überhaupt kein Status.
 
     Die beiden Meldungen beantworten verschiedene Fragen: die eine sagt, dass in der Liste
     etwas steht, das niemand deuten kann, die andere, dass zwei deutbare Angaben auseinander-
@@ -1167,10 +1209,12 @@ async def test_mehrere_hinweise_stehen_nebeneinander_in_einer_zeile(welt, client
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
         data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        files=anhang(excel(
-            [("IT100", "SN999", "K7", "", "", "", "defekt")],
-            spalten=SPALTEN_VOLL,
-        )),
+        files=anhang(
+            excel(
+                [("IT100", "SN999", "K7", "", "", "", "defekt")],
+                spalten=SPALTEN_VOLL,
+            )
+        ),
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -1227,9 +1271,7 @@ async def test_anschaffungsjahr_als_zahl_bleibt_eine_jahreszahl(welt, client):
     antwort = await client.post(
         "/api/admin/ipads/batch-assign-import",
         data={"bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        files=anhang(excel(
-            [("IT500", "SN500", 2024), ("IT501", "SN501", "")], spalten=("ITNr", "SNr", "AnschJahr")
-        )),
+        files=anhang(excel([("IT500", "SN500", 2024), ("IT501", "SN501", "")], spalten=("ITNr", "SNr", "AnschJahr"))),
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
@@ -1653,6 +1695,7 @@ async def test_geleerter_typ_faellt_beim_bearbeiten_auf_die_vorgabe_zurueck(welt
 
 
 # --- Empfänger ist Pflicht ---------------------------------------------------------------
+
 
 async def test_zuweisung_ohne_empfaenger_wird_abgelehnt(welt, client):
     """Ein Gerät geht körperlich an jemanden - ohne diese Angabe bleibt später offen, an wen.

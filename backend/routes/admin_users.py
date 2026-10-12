@@ -7,6 +7,10 @@ import random
 from datetime import UTC, datetime
 from typing import List
 
+from fastapi import Depends, HTTPException
+from pymongo.errors import DuplicateKeyError
+from starlette.requests import Request
+
 from core.config import (
     db,
     limiter,
@@ -18,15 +22,12 @@ from core.security import (
     get_password_hash,
     require_admin,
 )
-from fastapi import Depends, HTTPException
-from pymongo.errors import DuplicateKeyError
 from models.user import (
     User,
     UserCreate,
     UserResponse,
     UserUpdate,
 )
-from starlette.requests import Request
 
 
 # Admin User Management Endpoints
@@ -57,8 +58,7 @@ async def _user_response(user: dict, bg_namen: dict = None, zust: dict = None) -
         ids = zust.get(user["id"], [])
     if bg_namen is None:
         bg_namen = {
-            b["id"]: b["name"]
-            async for b in db.bildungsgaenge.find({"id": {"$in": ids}}, {"id": 1, "name": 1})
+            b["id"]: b["name"] async for b in db.bildungsgaenge.find({"id": {"$in": ids}}, {"id": 1, "name": 1})
         }
     # Altbestaende und aus Sicherungen zurueckgespielte Konten haben nicht zwingend ein
     # created_at. Ein hartes user["created_at"] liesse ein einziges solches Dokument die ganze
@@ -134,9 +134,7 @@ async def list_users(request: Request, current_user: dict = Depends(get_current_
 
     users = await db.users.find().to_list(length=None)
     # Namen und laufende Zustaendigkeiten einmal laden statt zweimal pro Benutzer
-    bg_namen = {
-        b["id"]: b["name"] for b in await db.bildungsgaenge.find({}, {"id": 1, "name": 1}).to_list(length=None)
-    }
+    bg_namen = {b["id"]: b["name"] for b in await db.bildungsgaenge.find({}, {"id": 1, "name": 1}).to_list(length=None)}
     zust = {}
     for z in await db.zustaendigkeiten.find({"bis": None}, {"user_id": 1, "bildungsgang_id": 1}).to_list(length=None):
         zust.setdefault(z["user_id"], []).append(z["bildungsgang_id"])
@@ -250,9 +248,7 @@ async def delete_user_complete(user_id: str, current_user: dict = Depends(get_cu
 
     # Laufende Zustaendigkeiten beenden statt loeschen
     jetzt = datetime.now(UTC).isoformat()
-    beendet = await db.zustaendigkeiten.update_many(
-        {"user_id": user_id, "bis": None}, {"$set": {"bis": jetzt}}
-    )
+    beendet = await db.zustaendigkeiten.update_many({"user_id": user_id, "bis": None}, {"$set": {"bis": jetzt}})
 
     await db.users.delete_one({"id": user_id})
 

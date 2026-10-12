@@ -105,23 +105,35 @@ async def welt(db):
         }
 
     await db.users.insert_many(
-        [benutzer("admin", "admin"), benutzer("wieners", "admin"), benutzer("schaubach"),
-         benutzer("bakenecker"), benutzer("ausgeschieden")]
+        [
+            benutzer("admin", "admin"),
+            benutzer("wieners", "admin"),
+            benutzer("schaubach"),
+            benutzer("bakenecker"),
+            benutzer("ausgeschieden"),
+        ]
     )
     await db.bildungsgaenge.insert_many(
-        [{"id": f"bg_{n.lower()}", "name": n, "created_at": "2026-01-01T00:00:00+00:00",
-          "updated_at": "2026-01-01T00:00:00+00:00"}
-         for n in ["MEDA", "IT", "GYM", "Lehrkräfte"]]
+        [
+            {
+                "id": f"bg_{n.lower()}",
+                "name": n,
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+            }
+            for n in ["MEDA", "IT", "GYM", "Lehrkräfte"]
+        ]
     )
-    await db.zustaendigkeiten.insert_many([
-        {"id": "z1", "bildungsgang_id": "bg_meda", "user_id": "u_schaubach", "bis": None},
-        {"id": "z2", "bildungsgang_id": "bg_it", "user_id": "u_schaubach", "bis": None},
-        {"id": "z3", "bildungsgang_id": "bg_gym", "user_id": "u_bakenecker", "bis": None},
-        {"id": "z4", "bildungsgang_id": "bg_lehrkräfte", "user_id": "u_wieners", "bis": None},
-        # Beendet: Zugriff muss weg sein, Historie muss bleiben
-        {"id": "z5", "bildungsgang_id": "bg_gym", "user_id": "u_ausgeschieden",
-         "bis": "2026-08-01T00:00:00+00:00"},
-    ])
+    await db.zustaendigkeiten.insert_many(
+        [
+            {"id": "z1", "bildungsgang_id": "bg_meda", "user_id": "u_schaubach", "bis": None},
+            {"id": "z2", "bildungsgang_id": "bg_it", "user_id": "u_schaubach", "bis": None},
+            {"id": "z3", "bildungsgang_id": "bg_gym", "user_id": "u_bakenecker", "bis": None},
+            {"id": "z4", "bildungsgang_id": "bg_lehrkräfte", "user_id": "u_wieners", "bis": None},
+            # Beendet: Zugriff muss weg sein, Historie muss bleiben
+            {"id": "z5", "bildungsgang_id": "bg_gym", "user_id": "u_ausgeschieden", "bis": "2026-08-01T00:00:00+00:00"},
+        ]
+    )
     return db
 
 

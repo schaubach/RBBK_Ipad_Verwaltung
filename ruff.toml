@@ -2,6 +2,9 @@
 # Scope: backend/ only (frontend uses ESLint).
 target-version = "py311"
 line-length = 120
+# Eigene Pakete (core, routes, models, ...) liegen unter backend/ - sonst sortiert die
+# Import-Regel sie zwischen fastapi und slowapi ein, als wären es fremde.
+src = ["backend"]
 
 [lint]
 # E,F = pyflakes + pycodestyle errors (the important ones)
@@ -33,7 +36,8 @@ select = ["E", "F", "W", "B", "I", "UP", "S"]
 # S110  — try-except-pass (acceptable for best-effort cleanup paths)
 # S113  — requests without timeout (test code uses session)
 # S311  — random for non-crypto use
-ignore = ["E501", "E722", "B008", "B904", "UP006", "UP007", "UP035", "S101", "S104", "S105", "S106", "S110", "S113", "S311"]
+# UP038 — isinstance(x, (A, B)) -> A | B: von Ruff selbst inzwischen verworfen (langsamer, kein Gewinn)
+ignore = ["UP038", "E501", "E722", "B008", "B904", "UP006", "UP007", "UP035", "S101", "S104", "S105", "S106", "S110", "S113", "S311"]
 
 [format]
 quote-style = "double"

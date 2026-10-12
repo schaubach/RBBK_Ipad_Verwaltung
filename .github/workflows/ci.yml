@@ -1,5 +1,7 @@
 # Läuft bei jedem Push und jedem Pull Request.
 #
+# lint:     dieselben Hooks wie lokal beim Commit (.pre-commit-config.yaml: Ruff, YAML).
+#           Fängt Commits ab, bei denen der Hook fehlte oder mit --no-verify übergangen wurde.
 # backend:  die pytest-Suite gegen eine echte MongoDB (wie im Container,
 #           nur ohne Docker Compose - die Tests brauchen keinen laufenden Server).
 # frontend: der Produktions-Build. Er läuft durch ESLint und fängt damit Fehler,
@@ -18,6 +20,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: pre-commit
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+
   backend:
     runs-on: ubuntu-latest
     services:

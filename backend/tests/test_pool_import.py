@@ -15,16 +15,25 @@ from tests.conftest import anmelden
 def excel(zeilen):
     puffer = io.BytesIO()
     pd.DataFrame(zeilen).to_excel(puffer, index=False)
-    return {"file": ("pool.xlsx", puffer.getvalue(),
-                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
+    return {
+        "file": ("pool.xlsx", puffer.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    }
 
 
 async def geraet(db, gid, itnr, bildungsgang_id=None, is_in_pool=False, current_assignment_id=None):
-    await db.ipads.insert_one({
-        "id": gid, "user_id": "u_admin", "bildungsgang_id": bildungsgang_id,
-        "itnr": itnr, "snr": f"SN-{gid}", "typ": "iPad 9", "status": "ok", "is_in_pool": is_in_pool,
-        "current_assignment_id": current_assignment_id,
-    })
+    await db.ipads.insert_one(
+        {
+            "id": gid,
+            "user_id": "u_admin",
+            "bildungsgang_id": bildungsgang_id,
+            "itnr": itnr,
+            "snr": f"SN-{gid}",
+            "typ": "iPad 9",
+            "status": "ok",
+            "is_in_pool": is_in_pool,
+            "current_assignment_id": current_assignment_id,
+        }
+    )
 
 
 async def pool_import(client, zeilen):

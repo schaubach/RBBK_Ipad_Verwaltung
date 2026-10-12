@@ -16,37 +16,69 @@ from tests.conftest import anmelden
 
 
 async def schueler(db, sid, bildungsgang_id, vorn="Max", nachn="Mustermann"):
-    await db.students.insert_one({
-        "id": sid, "user_id": "u_admin", "bildungsgang_id": bildungsgang_id,
-        "sus_vorn": vorn, "sus_nachn": nachn, "sus_kl": "M1", "sus_geb": "01.01.2008",
-    })
+    await db.students.insert_one(
+        {
+            "id": sid,
+            "user_id": "u_admin",
+            "bildungsgang_id": bildungsgang_id,
+            "sus_vorn": vorn,
+            "sus_nachn": nachn,
+            "sus_kl": "M1",
+            "sus_geb": "01.01.2008",
+        }
+    )
 
 
 async def geraet(db, gid, bildungsgang_id, itnr, current_assignment_id=None):
-    await db.ipads.insert_one({
-        "id": gid, "user_id": "u_admin", "bildungsgang_id": bildungsgang_id,
-        "itnr": itnr, "snr": f"SN-{gid}", "typ": "iPad 9", "status": "ok", "is_in_pool": False,
-        "current_assignment_id": current_assignment_id,
-    })
+    await db.ipads.insert_one(
+        {
+            "id": gid,
+            "user_id": "u_admin",
+            "bildungsgang_id": bildungsgang_id,
+            "itnr": itnr,
+            "snr": f"SN-{gid}",
+            "typ": "iPad 9",
+            "status": "ok",
+            "is_in_pool": False,
+            "current_assignment_id": current_assignment_id,
+        }
+    )
 
 
 async def zuordnung(db, aid, bildungsgang_id, student_id, ipad_id, itnr, user_id="u_admin"):
-    await db.assignments.insert_one({
-        "id": aid, "user_id": user_id, "bildungsgang_id": bildungsgang_id,
-        "student_id": student_id, "ipad_id": ipad_id, "itnr": itnr,
-        "student_name": "Max Mustermann", "is_active": True,
-        "assigned_at": "2026-02-01T00:00:00+00:00", "contract_id": None,
-    })
+    await db.assignments.insert_one(
+        {
+            "id": aid,
+            "user_id": user_id,
+            "bildungsgang_id": bildungsgang_id,
+            "student_id": student_id,
+            "ipad_id": ipad_id,
+            "itnr": itnr,
+            "student_name": "Max Mustermann",
+            "is_active": True,
+            "assigned_at": "2026-02-01T00:00:00+00:00",
+            "contract_id": None,
+        }
+    )
 
 
 async def vertrag(db, cid, bildungsgang_id, **abweichend):
     """Ein Vertrag ohne Schüler, ohne Gerät und ohne Zuordnung ist "verwaist" - genau das,
     was die Aufräumschritte beim Löschen entfernen sollen."""
     daten = {
-        "id": cid, "user_id": "u_admin", "bildungsgang_id": bildungsgang_id,
-        "assignment_id": None, "ipad_id": None, "student_id": None, "itnr": None,
-        "student_name": None, "filename": f"{cid}.pdf", "file_data": b"%PDF-1.4 unterschrieben",
-        "form_fields": {}, "uploaded_at": "2026-02-01T00:00:00+00:00", "is_active": True,
+        "id": cid,
+        "user_id": "u_admin",
+        "bildungsgang_id": bildungsgang_id,
+        "assignment_id": None,
+        "ipad_id": None,
+        "student_id": None,
+        "itnr": None,
+        "student_name": None,
+        "filename": f"{cid}.pdf",
+        "file_data": b"%PDF-1.4 unterschrieben",
+        "form_fields": {},
+        "uploaded_at": "2026-02-01T00:00:00+00:00",
+        "is_active": True,
     }
     daten.update(abweichend)
     await db.contracts.insert_one(daten)
@@ -73,10 +105,12 @@ async def test_geraeteloeschung_laesst_fremden_verwaisten_vertrag_stehen(welt, c
 
     assert antwort.status_code == 200, antwort.text
     assert antwort.json()["deleted_contracts"] == 1, "Nur der eigene Vertrag war zu löschen"
-    assert await welt.contracts.find_one({"id": "c_meda"}) is None, \
-        "Der Vertrag, den diese Löschung verwaist hat, gehört weg"
-    assert await welt.contracts.find_one({"id": "c_gym"}) is not None, \
-        "Ein verwaister Vertrag des GYM geht eine MEDA-Löschung nichts an"
+    assert (
+        await welt.contracts.find_one({"id": "c_meda"}) is None
+    ), "Der Vertrag, den diese Löschung verwaist hat, gehört weg"
+    assert (
+        await welt.contracts.find_one({"id": "c_gym"}) is not None
+    ), "Ein verwaister Vertrag des GYM geht eine MEDA-Löschung nichts an"
 
 
 async def test_admin_loeschung_laesst_fremde_verwaiste_vertraege_stehen(welt, client):
@@ -110,8 +144,9 @@ async def test_schuelerloeschung_laesst_fremden_verwaisten_vertrag_stehen(welt, 
     assert antwort.status_code == 200, antwort.text
     assert antwort.json()["deleted_contracts"] == 1, "Nur der eigene Vertrag war zu löschen"
     assert await welt.contracts.find_one({"id": "c_meda"}) is None
-    assert await welt.contracts.find_one({"id": "c_gym"}) is not None, \
-        "Ein verwaister Vertrag des GYM geht eine MEDA-Löschung nichts an"
+    assert (
+        await welt.contracts.find_one({"id": "c_gym"}) is not None
+    ), "Ein verwaister Vertrag des GYM geht eine MEDA-Löschung nichts an"
 
 
 async def test_schuelerloeschung_loescht_auch_den_vertrag_am_geraet(welt, client):
@@ -170,8 +205,9 @@ async def test_stapelloeschung_loest_auch_die_zuordnung_einer_kollegin(welt, cli
 
     assert antwort.status_code == 200, antwort.text
     assert antwort.json()["freed_ipads"] == 1, "Das Gerät muss als freigeworden gezählt werden"
-    assert (await welt.ipads.find_one({"id": "g_meda"}))["current_assignment_id"] is None, \
-        "Ein Gerät ohne Schüler darf nicht als vergeben stehenbleiben"
+    assert (await welt.ipads.find_one({"id": "g_meda"}))[
+        "current_assignment_id"
+    ] is None, "Ein Gerät ohne Schüler darf nicht als vergeben stehenbleiben"
     assert await welt.students.count_documents({"id": "s_meda"}) == 0
     assert await welt.assignments.count_documents({"id": "a_meda"}) == 0
 

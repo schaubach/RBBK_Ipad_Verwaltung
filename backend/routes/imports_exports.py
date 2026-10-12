@@ -9,6 +9,11 @@ from datetime import UTC, datetime
 from typing import Dict, List, Optional
 
 import pandas as pd
+from fastapi import Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from starlette.requests import Request
+
 from core.config import (
     MAX_IPADS_PER_STUDENT,
     db,
@@ -20,19 +25,17 @@ from core.security import (
     get_current_user,
     get_ipad_filter,
     get_user_filter,
-    mit_ansicht,
     is_admin,
+    mit_ansicht,
     resolve_bildungsgang,
 )
 from core.validators import is_contract_validated, read_excel_upload, safe_str, validate_uploaded_file
-from fastapi import Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
 from models.assignment import (
     Assignment,
 )
 from models.ipad import iPad
 from models.student import Student
-from pydantic import BaseModel
+
 # Aus dem Batch-Upload geliehen statt nachgebaut: beide Importe erkennen ein Geraet an seiner
 # ITNr wieder, also muessen sie aus derselben Zelle dieselbe Nummer lesen. Nur _zelle raeumt
 # Excels Float-Darstellung weg ("123456.0"); mit safe_str allein waere dieselbe Nummer je nach
@@ -44,7 +47,6 @@ from pydantic import BaseModel
 # "Apple iPad" liefe frueher oder spaeter auseinander.
 # (Sachlich gehoeren beide neben safe_str in core/validators.py; dort stehen sie noch nicht.)
 from routes.ipads import _vorgabe_ipad_typ, _zelle
-from starlette.requests import Request
 
 # ---------------------------------------------------------------------------
 # Shared export helpers (used by all 3 Excel-export endpoints)
