@@ -19,7 +19,6 @@ from core.security import (
     get_user_filter,
     mit_ansicht,
     resolve_bildungsgang,
-    is_admin,
     validate_resource_ownership,
 )
 from fastapi import Depends, HTTPException
@@ -355,14 +354,25 @@ async def delete_student(student_id: str, current_user: dict = Depends(get_curre
     # Step 1: Dissolve ALL active assignments (1:n - student can have multiple iPads)
     active_assignments = await db.assignments.find({"student_id": student_id, "is_active": True}).to_list(length=None)
 
-    for active_assignment in active_assignments:
-        # Update contract: entferne student_id Referenz
-        if active_assignment.get("contract_id"):
-            await db.contracts.update_one(
-                {"id": active_assignment["contract_id"]},
-                {"$set": {"student_id": None, "assignment_id": None, "updated_at": datetime.now(UTC).isoformat()}},
-            )
+    # Alle Vertraege dieses Schuelers: ueber die student_id, und - fuer Altbestaende ohne sie -
+    # ueber seine Zuordnungen, aktive wie vergangene. Der Loeschdialog verspricht "Alle
+    # zugehoerigen Vertraege", und die Stapelloeschung haelt es genauso.
+    alle_zuordnungen = await db.assignments.find({"student_id": student_id}, {"id": 1, "contract_id": 1}).to_list(
+        length=None
+    )
+    vertraege_des_schuelers = await db.contracts.find(
+        {
+            "$or": [
+                {"student_id": student_id},
+                {"assignment_id": {"$in": [a["id"] for a in alle_zuordnungen]}},
+            ]
+        },
+        {"id": 1},
+    ).to_list(length=None)
+    betroffene_vertrag_ids = {v["id"] for v in vertraege_des_schuelers}
+    betroffene_vertrag_ids.update(a["contract_id"] for a in alle_zuordnungen if a.get("contract_id"))
 
+    for active_assignment in active_assignments:
         # Mark assignment as inactive
         await db.assignments.update_one(
             {"id": active_assignment["id"]},
@@ -381,26 +391,16 @@ async def delete_student(student_id: str, current_user: dict = Depends(get_curre
             {"$set": {"current_assignment_id": None, "updated_at": datetime.now(UTC).isoformat()}},
         )
 
-    # Step 2: Update all contracts for this student - set student_id to null
-    await db.contracts.update_many(
-        {"student_id": student_id}, {"$set": {"student_id": None, "updated_at": datetime.now(UTC).isoformat()}}
-    )
+    # Step 2: Seine Vertraege loeschen - auch die, die noch am Geraet haengen. Frueher blieb ein
+    # Vertrag stehen, solange er eine ipad_id trug, also fast immer: der Schueler war weg, sein
+    # Vertrag samt PDF ueber das Geraet weiter abrufbar. Nur ueber die gesammelten Kennungen,
+    # damit keine Loeschung je fremde Vertraege trifft.
+    contracts_deleted = await db.contracts.delete_many({"id": {"$in": list(betroffene_vertrag_ids)}})
 
-    # Step 3: Delete orphaned contracts (no ipad_id, no student_id, no assignment_id)
-    contracts_deleted = await db.contracts.delete_many(
-        {
-            "$and": [
-                {"$or": [{"student_id": None}, {"student_id": {"$exists": False}}]},
-                {"$or": [{"ipad_id": None}, {"ipad_id": {"$exists": False}}]},
-                {"$or": [{"assignment_id": None}, {"assignment_id": {"$exists": False}}]},
-            ]
-        }
-    )
-
-    # Step 4: Delete all assignments for this student
+    # Step 3: Delete all assignments for this student
     assignments_result = await db.assignments.delete_many({"student_id": student_id})
 
-    # Step 5: Delete the student
+    # Step 4: Delete the student
     await db.students.delete_one({"id": student_id})
 
     return {
@@ -460,10 +460,12 @@ async def batch_delete_students(filter_params: dict, current_user: dict = Depend
                 student_name = f"{student.get('sus_vorn', 'Unknown')} {student.get('sus_nachn', 'Unknown')}"
 
                 # Step 1: Dissolve ALL active assignments (1:n - student can have multiple iPads)
-                # Admin sees ALL assignments for that student; regular user only theirs.
-                assignment_filter = {"student_id": student_id, "is_active": True}
-                if not is_admin(current_user):
-                    assignment_filter["user_id"] = current_user["id"]
+                # Die Zustaendigkeit entscheidet, nicht die Urheberschaft: user_id sagt seit dem
+                # Umbau nur noch, WER die Zuordnung angelegt hat. Wer danach filterte, liess die
+                # Zuordnung einer Kollegin stehen - das Geraet blieb als vergeben gefuehrt,
+                # obwohl es den Schueler nicht mehr gibt. Es ist derselbe user_filter, mit dem
+                # oben die Schueler ausgewaehlt wurden (fuer Admins leer).
+                assignment_filter = {**user_filter, "student_id": student_id, "is_active": True}
                 active_assignments = await db.assignments.find(assignment_filter).to_list(length=None)
 
                 for active_assignment in active_assignments:
