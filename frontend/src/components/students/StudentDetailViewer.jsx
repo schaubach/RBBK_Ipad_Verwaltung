@@ -58,7 +58,9 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
     try {
       const response = await api.put(`/students/${studentId}`, editedStudent);
       toast.success('Schüler erfolgreich aktualisiert');
-      setStudentData(prev => ({ ...prev, student: response.data.student }));
+      // Zusammenführen statt ersetzen: Die Antwort des PUT enthält nur die bearbeitbaren
+      // Felder - created_at und ipad_refused fehlen darin und stünden sonst auf N/A bzw. nein.
+      setStudentData(prev => ({ ...prev, student: { ...prev.student, ...response.data.student } }));
       setEditMode(false);
       if (onUpdate) onUpdate();
     } catch (error) {

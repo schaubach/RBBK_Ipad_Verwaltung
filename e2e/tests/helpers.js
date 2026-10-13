@@ -40,6 +40,15 @@ function sammleSeitenfehler(page) {
   return fehler;
 }
 
+/**
+ * Erwartete Fehlerantworten aus der Liste nehmen. Chrome meldet jede 4xx-Antwort als
+ * Konsolenfehler ("Failed to load resource") - auch die, die ein Test absichtlich auslöst.
+ */
+function erlaubeFehler(fehler, muster) {
+  const rest = fehler.filter((f) => !muster.test(f));
+  fehler.splice(0, fehler.length, ...rest);
+}
+
 async function oeffneTab(page, name) {
   await page.getByRole('tab', { name }).click();
   await expect(page.getByRole('tab', { name })).toHaveAttribute('aria-selected', 'true');
@@ -197,11 +206,13 @@ module.exports = {
   AUTH_DATEI,
   eindeutig,
   sammleSeitenfehler,
+  erlaubeFehler,
   oeffneTab,
   toast,
   bestaetigeNaechstenDialog,
   start,
   anmelden,
+  adminToken,
   api,
   neuerSchueler,
   neuesIPad,

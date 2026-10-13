@@ -45,7 +45,10 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
     try {
       const response = await api.put(`/ipads/${ipadId}`, editedIpad);
       toast.success('iPad erfolgreich aktualisiert');
-      setIPadData(prev => ({ ...prev, ipad: response.data.ipad }));
+      // Zusammenführen statt ersetzen: Die Antwort des PUT enthält nur die bearbeitbaren
+      // Felder. is_in_pool, created_at und current_assignment_id fehlen darin - ohne sie
+      // hielte die Ansicht ein Pool-iPad für ein eigenes und böte "In Pool freigeben" an.
+      setIPadData(prev => ({ ...prev, ipad: { ...prev.ipad, ...response.data.ipad } }));
       setEditMode(false);
       if (onUpdate) onUpdate();
     } catch (error) {

@@ -5,11 +5,47 @@ Zwei Stufen, damit das Committen schnell bleibt und trotzdem nichts ungeprüft a
 | Wann | Was | Dauer |
 |---|---|---|
 | **`git commit`** (lokal, pre-commit-Hook) | Ruff (Lint + Format) für `backend/`, YAML-Syntax | Sekunden |
-| **`git push`** (GitHub Actions, `.github/workflows/ci.yml`) | `lint`: dieselben Hooks noch einmal · `backend`: pytest gegen MongoDB · `frontend`: Produktions-Build inkl. ESLint · `e2e`: Playwright-Smoke-Test und Kernablauf im Browser | einige Minuten |
+| **`git push`** (GitHub Actions, `.github/workflows/ci.yml`) | `lint`: dieselben Hooks noch einmal · `backend`: pytest gegen MongoDB · `frontend`: Produktions-Build inkl. ESLint · `e2e`: Playwright im Browser - Smoke-Test und jede Funktion einmal auf dem Normalweg (siehe unten) | einige Minuten |
 
 Die langsamen Prüfungen (Backend-Suite ~6 min, E2E mit Docker-Build) laufen bewusst NICHT beim
 Commit, sondern nur in der CI. Das Ergebnis steht auf GitHub unter **Actions** und als
 Haken/Kreuz am Commit.
+
+## Browser-Tests (e2e/)
+
+Playwright gegen einen Wegwerf-Stack (`e2e/docker-compose.yml`: leere MongoDB, Backend-Image,
+Produktions-Build des Frontends). Je Bereich eine Datei unter `e2e/tests/`:
+
+| Datei | Was |
+|---|---|
+| `smoke.spec.js` | Backend gesund, Login-Seite, alle Bereiche öffnen ohne Konsolenfehler, Abmelden |
+| `ablauf.spec.js` | Kernablauf über die Oberfläche: Schüler → iPad → Zuordnung → Vertrag |
+| `schueler.spec.js` | Detailansicht, Bearbeiten, Zuordnung lösen, Löschen (iPad wird frei) |
+| `ipads.spec.js` | Bearbeiten, Status „defekt“, Zuordnung lösen, Löschen, Pool hin und zurück |
+| `vertraege.spec.js` | Hochladen (automatisch / von Hand zugeordnet), Herunterladen, Löschen, Warnung beim Erstellen |
+| `import-export.spec.js` | Import-Vorlage, Excel-Import, Datensicherung, Schüler- und iPad-Export mit Spaltenwahl |
+| `batch.spec.js` | Batch-Zuordnung per Datei: neu, aus dem Pool, quittiert, ungültige Zeile, CSV-Protokoll |
+| `benutzer.spec.js` | Anlegen, Bearbeiten, Deaktivieren, Passwort zurücksetzen mit Zwangswechsel, Löschen, Sicht einer Lehrkraft |
+| `bildungsgaenge.spec.js` | Anlegen, Umbenennen, Zuständigkeit, Löschen (leer / mit Daten), globale Standardwerte |
+| `backup.spec.js` | Backup-Passwort, Server-Backup erstellen/herunterladen, wieder einspielen |
+
+Regeln, die die Wiederholbarkeit sichern:
+- Ausgangsdaten (ein Schüler, ein iPad, ...) entstehen über die API, geprüft wird der eine Bedienweg im Browser.
+- Der Admin ist für **genau einen** Bildungsgang zuständig - kein Test darf das ändern.
+- Ein Konsolenfehler im Browser lässt den Test scheitern.
+- **Bekannte Fehler der App** stehen als `test.fail()` mit Begründung im Test (wie `xfail` im
+  Backend). Ist ein Fehler behoben, wird der Test als „unexpectedly passed“ rot - dann gehört
+  `test.fail()` heraus.
+- Im Test-Stack ist die Mengenbegrenzung aus (`DISABLE_RATE_LIMIT=true`), weil alle Aufrufe
+  über einen Proxy von derselben Adresse kommen. Die Bremse selbst prüft `backend/tests/test_ratelimit.py`.
+
+Lokal ausführen:
+
+```bash
+cd e2e && npm ci && npm run stack:up
+E2E_CHANNEL=chrome npx playwright test     # installiertes Chrome; ohne Variable: npx playwright install chromium
+npm run stack:down
+```
 
 ## Einrichtung (einmalig je Rechner)
 

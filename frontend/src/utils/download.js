@@ -20,6 +20,7 @@ export function downloadBlob(blob, filename) {
 /** Extract a filename from a Content-Disposition response header, falling back if absent/malformed. */
 export function filenameFromContentDisposition(contentDisposition, fallback) {
   if (!contentDisposition) return fallback;
-  const matches = contentDisposition.match(/filename="(.+)"/);
-  return matches ? matches[1] : fallback;
+  // Das Backend schreibt den Namen ohne Anführungszeichen (filename=datei.xlsx); beides gilt.
+  const matches = contentDisposition.match(/filename="?([^";]+)"?/);
+  return matches ? matches[1].trim() : fallback;
 }

@@ -458,10 +458,13 @@ def pruefe_backup_inhalt(backup_data: dict) -> dict:
     fehlende = [name for name in COLLECTIONS if name not in backup_data]
     ohne_bildungsgang = {}
     for name in BILDUNGSGANG_SAMMLUNGEN:
+        # Pool-iPads gehören absichtlich keinem Bildungsgang - sie sind nicht herrenlos.
         anzahl = sum(
             1
             for record in backup_data.get(name) or []
-            if isinstance(record, dict) and not record.get("bildungsgang_id")
+            if isinstance(record, dict)
+            and not record.get("bildungsgang_id")
+            and not (name == "ipads" and record.get("is_in_pool"))
         )
         if anzahl:
             ohne_bildungsgang[name] = anzahl

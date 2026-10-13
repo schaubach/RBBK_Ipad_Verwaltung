@@ -32,7 +32,8 @@ services:
       - SECRET_KEY=e2e-only-secret-key-not-used-anywhere-else-0123456789
       # Alle Aufrufe kommen über den Proxy von einer Adresse - mit Bremse liefen die Tests
       # in 429. Die Bremse selbst prüft backend/tests/test_ratelimit.py.
-      - RATELIMIT_ENABLED=false
+      # (Nicht RATELIMIT_ENABLED - den Namen wertet slowapi selbst aus, siehe core/config.py.)
+      - DISABLE_RATE_LIMIT=true
       # Server-Backups als Datei in den Container, nicht auf den Host.
       - SERVER_BACKUP_DIR=/tmp/backups
     # Ohne --reload: Hier wird nichts bearbeitet, und der Datei-Beobachter kostet nur Zeit.

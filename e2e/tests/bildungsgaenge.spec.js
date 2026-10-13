@@ -9,6 +9,7 @@ const {
   oeffneTab,
   toast,
   sammleSeitenfehler,
+  erlaubeFehler,
   bestaetigeNaechstenDialog,
   neuerSchueler,
   neuerBenutzer,
@@ -90,6 +91,7 @@ test('Bildungsgang mit Schülern lässt sich nicht löschen', async ({ page, req
   await eintrag(page, bg.name).getByTitle(/^Bildungsgang löschen/).click();
   await expect(toast(page, `Bildungsgang "${bg.name}" besitzt noch`)).toBeVisible();
   await expect(eintrag(page, bg.name)).toBeVisible();
+  erlaubeFehler(fehler, /status of 400/);
 });
 
 test('Globale Standardwerte gelten für neue iPads', async ({ page, request }) => {

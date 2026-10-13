@@ -45,7 +45,8 @@ test.describe('Smoke @smoke', () => {
     await expect(page.getByText('Daten-Import').first()).toBeVisible();
 
     await oeffneTab(page, 'Admin');
-    await expect(page.getByText('Bildungsgänge').first()).toBeVisible();
+    await expect(page.locator('#bildungsgang-name')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Neuer Benutzer' })).toBeVisible();
 
     expect(fehler).toEqual([]);
   });

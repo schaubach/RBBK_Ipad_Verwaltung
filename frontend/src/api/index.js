@@ -51,7 +51,10 @@ let isLoggingOut = false;
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    if (error.response?.status === 401 && !isLoggingOut) {
+    // Eine 401 auf die Anmeldung selbst heißt "falsches Passwort" bzw. "Konto deaktiviert",
+    // nicht "Sitzung abgelaufen" - die Login-Maske meldet das schon selbst.
+    const istAnmeldung = error.config?.url?.endsWith('/auth/login');
+    if (error.response?.status === 401 && !isLoggingOut && !istAnmeldung) {
       isLoggingOut = true;
       
       // Versuche den Logout-Endpoint aufzurufen um den HttpOnly Cookie zu löschen

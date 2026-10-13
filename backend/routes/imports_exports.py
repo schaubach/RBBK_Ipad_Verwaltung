@@ -571,6 +571,7 @@ async def import_inventory(
                     # Use cache key based on name only (not class) for 1:n support
                     # This allows the same student to receive multiple iPads
                     cache_key = (sus_vorn, sus_nachn)
+                    student_neu = False
 
                     if cache_key in student_cache:
                         student_id = student_cache[cache_key]
@@ -618,6 +619,7 @@ async def import_inventory(
                             await db.students.insert_one(student_dict)
                             student_id = new_student.id
                             students_created += 1
+                            student_neu = True
 
                         # Cache the student ID
                         student_cache[cache_key] = student_id
@@ -692,8 +694,9 @@ async def import_inventory(
 
                             assignments_created += 1
                     else:
-                        # Student without iPad - count separately
-                        if student_id and cache_key not in student_cache:
+                        # Student without iPad - count separately. Bis hierher steht der Schüler
+                        # schon im Cache; die frühere Abfrage "nicht im Cache" traf deshalb nie.
+                        if student_neu:
                             students_only_created += 1
 
                 # If only iPad data (no student), iPad remains available

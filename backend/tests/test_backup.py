@@ -968,6 +968,36 @@ async def test_datei_von_vor_dem_umbau_wird_als_solche_gemeldet(welt, client):
     ).json() == [], "Das ist die Folge, vor der die Warnung steht"
 
 
+def test_pool_ipads_gelten_beim_einspielen_nicht_als_herrenlos():
+    """Ein Pool-iPad hat absichtlich keinen Bildungsgang - das ist kein Befund.
+
+    Früher zählte jedes iPad ohne bildungsgang_id als herrenlos. Jede Anlage mit Pool-Geräten
+    bekam deshalb bei jeder Wiederherstellung "ACHTUNG: Ohne Bildungsgang kommen an", und eine
+    Warnung, die immer kommt, liest irgendwann niemand mehr - auch dann nicht, wenn sie stimmt.
+    """
+    from routes.backup import pruefe_backup_inhalt
+
+    befund = pruefe_backup_inhalt(
+        {
+            "bildungsgaenge": [{"id": "bg_meda", "name": "MEDA"}],
+            "ipads": [
+                {"id": "i_pool", "itnr": "IT-POOL", "is_in_pool": True, "bildungsgang_id": None},
+                {"id": "i_los", "itnr": "IT-LOS", "is_in_pool": False, "bildungsgang_id": None},
+                {"id": "i_meda", "itnr": "IT-MEDA", "is_in_pool": False, "bildungsgang_id": "bg_meda"},
+            ],
+        }
+    )
+
+    assert befund["ohne_bildungsgang"] == {"ipads": 1}, "Nur das wirklich herrenlose Gerät zählt"
+    assert any("Ohne Bildungsgang kommen an: 1 " in w for w in befund["warnungen"])
+
+    nur_pool = pruefe_backup_inhalt(
+        {"bildungsgaenge": [], "ipads": [{"id": "i_pool", "itnr": "IT-POOL", "is_in_pool": True}]}
+    )
+    assert nur_pool["ohne_bildungsgang"] == {}
+    assert not any("Ohne Bildungsgang" in w for w in nur_pool["warnungen"])
+
+
 # --- Der eindeutige Index auf ipads.itnr --------------------------------------------------
 
 

@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import { Checkbox } from '../ui/checkbox';
 import { toast } from 'sonner';
+import { filenameFromContentDisposition } from '../../utils/download';
 import { Upload, FileText, Download, Trash2, Search, Link, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, AlertTriangle } from 'lucide-react';
 
 const ContractsManagement = () => {
@@ -284,14 +285,7 @@ const ContractsManagement = () => {
       const link = document.createElement('a');
       link.href = downloadUrl;
 
-      const contentDisposition = response.headers['content-disposition'];
-      let filename = 'Vertraege.zip';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename=(.+)/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
+      const filename = filenameFromContentDisposition(response.headers['content-disposition'], 'Vertraege.zip');
 
       link.download = filename;
       document.body.appendChild(link);
@@ -998,7 +992,7 @@ const ContractsManagement = () => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setPendingGenerateMode(null)}>Abbrechen</AlertDialogCancel>
+            <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmGenerateWithWarnings}
               className="bg-amber-600 hover:bg-amber-700"

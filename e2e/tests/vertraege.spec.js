@@ -134,11 +134,6 @@ test('Warnung vor unvollständigen Verträgen: Trotzdem erstellen', async ({ pag
 });
 
 test('Warnung vor unvollständigen Verträgen: Abbrechen', async ({ page, request }) => {
-  // FEHLER in der App: Der Knopf "Abbrechen" im Warndialog ruft setPendingGenerateMode(null)
-  // auf (ContractsManagement.jsx), und das gibt es nirgends - ein ReferenceError beim Klick.
-  // Ist das behoben, schlägt dieser Test als "unexpectedly passed" fehl - dann gehört
-  // test.fail() hier raus.
-  test.fail();
   const { ipad } = await zuordnungOhneVertrag(request, { sus_geb: '' });
   await neuLaden(page);
 

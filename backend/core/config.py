@@ -38,10 +38,13 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 
 # Abschalten nur im Wegwerf-Stack der Browser-Tests (e2e/docker-compose.yml): Dort kommt
 # jeder Aufruf über denselben Proxy, also von derselben Adresse, und die Tests liefen in die
 # Bremse. Ohne die Variable - also in jeder echten Installation - bleibt sie an.
-def ratelimit_enabled(value: str | None) -> bool:
-    """Nur ein ausdrückliches "false" schaltet ab; fehlt die Variable, bleibt die Bremse an."""
-    return (value or "true").strip().lower() != "false"
+#
+# Bewusst NICHT "RATELIMIT_ENABLED": Diesen Namen liest slowapi selbst (aus der Umgebung und
+# aus .env) und überschreibt damit den Wert unten - wobei der Text "false" als wahr gilt.
+def rate_limit_disabled(value: str | None) -> bool:
+    """Nur ein ausdrückliches "true" schaltet die Bremse ab; alles andere lässt sie an."""
+    return (value or "").strip().lower() == "true"
 
 
-RATELIMIT_ENABLED = ratelimit_enabled(os.environ.get("RATELIMIT_ENABLED"))
-limiter = Limiter(key_func=get_remote_address, enabled=RATELIMIT_ENABLED)
+RATE_LIMIT_DISABLED = rate_limit_disabled(os.environ.get("DISABLE_RATE_LIMIT"))
+limiter = Limiter(key_func=get_remote_address, enabled=not RATE_LIMIT_DISABLED)

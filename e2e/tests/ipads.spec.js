@@ -124,11 +124,6 @@ test('iPad in den Pool freigeben und wieder übernehmen', async ({ page, request
 });
 
 test('Detailansicht zeigt ein Pool-iPad nach dem Speichern weiter als Pool-iPad', async ({ page, request }) => {
-  // FEHLER in der App: IPadDetailViewer.jsx ersetzt nach dem Speichern das angezeigte iPad
-  // durch die Antwort des PUT, und der fehlt is_in_pool. Das Abzeichen "Im Pool" verschwindet,
-  // statt "Übernehmen" wird "In Pool freigeben" angeboten. Ist das behoben, schlägt dieser Test
-  // als "unexpectedly passed" fehl - dann gehört test.fail() hier raus.
-  test.fail();
   const ipad = await neuesIPad(request);
   await api(request).post(`/ipads/${ipad.id}/release-to-pool`, {});
   await neuLaden(page);

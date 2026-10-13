@@ -165,11 +165,6 @@ test('Lehrkraft sieht nur ihren Bildungsgang und keinen Admin-Bereich', async ({
 });
 
 test('Falsches Passwort meldet keinen Sitzungsablauf', async ({ browser }) => {
-  // FEHLER in der App: Der Axios-Interceptor (src/api/index.js) hält jede 401 für eine
-  // abgelaufene Sitzung - auch die Antwort auf ein falsches Passwort an der Anmeldemaske.
-  // Neben "Invalid credentials" erscheint dann "Ihre Session ist abgelaufen". Ist das behoben,
-  // schlägt dieser Test als "unexpectedly passed" fehl - dann gehört test.fail() hier raus.
-  test.fail();
   const { kontext, seite } = await fremderBrowser(browser);
   await anmelden(seite, 'admin', 'falsches-passwort');
   await expect(toast(seite, 'Invalid credentials')).toBeVisible();

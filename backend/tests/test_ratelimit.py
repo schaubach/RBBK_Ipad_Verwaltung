@@ -25,18 +25,31 @@ async def test_anmeldung_wird_nach_fuenf_versuchen_gebremst(welt, client, mit_ra
     assert codes.index(429) <= 5, f"Bremse griff zu spät: {codes}"
 
 
-def test_nur_ein_ausdrueckliches_false_schaltet_die_bremse_ab():
-    """RATELIMIT_ENABLED=false gibt es nur für den Browser-Test-Stack (e2e/docker-compose.yml).
+def test_nur_ein_ausdrueckliches_true_schaltet_die_bremse_ab():
+    """DISABLE_RATE_LIMIT=true gibt es nur für den Browser-Test-Stack (e2e/docker-compose.yml).
 
     Eine echte Installation setzt die Variable nicht - dann muss die Bremse an sein. Ein
     Fehler in der Auswertung, der sie still abschaltet, fiele sonst niemandem auf.
     """
-    from core.config import RATELIMIT_ENABLED, ratelimit_enabled
+    from core.config import RATE_LIMIT_DISABLED, rate_limit_disabled
 
-    assert RATELIMIT_ENABLED is True  # die Testumgebung setzt die Variable nicht
-    assert ratelimit_enabled(None) is True
-    assert ratelimit_enabled("") is True
-    assert ratelimit_enabled("true") is True
-    assert ratelimit_enabled("0") is True  # nur "false" zählt, nichts Erratenes
-    assert ratelimit_enabled("false") is False
-    assert ratelimit_enabled(" FALSE ") is False
+    assert RATE_LIMIT_DISABLED is False  # die Testumgebung setzt die Variable nicht
+    assert rate_limit_disabled(None) is False
+    assert rate_limit_disabled("") is False
+    assert rate_limit_disabled("false") is False
+    assert rate_limit_disabled("1") is False  # nur "true" zählt, nichts Erratenes
+    assert rate_limit_disabled("true") is True
+    assert rate_limit_disabled(" TRUE ") is True
+
+
+def test_slowapi_liest_den_eigenen_schalter_nicht_um(monkeypatch):
+    """slowapi wertet RATELIMIT_ENABLED selbst aus, und zwar als Text - "false" gälte als an.
+
+    Deshalb heißt unser Schalter anders. Dieser Test hält fest, warum: Würde jemand ihn auf
+    RATELIMIT_ENABLED umbenennen, ließe sich die Bremse damit gar nicht mehr abschalten.
+    """
+    from slowapi import Limiter
+    from slowapi.util import get_remote_address
+
+    monkeypatch.setenv("RATELIMIT_ENABLED", "false")
+    assert Limiter(key_func=get_remote_address, enabled=False).enabled == "false"

@@ -80,7 +80,8 @@ test('Datensicherung als Excel exportieren', async ({ page, request }) => {
     page.getByRole('button', { name: 'Als Excel exportieren' }).click()
   );
   await expect(toast(page, 'Datensicherung erfolgreich exportiert')).toBeVisible();
-  expect(datei.name).toMatch(/\.xlsx$/);
+  // Der Name kommt vom Server, mit Zeitstempel (Content-Disposition ohne Anführungszeichen).
+  expect(datei.name).toMatch(/^datensicherung_\d{8}_\d{6}\.xlsx$/);
 
   const { kopf, daten } = await leseExcel(datei.pfad);
   const spalte = kopf.indexOf('SuSNachn');

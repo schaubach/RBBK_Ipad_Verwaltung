@@ -69,11 +69,6 @@ test('Schüler bearbeiten', async ({ page, request }) => {
 });
 
 test('Detailansicht zeigt nach dem Speichern weiter das Anlagedatum', async ({ page, request }) => {
-  // FEHLER in der App: StudentDetailViewer.jsx ersetzt nach dem Speichern den angezeigten
-  // Schüler durch die Antwort des PUT, und der fehlen created_at und ipad_refused. "Erstellt
-  // am" springt auf N/A, bis man die Ansicht neu öffnet. Ist das behoben, schlägt dieser Test
-  // als "unexpectedly passed" fehl - dann gehört test.fail() hier raus.
-  test.fail();
   const s = await neuerSchueler(request);
   await page.reload();
   await oeffneTab(page, 'Schüler');

@@ -77,3 +77,25 @@ async def test_neues_geraet_kommt_ohne_meldung_in_den_pool(welt, client):
     assert antwort.json()["errors"] == []
     neu = await welt.ipads.find_one({"itnr": "IT-300"})
     assert neu["is_in_pool"] is True
+
+
+async def test_schueler_ohne_ipad_werden_als_solche_gezaehlt(welt, client):
+    """students_only_created zählte nie: Die Abfrage sah erst nach, nachdem der Schüler schon im
+    Cache stand. Jetzt zählt jeder neu angelegte Schüler ohne Gerät - ein wiederverwendeter nicht."""
+    kopf = await anmelden(client, "admin")
+    zeilen = [
+        {"SuSVorn": "Ohne", "SuSNachn": "Gerät", "ITNr": None},
+        {"SuSVorn": "Mit", "SuSNachn": "Gerät", "ITNr": "IT-ZAEHL", "SNr": "SN-ZAEHL"},
+        {"SuSVorn": "Ohne", "SuSNachn": "Gerät", "ITNr": None},
+    ]
+    antwort = await client.post(
+        "/api/imports/inventory",
+        files=excel(zeilen),
+        data={"import_to_pool": "false", "bildungsgang_id": "bg_meda"},
+        headers=kopf,
+    )
+
+    assert antwort.status_code == 200, antwort.text
+    daten = antwort.json()
+    assert daten["students_created"] == 2
+    assert daten["students_only_created"] == 1
