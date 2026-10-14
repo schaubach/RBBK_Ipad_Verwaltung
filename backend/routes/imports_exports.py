@@ -131,7 +131,27 @@ EXPORT_COLUMNS: List[str] = [
     "Vertrag validiert",
     # Zugehörigkeit
     "Bildungsgang",
+    "Übergeben an",
+    "Übergeben am",
 ]
+
+
+def _letzte_uebergabe(ipad: Optional[dict]) -> dict:
+    """Die körperliche Übergabe, die für den heutigen Stand des Geräts gilt - oder ``{}``.
+
+    Maßgeblich ist allein der jüngste pool_history-Eintrag: Wurde das Gerät danach wieder
+    freigegeben oder aus dem Pool direkt an Lernende zugeordnet, ist eine ältere Übergabe
+    überholt und darf nicht mehr im Export stehen.
+    """
+    if not ipad or ipad.get("is_in_pool"):
+        return {}
+    history = ipad.get("pool_history") or []
+    if not history:
+        return {}
+    letzter = history[-1]
+    if not letzter.get("uebergeben_an"):
+        return {}
+    return {"an": letzter["uebergeben_an"].get("username") or "", "am": letzter.get("at")}
 
 
 def _build_assignment_row(
@@ -173,6 +193,8 @@ def _build_assignment_row(
         if record and record.get("bildungsgang_id"):
             bildungsgang = (bildungsgang_names or {}).get(record["bildungsgang_id"], "")
             break
+
+    uebergabe = _letzte_uebergabe(ipad)
 
     pencil = ""
     typ = ""
@@ -216,6 +238,8 @@ def _build_assignment_row(
         "Vertrag validiert": "Ja" if is_contract_validated(contract) else "Nein",
         # Zugehörigkeit
         "Bildungsgang": bildungsgang,
+        "Übergeben an": uebergabe.get("an", ""),
+        "Übergeben am": _format_iso_date(uebergabe.get("am")),
     }
 
     if selected_columns is None:
@@ -280,6 +304,8 @@ EXPORT_COLUMN_GROUPS = {
     ],
     "bildungsgang": [
         "Bildungsgang",
+        "Übergeben an",
+        "Übergeben am",
     ],
 }
 

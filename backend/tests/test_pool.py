@@ -1718,3 +1718,42 @@ async def test_uebergabe_steht_in_der_geraetehistorie(welt, client):
     assert letzter["uebergeben_an"] == "bakenecker", historie
     assert letzter["bildungsgang_name"] == "MEDA"
     assert letzter["at"], "Zeitstempel fehlt"
+
+
+async def _export_zeile(client, kopf, itnr):
+    antwort = await client.get("/api/exports/inventory", headers=kopf)
+    assert antwort.status_code == 200, antwort.text
+    tabelle = pd.read_excel(io.BytesIO(antwort.content), dtype=str).fillna("")
+    return tabelle[tabelle["ITNr"] == itnr].iloc[0]
+
+
+async def test_export_nennt_empfaenger_und_datum_der_uebergabe(welt, client):
+    """Datensicherung und Ansichts-Export zeigen, wer das Gerät wann bekommen hat."""
+    await poolgeraet(welt, "g1")
+    kopf = await anmelden(client, "admin")
+    antwort = await client.post(
+        "/api/admin/ipads/assign-to-bildungsgang",
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        headers=kopf,
+    )
+    assert antwort.status_code == 200, antwort.text
+
+    zeile = await _export_zeile(client, kopf, "ITg1")
+    assert zeile["Übergeben an"] == "bakenecker"
+    assert zeile["Übergeben am"] == datetime.now(UTC).strftime("%d.%m.%Y")
+
+
+async def test_export_vergisst_die_uebergabe_nach_der_freigabe(welt, client):
+    """Liegt das Gerät wieder im Pool, ist die alte Quittung überholt."""
+    await poolgeraet(welt, "g1")
+    kopf = await anmelden(client, "admin")
+    await client.post(
+        "/api/admin/ipads/assign-to-bildungsgang",
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        headers=kopf,
+    )
+    assert (await client.post("/api/ipads/g1/release-to-pool", headers=kopf)).status_code == 200
+
+    zeile = await _export_zeile(client, kopf, "ITg1")
+    assert zeile["Übergeben an"] == ""
+    assert zeile["Übergeben am"] == ""

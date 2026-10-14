@@ -51,6 +51,23 @@ def ohne_ratelimit():
     limiter.enabled = True
 
 
+@pytest.fixture(autouse=True, scope="session")
+def schnelles_bcrypt():
+    """bcrypt für die Suite auf die kleinste Rundenzahl stellen.
+
+    Mit den 12 Runden des Betriebs kostet jeder Hash rund 0,2 s - `welt` legt fünf Benutzer
+    an, jede Anmeldung prüft noch einen. Das machte den Großteil der Laufzeit aus, ohne
+    etwas zu prüfen: getestet wird, dass Passwörter gehasht und verglichen werden, nicht
+    wie teuer das ist. Die Prüfung liest die Rundenzahl aus dem Hash selbst, also werden
+    auch die Anmeldungen schnell.
+    """
+    from core.config import pwd_context
+
+    pwd_context.update(bcrypt__rounds=4)
+    yield
+    pwd_context.update(bcrypt__rounds=12)
+
+
 @pytest_asyncio.fixture
 async def db():
     """Frische Datenbank je Test, danach restlos entfernt."""
