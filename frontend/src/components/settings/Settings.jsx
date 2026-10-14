@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import api from '../../api';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -27,6 +27,25 @@ const Settings = ({ isAdmin = false, username }) => {
 
   // Pool-Geräte gehören bewusst zu keinem Bildungsgang, dort wird also nichts gewählt.
   const bildungsgangFehlt = auswahlNoetig && !importToPool && !bildungsgangId;
+
+  // Übergeben an: Importiert ein Admin Geräte in einen Bildungsgang, gehen sie körperlich an
+  // jemanden - wie bei "BG zuordnen" und der Batch-Zuordnung. Beim Pool-Import wechselt nichts
+  // den Besitzer, Lehrkräfte importieren nur Schüler: in beiden Fällen gibt es nichts zu wählen.
+  const [empfaengerId, setEmpfaengerId] = useState('');
+  const [empfaengerListe, setEmpfaengerListe] = useState([]);
+  const uebergabeNoetig = isAdmin && !importToPool;
+  const empfaengerFehlt = uebergabeNoetig && !empfaengerId;
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.get('/admin/users')
+      .then((res) => setEmpfaengerListe(
+        res.data
+          .filter((u) => u.is_active)
+          .sort((a, b) => a.username.localeCompare(b.username, 'de'))
+      ))
+      .catch(() => toast.error('Benutzerliste konnte nicht geladen werden'));
+  }, [isAdmin]);
 
   // Account management states
   const [changingPassword, setChangingPassword] = useState(false);
@@ -58,7 +77,7 @@ const Settings = ({ isAdmin = false, username }) => {
     }
   };
 
-  const handleInventoryImport = async (file, importToPool = false, bildungsgangId = '') => {
+  const handleInventoryImport = async (file, importToPool = false, bildungsgangId = '', empfaengerId = '') => {
     if (!file) return;
 
     setImporting(true);
@@ -70,6 +89,9 @@ const Settings = ({ isAdmin = false, username }) => {
       // Ohne eigene Wahl ergänzt das Backend den Bildungsgang selbst.
       if (!importToPool && bildungsgangId) {
         formData.append('bildungsgang_id', bildungsgangId);
+      }
+      if (!importToPool && empfaengerId) {
+        formData.append('uebergeben_an_user_id', empfaengerId);
       }
 
       toast.info(importToPool ? 'Importiere iPads in den Pool...' : 'Importiere Datensicherung...');
@@ -284,11 +306,34 @@ const Settings = ({ isAdmin = false, username }) => {
                     />
                   </div>
                 )}
+                {uebergabeNoetig && (
+                  <div className="mb-3 text-left">
+                    <Label htmlFor="import-empfaenger">Übergeben an *</Label>
+                    <select
+                      id="import-empfaenger"
+                      data-testid="import-empfaenger-select"
+                      value={empfaengerId}
+                      onChange={(e) => setEmpfaengerId(e.target.value)}
+                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    >
+                      <option value="">— bitte wählen —</option>
+                      {empfaengerListe.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.username}{u.role === 'admin' ? ' (Admin)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Wer die Geräte aus der Datei entgegennimmt - neu angelegte und aus dem Pool
+                      geholte. Steht danach mit Datum in der Gerätehistorie.
+                    </p>
+                  </div>
+                )}
                 <Input
                   type="file"
                   accept=".xlsx,.xls"
-                  onChange={(e) => e.target.files[0] && handleInventoryImport(e.target.files[0], importToPool, bildungsgangId)}
-                  disabled={importing || bildungsgangFehlt}
+                  onChange={(e) => e.target.files[0] && handleInventoryImport(e.target.files[0], importToPool, bildungsgangId, empfaengerId)}
+                  disabled={importing || bildungsgangFehlt || empfaengerFehlt}
                   className="mb-2"
                   data-testid="data-import-input"
                 />

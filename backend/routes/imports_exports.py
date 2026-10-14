@@ -46,7 +46,7 @@ from models.student import Student
 # Dasselbe Argument gilt fuer _vorgabe_ipad_typ: eine zweite Kopie des Rueckfalls
 # "Apple iPad" liefe frueher oder spaeter auseinander.
 # (Sachlich gehoeren beide neben safe_str in core/validators.py; dort stehen sie noch nicht.)
-from routes.ipads import _vorgabe_ipad_typ, _zelle
+from routes.ipads import _claim_pool_ipad_for_bildungsgang, _vorgabe_ipad_typ, _zelle
 
 # ---------------------------------------------------------------------------
 # Shared export helpers (used by all 3 Excel-export endpoints)
@@ -322,6 +322,7 @@ async def import_inventory(
     file: UploadFile = File(...),
     import_to_pool: bool = Form(False),
     bildungsgang_id: Optional[str] = Form(None),
+    uebergeben_an_user_id: Optional[str] = Form(None),
     current_user: dict = Depends(get_current_user),
 ):
     """
@@ -340,6 +341,11 @@ async def import_inventory(
 
     Der gesamte Lauf gehört EINEM Bildungsgang (optional ``bildungsgang_id``, sonst der
     Zuständigkeit entnommen).
+
+    Importiert ein Admin Geräte in einen Bildungsgang, ist ``uebergeben_an_user_id`` Pflicht -
+    wie bei "BG zuordnen" und der Batch-Zuordnung: Die Geräte gehen körperlich an jemanden,
+    und an jedem neu angelegten oder aus dem Pool geholten Gerät steht danach in der
+    Gerätehistorie, wer es bekommen hat. Geprüft wird VOR dem ersten Schreiben.
     """
     if import_to_pool and not is_admin(current_user):
         raise HTTPException(status_code=403, detail="Nur Admins dürfen iPads in den Pool importieren")
@@ -373,6 +379,25 @@ async def import_inventory(
 
         # Try to read with different engines for .xls/.xlsx support
         df = read_excel_upload(contents, file.filename)
+
+        # Übergabe: nur nötig, wenn ein Admin wirklich Geräte in einen Bildungsgang importiert.
+        # Ein reiner Schülerimport und der Pool-Import (dort wechselt nichts den Besitzer)
+        # brauchen keine. Vor dem ersten Schreiben geprüft - ein halber Import ohne Quittung
+        # ließe sich nicht mehr nachtragen.
+        uebergeben_an = None
+        bringt_geraete = (
+            is_admin(current_user) and not import_to_pool and any(_zelle(row, "ITNr") for _, row in df.iterrows())
+        )
+        if bringt_geraete:
+            if not uebergeben_an_user_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Bitte unter „Übergeben an“ angeben, wer die Geräte entgegennimmt.",
+                )
+            empfaenger = await db.users.find_one({"id": uebergeben_an_user_id})
+            if not empfaenger:
+                raise HTTPException(status_code=404, detail="Empfänger nicht gefunden")
+            uebergeben_an = {"user_id": empfaenger["id"], "username": empfaenger.get("username")}
 
         # No strict column validation - we handle all cases:
         # 1. Only iPad data (ITNr present, no student data)
@@ -495,25 +520,22 @@ async def import_inventory(
                             # Im Pool gefunden: dem importierenden Bildungsgang zuschlagen,
                             # statt daneben eine Dublette anzulegen. Ein Gerät gleichzeitig als
                             # Poolbestand UND als zugeordnet zu führen, bringt beide Ansichten
-                            # dauerhaft auseinander.
-                            await db.ipads.update_one(
-                                {"id": existing_ipad["id"]},
-                                {
-                                    "$set": {
-                                        "bildungsgang_id": import_bildungsgang_id,
-                                        "is_in_pool": False,
-                                        "updated_at": datetime.now(UTC).isoformat(),
-                                    },
-                                    "$push": {
-                                        "pool_history": {
-                                            "action": "claimed_by_import",
-                                            "by": current_user["id"],
-                                            "bildungsgang_id": import_bildungsgang_id,
-                                            "at": datetime.now(UTC).isoformat(),
-                                        }
-                                    },
-                                },
+                            # dauerhaft auseinander. Atomar wie bei "BG zuordnen": holt ein
+                            # paralleler Lauf das Gerät eine Sekunde früher, gewinnt nur einer.
+                            geholt = await _claim_pool_ipad_for_bildungsgang(
+                                existing_ipad["id"],
+                                import_bildungsgang_id,
+                                "claimed_by_import",
+                                current_user["id"],
+                                uebergeben_an,
                             )
+                            if not geholt:
+                                errors.append(
+                                    f"Zeile {index + 2}: ITNr {itnr} wurde gerade anderweitig aus dem "
+                                    "Pool vergeben - Zeile übersprungen"
+                                )
+                                ipads_skipped += 1
+                                continue
                             ipad_id = existing_ipad["id"]
                             ipad_already_assigned = existing_ipad.get("current_assignment_id") is not None
                             ipads_claimed_from_pool += 1
@@ -558,6 +580,15 @@ async def import_inventory(
                                 karton=imported_karton,
                                 ansch_jahr=_safe_jahr(row.get("AnschJahr", "")),
                                 status=ipad_status,
+                                pool_history=[
+                                    {
+                                        "action": "created_by_import",
+                                        "by": current_user["id"],
+                                        "bildungsgang_id": import_bildungsgang_id,
+                                        "uebergeben_an": uebergeben_an,
+                                        "at": datetime.now(UTC).isoformat(),
+                                    }
+                                ],
                             )
 
                             ipad_dict = prepare_for_mongo(new_ipad.dict())

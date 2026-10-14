@@ -125,21 +125,28 @@ test('iPad in den Pool freigeben und per "BG zuordnen" wieder ausgeben', async (
   await expect(zeile(page, ipad).getByTitle('Im gemeinsamen Pool')).toBeVisible();
   expect((await ipadAusApi(request, ipad)).bildungsgang_id ?? null).toBeNull();
 
-  // Aus dem Pool geht es nur noch mit Bildungsgang UND Übergabe - "Übernehmen" gibt es nicht mehr.
+  // Aus dem Pool geht es nur noch mit Bildungsgang UND Übergabe - weder "Übernehmen" noch
+  // direkt "Schüler zuordnen"; das macht danach der Bildungsgang.
   await expect(zeile(page, ipad).getByRole('button', { name: /Übernehmen/ })).toHaveCount(0);
+  await expect(zeile(page, ipad).getByRole('button', { name: 'Schüler zuordnen' })).toHaveCount(0);
   await zeile(page, ipad).getByRole('button', { name: 'BG zuordnen' }).click();
   const zuordnen = page.getByTestId('assign-to-user-dialog');
+  await expect(zuordnen.getByTestId('zuweisung-geraete')).toContainText(ipad.itnr);
   await zuordnen.getByTestId(`assign-bildungsgang-row-${bg.id}`).click();
+  // Wie bei der Batch-Zuordnung: der erledigte Schritt klappt zu und zeigt seine Wahl.
+  await expect(zuordnen.getByTestId('zuweisung-schritt-bildungsgang-summary')).toContainText(BILDUNGSGANG);
 
   // Empfänger: aktive Konten, Admins eingeschlossen - ausgeschiedene nicht.
   await expect(zuordnen.getByTestId(`zuweisung-empfaenger-row-${ich.id}`)).toBeVisible();
   await expect(zuordnen.getByTestId(`zuweisung-empfaenger-row-${lehrkraft.id}`)).toBeVisible();
   await expect(zuordnen.getByTestId(`zuweisung-empfaenger-row-${ausgeschieden.id}`)).toHaveCount(0);
   await zuordnen.getByTestId(`zuweisung-empfaenger-row-${ich.id}`).click();
+  await expect(zuordnen.getByTestId('zuweisung-schritt-empfaenger-summary')).toContainText(ich.username);
   await zuordnen.getByRole('button', { name: 'Zuweisen und Übergabe festhalten' }).click();
 
   await expect(toast(page, `1 iPad(s) an ${BILDUNGSGANG} zugewiesen, übergeben an ${ich.username}`)).toBeVisible();
   await expect(page.getByTestId(`release-btn-${ipad.id}`)).toBeVisible();
+  await expect(zeile(page, ipad).getByRole('button', { name: 'Schüler zuordnen' })).toBeVisible();
   expect((await ipadAusApi(request, ipad)).bildungsgang_id).toBe(bg.id);
 });
 

@@ -21,9 +21,10 @@ import { Tablet, Eye, Trash2, Plus, ArrowUp, ArrowDown, X, Download, Upload, Use
 import { sleep, withRateLimitRetry, isRateLimitError, BATCH_REQUEST_DELAY_MS } from '../../utils/batchRequest';
 import { downloadBlob } from '../../utils/download';
 
-// Ein Schritt der Batch-Zuordnung: offen zeigt er seinen Inhalt, erledigt nur eine Zeile
-// mit der getroffenen Wahl und "ändern" - so passt der Dialog ohne Scrollen auf den Schirm.
-const BatchImportSchritt = ({ nummer, titel, wert, offen, onOeffnen, testId, children }) => {
+// Ein Schritt in den Zuordnungs-Dialogen ("BG zuordnen", Batch-Zuordnung): offen zeigt er seinen
+// Inhalt, erledigt nur eine Zeile mit der getroffenen Wahl und "ändern" - so passt der Dialog
+// ohne Scrollen auf den Schirm.
+const AuswahlSchritt = ({ nummer, titel, wert, offen, onOeffnen, testId, children }) => {
   if (!offen && wert) {
     return (
       <button
@@ -58,6 +59,10 @@ const BatchImportSchritt = ({ nummer, titel, wert, offen, onOeffnen, testId, chi
     </div>
   );
 };
+
+// Einem Schüler zuordnen lässt sich nur ein freies Gerät eines Bildungsgangs. Pool-Geräte gehen
+// erst per "BG zuordnen" (mit Übergabe) an einen Bildungsgang - das Backend lehnt sie sonst ab.
+const istFreiImBildungsgang = (ipad) => !!ipad && !ipad.current_assignment_id && !ipad.is_in_pool;
 
 const IPadsManagement = ({ isAdmin = false }) => {
   // Der Benutzername wird nicht als Prop durchgereicht; seit dem Login liegt er im localStorage.
@@ -107,6 +112,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const [zuweisungBildungsgang, setZuweisungBildungsgang] = useState(null);
   const [zuweisungEmpfaenger, setZuweisungEmpfaenger] = useState(null);
   const [zuweisungEmpfaengerSuche, setZuweisungEmpfaengerSuche] = useState('');
+  const [zuweisungOffenerSchritt, setZuweisungOffenerSchritt] = useState(1);
   const [assignToUserTargetIds, setAssignToUserTargetIds] = useState([]); // list of ipad ids
   const [allUsers, setAllUsers] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
@@ -225,6 +231,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
     setAssignToUserTargetIds(ipadIds);
     setUserSearchQuery('');
     setZuweisungBildungsgang(null);
+    setZuweisungOffenerSchritt(1);
     setZuweisungEmpfaenger(null);
     setZuweisungEmpfaengerSuche('');
     setAssignToUserDialogOpen(true);
@@ -665,12 +672,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
         ipad_id: ipadId,
         student_id: studentId
       });
-      // Show special toast if iPad was claimed from pool
-      if (response.data.claimed_from_pool) {
-        toast.success(`iPad ${response.data.itnr} aus Pool übernommen und ${response.data.student_name} zugewiesen`);
-      } else {
-        toast.success(response.data.message);
-      }
+      toast.success(response.data.message);
       // Reload both lists to update availability
       await loadIPads();
       await loadAvailableStudents();
@@ -684,7 +686,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
   const handleBulkAssign = async () => {
     const targets = selectedIPads
       .map(id => ipads.find(i => i.id === id))
-      .filter(i => i && !i.current_assignment_id);
+      .filter(istFreiImBildungsgang);
 
     if (targets.length === 0) {
       toast.error('Keine freien iPads ausgewählt');
@@ -1160,14 +1162,14 @@ const IPadsManagement = ({ isAdmin = false }) => {
                   🏫 {selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) BG zuordnen
                 </Button>
               )}
-              {selectedIPads.some(id => !ipads.find(i => i.id === id)?.current_assignment_id) && (
+              {selectedIPads.some(id => istFreiImBildungsgang(ipads.find(i => i.id === id))) && (
                 <Button
                   onClick={handleBulkAssign}
                   disabled={bulkAssigning}
                   className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
                 >
                   <Users className="h-4 w-4 mr-2" />
-                  {bulkAssigning ? 'Ordne zu...' : `${selectedIPads.filter(id => !ipads.find(i => i.id === id)?.current_assignment_id).length} Schülern zuordnen`}
+                  {bulkAssigning ? 'Ordne zu...' : `${selectedIPads.filter(id => istFreiImBildungsgang(ipads.find(i => i.id === id))).length} Schülern zuordnen`}
                 </Button>
               )}
               {selectedIPads.some(id => ipads.find(i => i.id === id)?.current_assignment_id) && (
@@ -1363,7 +1365,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
                           >
                             <Eye className="h-4 w-4" />
                           </Button>
-                          {!ipad.current_assignment_id && (
+                          {/* Pool-Geräte gehen erst per "BG zuordnen" an einen Bildungsgang, und dort an Schüler. */}
+                          {!ipad.current_assignment_id && !ipad.is_in_pool && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -1372,7 +1375,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                                 setSearchDialogOpen(true);
                                 setStudentSearchQuery('');
                               }}
-                              title={ipad.is_in_pool ? 'iPad aus Pool übernehmen + Schüler zuordnen' : 'Schüler zuordnen'}
+                              title="Schüler zuordnen"
                             >
                               Schüler zuordnen
                             </Button>
@@ -1734,41 +1737,62 @@ const IPadsManagement = ({ isAdmin = false }) => {
               an eine Person übergeben. Beides wird mit Datum in der Gerätehistorie festgehalten.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto pr-1">
-            <div>
-              <Label className="mb-2 block">
-                1. Bildungsgang
-                {zuweisungBildungsgang && (
-                  <span className="font-normal text-green-700"> — <strong>{zuweisungBildungsgang.name}</strong></span>
-                )}
-              </Label>
+          <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1">
+            <div className="rounded-lg border bg-gray-50 px-3 py-2 text-sm" data-testid="zuweisung-geraete">
+              <span className="text-gray-600">Geräte ({assignToUserTargetIds.length}): </span>
+              <strong className="break-words">
+                {assignToUserTargetIds
+                  .map(id => ipads.find(i => i.id === id)?.itnr)
+                  .filter(Boolean)
+                  .join(', ')}
+              </strong>
+            </div>
+            <AuswahlSchritt
+              nummer={1}
+              titel="Bildungsgang"
+              wert={zuweisungBildungsgang?.name}
+              offen={zuweisungOffenerSchritt === 1}
+              onOeffnen={() => setZuweisungOffenerSchritt(1)}
+              testId="zuweisung-schritt-bildungsgang"
+            >
               <BildungsgangPicker
                 bildungsgaenge={bildungsgaenge}
                 searchQuery={userSearchQuery}
                 onSearchChange={setUserSearchQuery}
-                onSelect={(b) => setZuweisungBildungsgang({ id: b.id, name: b.name })}
+                onSelect={(b) => {
+                  setZuweisungBildungsgang({ id: b.id, name: b.name });
+                  setZuweisungOffenerSchritt(zuweisungEmpfaenger ? null : 2);
+                }}
                 selectedId={zuweisungBildungsgang?.id ?? null}
                 searchTestId="bildungsgang-search-input"
                 rowTestIdPrefix="assign-bildungsgang-row"
               />
-            </div>
-            <div>
-              <Label className="mb-2 block">
-                2. Übergeben an
-                {zuweisungEmpfaenger && (
-                  <span className="font-normal text-green-700"> — <strong>{zuweisungEmpfaenger.username}</strong></span>
-                )}
-              </Label>
+            </AuswahlSchritt>
+            <AuswahlSchritt
+              nummer={2}
+              titel="Übergeben an"
+              wert={zuweisungEmpfaenger?.username}
+              offen={zuweisungOffenerSchritt === 2}
+              onOeffnen={() => setZuweisungOffenerSchritt(2)}
+              testId="zuweisung-schritt-empfaenger"
+            >
+              <p className="text-xs text-gray-500 mb-2">
+                Wer die Geräte entgegennimmt. Pflichtangabe: ohne sie bliebe später offen, bei
+                wem eine Kiste gelandet ist. Die Geräte gehören weiterhin dem Bildungsgang.
+              </p>
               <UserPicker
                 users={allUsers}
                 searchQuery={zuweisungEmpfaengerSuche}
                 onSearchChange={setZuweisungEmpfaengerSuche}
-                onSelectUser={(u) => setZuweisungEmpfaenger({ id: u.id, username: u.username })}
+                onSelectUser={(u) => {
+                  setZuweisungEmpfaenger({ id: u.id, username: u.username });
+                  setZuweisungOffenerSchritt(zuweisungBildungsgang ? null : 1);
+                }}
                 selectedUserId={zuweisungEmpfaenger?.id ?? null}
                 searchTestId="zuweisung-empfaenger-search-input"
                 rowTestIdPrefix="zuweisung-empfaenger-row"
               />
-            </div>
+            </AuswahlSchritt>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
@@ -1794,7 +1818,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1">
-            <BatchImportSchritt
+            <AuswahlSchritt
               nummer={1}
               titel="Ziel-Bildungsgang"
               wert={batchImportTargetBildungsgang?.name}
@@ -1814,8 +1838,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 searchTestId="batch-import-bildungsgang-search-input"
                 rowTestIdPrefix="batch-import-bildungsgang-row"
               />
-            </BatchImportSchritt>
-            <BatchImportSchritt
+            </AuswahlSchritt>
+            <AuswahlSchritt
               nummer={2}
               titel="Übergeben an"
               wert={batchImportEmpfaenger?.username}
@@ -1839,7 +1863,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 searchTestId="batch-import-empfaenger-search-input"
                 rowTestIdPrefix="batch-import-empfaenger-row"
               />
-            </BatchImportSchritt>
+            </AuswahlSchritt>
             <div className="rounded-lg border p-3">
               <div className="flex items-center justify-between gap-2 mb-2">
                 <Label>3. Datei hochladen</Label>

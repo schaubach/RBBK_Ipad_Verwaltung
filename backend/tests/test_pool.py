@@ -199,6 +199,66 @@ async def test_uebergabe_an_einen_admin_ist_erlaubt(welt, client):
     assert (await welt.ipads.find_one({"id": "g1"}))["bildungsgang_id"] == "bg_meda"
 
 
+# --- Kein Weg am Bildungsgang vorbei: Pool-Gerät nicht direkt an Schüler -----------------
+
+
+async def schueler_in(welt, sid, bildungsgang_id="bg_meda"):
+    await welt.students.insert_one(
+        {"id": sid, "bildungsgang_id": bildungsgang_id, "user_id": "u_admin", "sus_vorn": "Ada", "sus_nachn": sid}
+    )
+
+
+async def test_pool_geraet_geht_nicht_direkt_an_einen_schueler(welt, client):
+    """Aus dem Pool erst an einen Bildungsgang (mit Übergabe), dann an Schüler.
+
+    Früher holte die Zuordnung ein Pool-Gerät still in den Bildungsgang des Schülers - ohne
+    dass je festgehalten wurde, wer es bekommen hat.
+    """
+    await poolgeraet(welt, "g1")
+    await schueler_in(welt, "s1")
+    kopf = await anmelden(client, "admin")
+
+    antwort = await client.post("/api/assignments/manual", json={"student_id": "s1", "ipad_id": "g1"}, headers=kopf)
+    assert antwort.status_code == 400
+    assert "BG zuordnen" in antwort.json()["detail"]
+
+    unveraendert = await welt.ipads.find_one({"id": "g1"})
+    assert unveraendert["is_in_pool"] is True
+    assert unveraendert.get("bildungsgang_id") is None
+    assert unveraendert.get("current_assignment_id") is None
+    assert await welt.assignments.count_documents({"ipad_id": "g1"}) == 0
+
+
+async def test_pool_geraete_stehen_nicht_zur_schuelerzuordnung_bereit(welt, client):
+    """Die Auswahl im Dialog "iPad zuordnen" und die Sammelzuordnung bieten sie gar nicht an."""
+    await poolgeraet(welt, "g1")
+    await geraet(welt, "frei", "bg_meda")
+    kopf = await anmelden(client, "admin")
+
+    angebot = (await client.get("/api/ipads/available-for-assignment", headers=kopf)).json()
+    ids = [i["id"] for i in angebot]
+    assert "frei" in ids
+    assert "g1" not in ids
+
+
+async def test_nach_bg_zuordnen_geht_das_geraet_an_einen_schueler(welt, client):
+    """Der vorgesehene Weg: erst BG zuordnen, dann im Bildungsgang dem Schüler."""
+    await poolgeraet(welt, "g1")
+    await schueler_in(welt, "s1")
+    kopf = await anmelden(client, "admin")
+
+    zugeordnet = await client.post(
+        "/api/admin/ipads/assign-to-bildungsgang",
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        headers=kopf,
+    )
+    assert zugeordnet.status_code == 200, zugeordnet.text
+
+    antwort = await client.post("/api/assignments/manual", json={"student_id": "s1", "ipad_id": "g1"}, headers=kopf)
+    assert antwort.status_code == 200, antwort.text
+    assert (await welt.ipads.find_one({"id": "g1"}))["current_assignment_id"] == antwort.json()["assignment_id"]
+
+
 # --- Freigabe in den Pool -------------------------------------------------------------
 
 

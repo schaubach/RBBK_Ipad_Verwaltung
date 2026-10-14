@@ -352,7 +352,9 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
                       'claimed': '🤝 Aus Pool übernommen',
                       'released': '📤 In Pool freigegeben',
                       'assigned_by_admin': '👤 Vom Admin zugewiesen',
-                      'created_and_assigned_by_admin': '🆕 Erstellt & zugewiesen (Admin)'
+                      'created_and_assigned_by_admin': '🆕 Erstellt & zugewiesen (Admin)',
+                      'claimed_by_import': '📄 Per Excel-Import aus dem Pool geholt',
+                      'created_by_import': '🆕 Per Excel-Import angelegt'
                     }[entry.action] || entry.action;
                     const date = entry.at ? new Date(entry.at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A';
                     return (

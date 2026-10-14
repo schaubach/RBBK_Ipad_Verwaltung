@@ -91,7 +91,7 @@ async def test_schueler_ohne_ipad_werden_als_solche_gezaehlt(welt, client):
     antwort = await client.post(
         "/api/imports/inventory",
         files=excel(zeilen),
-        data={"import_to_pool": "false", "bildungsgang_id": "bg_meda"},
+        data={"import_to_pool": "false", "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
         headers=kopf,
     )
 
@@ -99,3 +99,75 @@ async def test_schueler_ohne_ipad_werden_als_solche_gezaehlt(welt, client):
     daten = antwort.json()
     assert daten["students_created"] == 2
     assert daten["students_only_created"] == 1
+
+
+# --- Bestandsimport mit Geräten: wer hat sie bekommen? ------------------------------------
+
+
+async def bestand_import(client, zeilen, **felder):
+    kopf = await anmelden(client, "admin")
+    return await client.post(
+        "/api/imports/inventory",
+        files=excel(zeilen),
+        data={"import_to_pool": "false", "bildungsgang_id": "bg_meda", **felder},
+        headers=kopf,
+    )
+
+
+async def test_geraeteimport_ohne_empfaenger_schreibt_nichts(welt, client):
+    """Ohne "Übergeben an" bricht der Import ab, BEVOR etwas geschrieben ist - ein halber
+    Import ohne Quittung ließe sich nicht mehr nachtragen."""
+    await geraet(welt, "g_pool", "IT-POOL", is_in_pool=True)
+
+    antwort = await bestand_import(
+        client,
+        [
+            {"SuSVorn": "Ina", "SuSNachn": "Neu", "ITNr": "IT-NEU", "SNr": "SN-NEU"},
+            {"SuSVorn": "Ole", "SuSNachn": "Pool", "ITNr": "IT-POOL"},
+        ],
+    )
+
+    assert antwort.status_code == 400
+    assert "Übergeben an" in antwort.json()["detail"]
+    assert await welt.ipads.count_documents({"itnr": "IT-NEU"}) == 0
+    assert (await welt.ipads.find_one({"id": "g_pool"}))["is_in_pool"] is True
+    assert await welt.students.count_documents({"sus_nachn": {"$in": ["Neu", "Pool"]}}) == 0
+
+
+async def test_geraeteimport_haelt_die_uebergabe_fest(welt, client):
+    """Neu angelegte und aus dem Pool geholte Geräte tragen beide die Quittung."""
+    await geraet(welt, "g_pool", "IT-POOL", is_in_pool=True)
+
+    antwort = await bestand_import(
+        client,
+        [
+            {"SuSVorn": "Ina", "SuSNachn": "Neu", "ITNr": "IT-NEU", "SNr": "SN-NEU"},
+            {"SuSVorn": "Ole", "SuSNachn": "Pool", "ITNr": "IT-POOL"},
+        ],
+        uebergeben_an_user_id="u_bakenecker",
+    )
+    assert antwort.status_code == 200, antwort.text
+
+    neu = await welt.ipads.find_one({"itnr": "IT-NEU"})
+    geholt = await welt.ipads.find_one({"id": "g_pool"})
+    assert geholt["is_in_pool"] is False
+    assert geholt["bildungsgang_id"] == "bg_meda"
+    for geraet_ in (neu, geholt):
+        eintrag = geraet_["pool_history"][-1]
+        assert eintrag["uebergeben_an"] == {"user_id": "u_bakenecker", "username": "bakenecker"}, geraet_["itnr"]
+        assert eintrag["bildungsgang_id"] == "bg_meda"
+    assert neu["pool_history"][-1]["action"] == "created_by_import"
+    assert geholt["pool_history"][-1]["action"] == "claimed_by_import"
+
+
+async def test_reiner_schuelerimport_braucht_keinen_empfaenger(welt, client):
+    """Keine Geräte, nichts zu übergeben - dann darf auch nichts verlangt werden."""
+    antwort = await bestand_import(client, [{"SuSVorn": "Nur", "SuSNachn": "Schüler"}])
+    assert antwort.status_code == 200, antwort.text
+    assert await welt.students.count_documents({"sus_nachn": "Schüler"}) == 1
+
+
+async def test_empfaenger_muss_existieren(welt, client):
+    antwort = await bestand_import(client, [{"ITNr": "IT-X", "SNr": "SN-X"}], uebergeben_an_user_id="gibtsnicht")
+    assert antwort.status_code == 404
+    assert await welt.ipads.count_documents({"itnr": "IT-X"}) == 0

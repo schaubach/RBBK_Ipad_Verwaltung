@@ -395,11 +395,7 @@ const StudentsManagement = () => {
         student_id: studentId,
         ipad_id: ipadId
       });
-      if (response.data.claimed_from_pool) {
-        toast.success(`iPad ${response.data.itnr} aus Pool übernommen und ${response.data.student_name} zugewiesen`);
-      } else {
-        toast.success(response.data.message);
-      }
+      toast.success(response.data.message);
       // Reload both lists to update availability
       await loadStudents();
       await loadAvailableIPads();
@@ -1095,11 +1091,6 @@ const StudentsManagement = () => {
                   >
                     <div className="font-medium flex items-center gap-2">
                       {ipad.itnr}
-                      {ipad.is_in_pool && (
-                        <Badge className="bg-violet-100 text-violet-800 hover:bg-violet-200 text-xs">
-                          🌐 Pool
-                        </Badge>
-                      )}
                     </div>
                     <div className="text-sm text-gray-500">Status: {ipad.status}</div>
                   </div>

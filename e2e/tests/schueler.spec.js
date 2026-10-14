@@ -127,3 +127,19 @@ test('Schüler löschen gibt das iPad frei', async ({ page, request }) => {
   await expect(ipadZeile.getByText('Nein', { exact: true })).toBeVisible();
   await expect(ipadZeile.getByTitle('iPad löschen')).toBeVisible();
 });
+
+test('Pool-iPads stehen im Dialog "iPad zuordnen" nicht zur Wahl', async ({ page, request }) => {
+  const s = await neuerSchueler(request);
+  const frei = await neuesIPad(request);
+  const imPool = await neuesIPad(request);
+  await api(request).post(`/ipads/${imPool.id}/release-to-pool`, {});
+  await page.reload();
+  await oeffneTab(page, 'Schüler');
+  await filtere(page, s);
+
+  await zeile(page, s).getByRole('button', { name: 'iPad zuordnen' }).click();
+  const dialog = page.getByRole('alertdialog', { name: 'iPad zuordnen' });
+  await expect(dialog.getByText(frei.itnr, { exact: true })).toBeVisible();
+  await expect(dialog.getByText(imPool.itnr, { exact: true })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Abbrechen' }).click();
+});

@@ -43,18 +43,27 @@ test('Import-Vorlage herunterladen', async ({ page }) => {
   expect(kopf).toEqual(IMPORT_KOPF);
 });
 
-test('Excel-Import legt Schüler, iPads und Zuordnung an', async ({ page, request }) => {
+test('Excel-Import legt Schüler, iPads und Zuordnung an und hält die Übergabe fest', async ({ page, request }) => {
   const mitIPad = { SuSVorn: 'Ina', SuSNachn: eindeutig('Import'), SuSKl: 'E2E1', SuSGeb: '03.04.2008' };
   const ohneIPad = { SuSVorn: 'Ole', SuSNachn: eindeutig('Import'), SuSKl: 'E2E1' };
   const itnrZugeordnet = eindeutig('IMP-');
   const itnrFrei = eindeutig('IMP-');
+
+  // Ein Gerät liegt schon im Pool - der Import holt es in den Bildungsgang.
+  const ausPool = await neuesIPad(request);
+  await api(request).post(`/ipads/${ausPool.id}/release-to-pool`, {});
   const datei = await excelDatei('import.xlsx', 'Import-Vorlage', IMPORT_KOPF, [
     { ...mitIPad, ITNr: itnrZugeordnet, SNr: eindeutig('SN'), Status: 'ok', AusleiheDatum: '15.09.2026' },
     ohneIPad,
     { ITNr: itnrFrei, SNr: eindeutig('SN'), Status: 'defekt' },
+    { ITNr: ausPool.itnr },
   ]);
+  const ich = await api(request).get('/auth/me');
 
   await oeffneTab(page, 'Einstellungen');
+  // Ohne "Übergeben an" lässt sich keine Datei wählen.
+  await expect(page.getByTestId('data-import-input')).toBeDisabled();
+  await page.getByTestId('import-empfaenger-select').selectOption(ich.id);
   await page.getByTestId('data-import-input').setInputFiles(datei);
   await expect(toast(page, 'Import abgeschlossen')).toBeVisible();
 
@@ -66,6 +75,14 @@ test('Excel-Import legt Schüler, iPads und Zuordnung an', async ({ page, reques
   const ipads = await api(request).get('/ipads');
   expect(ipads.find((i) => i.itnr === itnrFrei)?.status).toBe('defekt');
   expect(ipads.find((i) => i.itnr === itnrZugeordnet)?.current_assignment_id).toBeTruthy();
+
+  // Neu angelegt wie aus dem Pool geholt: Die Übergabe steht in der Gerätehistorie.
+  const neu = ipads.find((i) => i.itnr === itnrFrei);
+  for (const id of [neu.id, ausPool.id]) {
+    const { ipad, pool_history } = await api(request).get(`/ipads/${id}/history`);
+    expect(ipad.is_in_pool, ipad.itnr).toBe(false);
+    expect(pool_history.at(-1).uebergeben_an, ipad.itnr).toBe(ich.username);
+  }
 
   // ... und in der Oberfläche.
   await oeffneTab(page, 'Schüler');

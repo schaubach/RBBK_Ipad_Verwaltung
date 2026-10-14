@@ -39,10 +39,11 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
     Manually assign an iPad to a student without creating a contract.
     Only allowed if iPad is not currently assigned.
 
-    Ein Poolgeraet wird dabei zuerst in den Bildungsgang DES SCHUELERS geholt - nicht in den
-    des Aufrufers. Wer fuer mehrere Bildungsgaenge zustaendig ist, haengte das Geraet sonst an
-    seinen eigenen, waehrend die Zuordnung beim Schueler liegt: das Geraet stuende ab dann in
-    einem Bestand, in dem der Schueler gar nicht gefuehrt wird.
+    Poolgeraete gehen hier NICHT direkt an einen Schueler. Aus dem Pool fuehrt ein einziger
+    Weg: "BG zuordnen" (assign-to-bildungsgang) mit festgehaltener Uebergabe an eine Person -
+    danach ordnet der Bildungsgang das Geraet seinen Schuelern zu. Frueher holte diese Route
+    ein Poolgeraet still in den Bildungsgang des Schuelers, ohne dass je jemand quittiert
+    haette, wer es bekommen hat.
     """
     try:
         # Apply user filter for security
@@ -61,7 +62,7 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
                 detail=f"Schüler hat bereits {MAX_IPADS_PER_STUDENT} iPad(s) zugewiesen (Maximum erreicht)",
             )
 
-        # Validate iPad - either own or in pool
+        # Validate iPad
         ipad_filter = await get_ipad_filter(current_user)
         ipad = await db.ipads.find_one({"id": request.ipad_id, **ipad_filter})
         if not ipad:
@@ -70,7 +71,12 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
         if ipad.get("current_assignment_id"):
             raise HTTPException(status_code=400, detail="iPad ist bereits zugewiesen")
 
-        was_in_pool = ipad.get("is_in_pool", False)
+        if ipad.get("is_in_pool"):
+            raise HTTPException(
+                status_code=400,
+                detail="Dieses iPad liegt im Pool. Bitte zuerst per „BG zuordnen“ einem Bildungsgang "
+                "zuordnen - danach kann es einem Schüler zugeordnet werden.",
+            )
 
         # Die Zuordnung erbt den Bildungsgang des Schuelers - ohne einen solchen gibt es nichts
         # zu erben, und der Datensatz waere hinterher fuer niemanden sichtbar.
@@ -84,9 +90,7 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
 
         # Schueler und Geraet muessen zum selben Bildungsgang gehoeren. Ein Geraet aus fremdem
         # Bestand auszugeben, entzoege es dort der Verwaltung, ohne dass es jemand bemerkt.
-        # Poolgeraete sind ausgenommen: sie gehoeren keinem Bildungsgang und gehen mit der
-        # Ausgabe in den des Schuelers ueber.
-        if not was_in_pool and ipad.get("bildungsgang_id") != student_bildungsgang_id:
+        if ipad.get("bildungsgang_id") != student_bildungsgang_id:
             raise HTTPException(
                 status_code=400,
                 detail="Dieses iPad gehört zu einem anderen Bildungsgang als der Schüler. "
@@ -110,25 +114,16 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
         # ATOMIC CLAIM AND ASSIGN
         update_doc = {"$set": {"current_assignment_id": assignment.id, "updated_at": now_iso}}
 
-        if was_in_pool:
-            update_doc["$set"]["is_in_pool"] = False
-            # Mit der Ausgabe geht das Poolgeraet in den Bestand des Schueler-Bildungsgangs
-            # ueber, dort wird es ab jetzt verwaltet. user_id bleibt unangetastet - es sagt
-            # nur noch, wer das Geraet angelegt hat.
-            update_doc["$set"]["bildungsgang_id"] = student_bildungsgang_id
-            update_doc["$push"] = {"pool_history": {"action": "claimed", "by": current_user["id"], "at": now_iso}}
-            query = {"id": request.ipad_id, "is_in_pool": True, "current_assignment_id": None}
-        else:
-            # Der Bildungsgang wird im atomaren Claim erneut geprueft: zwischen Lesen und
-            # Schreiben kann das Geraet in den Pool gegangen oder umgehaengt worden sein.
-            # Fuer Admins gilt das genauso - sie duerfen jeden Bestand bedienen, aber nicht
-            # quer ueber Bildungsgaenge hinweg.
-            query = {
-                "id": request.ipad_id,
-                "current_assignment_id": None,
-                "bildungsgang_id": student_bildungsgang_id,
-                "is_in_pool": {"$ne": True},
-            }
+        # Der Bildungsgang wird im atomaren Schreiben erneut geprueft: zwischen Lesen und
+        # Schreiben kann das Geraet in den Pool gegangen oder umgehaengt worden sein. Fuer
+        # Admins gilt das genauso - sie duerfen jeden Bestand bedienen, aber nicht quer ueber
+        # Bildungsgaenge hinweg.
+        query = {
+            "id": request.ipad_id,
+            "current_assignment_id": None,
+            "bildungsgang_id": student_bildungsgang_id,
+            "is_in_pool": {"$ne": True},
+        }
 
         claim_result = await db.ipads.find_one_and_update(query, update_doc)
 
@@ -149,7 +144,6 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
             "assignment_id": assignment.id,
             "student_name": f"{student['sus_vorn']} {student['sus_nachn']}",
             "itnr": ipad["itnr"],
-            "claimed_from_pool": was_in_pool,
         }
 
     except HTTPException:
@@ -161,9 +155,12 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
 @api_router.get("/ipads/available-for-assignment")
 @limiter.limit("60/minute")
 async def get_available_ipads(request: Request, current_user: dict = Depends(get_current_user)):
-    """Get iPads without current assignment. Includes pool iPads."""
+    """iPads ohne aktive Zuordnung - ohne Poolgeraete: die gehen erst per "BG zuordnen" an einen
+    Bildungsgang, bevor sie einem Schueler zugeordnet werden koennen."""
     ipad_filter = await get_ipad_filter(current_user)
-    ipads = await db.ipads.find({**ipad_filter, "current_assignment_id": None}, {"_id": 0}).to_list(length=None)
+    ipads = await db.ipads.find(
+        {**ipad_filter, "current_assignment_id": None, "is_in_pool": {"$ne": True}}, {"_id": 0}
+    ).to_list(length=None)
 
     return [
         {
