@@ -1,5 +1,5 @@
 # Frontend Dockerfile für React (OHNE yarn.lock)
-FROM node:20-alpine as build
+FROM node:24-alpine as build
 
 # Arbeitsverzeichnis setzen
 WORKDIR /app
