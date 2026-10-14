@@ -230,11 +230,11 @@ const StudentsManagement = () => {
     setSelectedStudents([]);
 
     if (successCount > 0) {
-      toast.success(`${successCount} Schüler erfolgreich gelöscht`);
+      toast.success(`${successCount} Lernende erfolgreich gelöscht`);
       loadStudents();
     }
     if (errorCount > 0) {
-      toast.error(`${errorCount} Schüler konnten nicht gelöscht werden`);
+      toast.error(`${errorCount} Lernende konnten nicht gelöscht werden`);
     }
   };
 
@@ -252,7 +252,7 @@ const StudentsManagement = () => {
     setCreating(true);
     try {
       const response = await api.post('/students', newStudentData);
-      toast.success('Schüler erfolgreich angelegt!');
+      toast.success('Lernende erfolgreich angelegt!');
       setCreateDialogOpen(false);
       setNewStudentData({
         sus_vorn: '', sus_nachn: '', sus_kl: '',
@@ -261,7 +261,7 @@ const StudentsManagement = () => {
       loadStudents();
     } catch (error) {
       console.error('Create student error:', error);
-      toast.error(error.response?.data?.detail || 'Fehler beim Anlegen des Schülers');
+      toast.error(error.response?.data?.detail || 'Fehler beim Anlegen');
     } finally {
       setCreating(false);
     }
@@ -278,7 +278,7 @@ const StudentsManagement = () => {
       setStudents(response.data || []);
     } catch (error) {
       console.error('Failed to load students:', error);
-      toast.error('Fehler beim Laden der Schüler');
+      toast.error('Fehler beim Laden der Lernenden');
       setStudents([]);
     } finally {
       setLoading(false);
@@ -360,17 +360,17 @@ const StudentsManagement = () => {
     if (!studentToDelete) return;
 
     try {
-      toast.info('Lösche Schüler und alle zugehörigen Daten...');
+      toast.info('Lösche Lernende und alle zugehörigen Daten...');
 
       const response = await api.delete(`/students/${studentToDelete.id}`);
 
       if (response && response.data) {
-        const msg = response.data.message || 'Schüler gelöscht';
+        const msg = response.data.message || 'Lernende gelöscht';
         const assignments = response.data.deleted_assignments || 0;
         const contracts = response.data.deleted_contracts || 0;
         toast.success(`${msg}. Gelöscht: ${assignments} Zuordnungen, ${contracts} Verträge`);
       } else {
-        toast.success('Schüler erfolgreich gelöscht');
+        toast.success('Lernende erfolgreich gelöscht');
       }
 
       // Reload students list AND available iPads (freigegebene iPads!)
@@ -380,7 +380,7 @@ const StudentsManagement = () => {
 
     } catch (error) {
       console.error('Delete student error:', error);
-      toast.error(error.response?.data?.detail || 'Fehler beim Löschen des Schülers');
+      toast.error(error.response?.data?.detail || 'Fehler beim Löschen');
     } finally {
       setDeleteDialogOpen(false);
       setStudentToDelete(null);
@@ -413,7 +413,7 @@ const StudentsManagement = () => {
       .filter(s => s && (s.assignment_count || 0) < 3);
 
     if (targets.length === 0) {
-      toast.error('Keine auswählbaren Schüler (Limit von 3 iPads bereits erreicht)');
+      toast.error('Keine auswählbaren Lernenden (Limit von 3 iPads bereits erreicht)');
       return;
     }
 
@@ -454,7 +454,7 @@ const StudentsManagement = () => {
       toast.success(`${successCount} iPad(s) zugeordnet`);
     }
     if (noIpadCount > 0) {
-      toast.warning(`${noIpadCount} Schüler konnten nicht bedient werden (keine freien iPads mehr)`);
+      toast.warning(`${noIpadCount} Lernende konnten nicht bedient werden (keine freien iPads mehr)`);
     }
     if (rateLimitedCount > 0) {
       toast.error(`${rateLimitedCount} Zuordnung(en) wegen Server-Auslastung fehlgeschlagen - bitte in kleineren Gruppen erneut versuchen`);
@@ -476,7 +476,7 @@ const StudentsManagement = () => {
     );
 
     if (assignmentsToDissolve.length === 0) {
-      toast.error('Keine Zuordnungen bei den ausgewählten Schülern vorhanden');
+      toast.error('Keine Zuordnungen bei den ausgewählten Lernenden vorhanden');
       return;
     }
 
@@ -574,12 +574,12 @@ const StudentsManagement = () => {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              Schüler verwalten ({students.length})
+              Lernende verwalten ({students.length})
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">
                 <Plus className="h-4 w-4" />
-                Neuen Schüler anlegen
+                Lernende anlegen
               </Button>
             </div>
           </div>
@@ -716,18 +716,18 @@ const StudentsManagement = () => {
                 variant="destructive"
                 disabled={deleting}
               >
-                {deleting ? 'Lösche...' : `${selectedStudents.length} Schüler löschen`}
+                {deleting ? 'Lösche...' : `${selectedStudents.length} Lernende löschen`}
               </Button>
             </div>
           )}
 
           {loading ? (
-            <div className="text-center py-8">Lade Schüler...</div>
+            <div className="text-center py-8">Lade Lernende...</div>
           ) : students.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               {ansichtBildungsgang
-                  ? 'In diesem Bildungsgang sind keine Schüler erfasst.'
-                  : 'Keine Schüler vorhanden. Laden Sie zuerst eine Excel-Datei hoch.'}
+                  ? 'In diesem Bildungsgang sind keine Lernenden erfasst.'
+                  : 'Keine Lernenden vorhanden. Laden Sie zuerst eine Excel-Datei hoch.'}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -791,7 +791,7 @@ const StudentsManagement = () => {
                   {filteredStudents.length === 0 && (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-gray-500">
-                        Keine Schüler entsprechen den aktuellen Filtern.
+                        Keine Lernenden entsprechen den aktuellen Filtern.
                       </TableCell>
                     </TableRow>
                   )}
@@ -852,7 +852,7 @@ const StudentsManagement = () => {
                             variant="outline"
                             size="sm"
                             onClick={() => setSelectedStudentId(student.id)}
-                            title="Schülerdetails anzeigen"
+                            title="Details anzeigen"
                             className="hover:bg-blue-50"
                           >
                             <Eye className="h-4 w-4" />
@@ -875,7 +875,7 @@ const StudentsManagement = () => {
                             variant="outline"
                             size="sm"
                             onClick={() => handleDeleteStudent(student)}
-                            title="Schüler löschen (inkl. aller Daten, iPad wird freigegeben)"
+                            title="Lernende löschen (inkl. aller Daten, iPad wird freigegeben)"
                             className="hover:bg-red-50 hover:text-red-600"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -895,9 +895,9 @@ const StudentsManagement = () => {
       <AlertDialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
         <AlertDialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <AlertDialogHeader>
-            <AlertDialogTitle>Neuen Schüler anlegen</AlertDialogTitle>
+            <AlertDialogTitle>Lernende anlegen</AlertDialogTitle>
             <AlertDialogDescription>
-              Geben Sie die Daten für den neuen Schüler ein. Pflichtfelder sind markiert mit *.
+              Geben Sie die Daten der neuen lernenden Person ein. Pflichtfelder sind markiert mit *.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="grid gap-4 py-4">
@@ -966,7 +966,7 @@ const StudentsManagement = () => {
               onClick={handleCreateStudent}
               disabled={creating || !newStudentData.sus_vorn || !newStudentData.sus_nachn}
             >
-              {creating ? 'Erstelle...' : 'Schüler anlegen'}
+              {creating ? 'Erstelle...' : 'Anlegen'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -976,13 +976,13 @@ const StudentsManagement = () => {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Schüler löschen?</AlertDialogTitle>
+            <AlertDialogTitle>Lernende löschen?</AlertDialogTitle>
             <AlertDialogDescription>
-              Möchten Sie wirklich den Schüler <strong>{studentToDelete?.sus_vorn} {studentToDelete?.sus_nachn}</strong> löschen?
+              Möchten Sie wirklich <strong>{studentToDelete?.sus_vorn} {studentToDelete?.sus_nachn}</strong> löschen?
               <br /><br />
               <strong>Dies löscht:</strong>
               <ul className="list-disc list-inside mt-2">
-                <li>Den Schüler permanent</li>
+                <li>Die lernende Person permanent</li>
                 <li>Alle Zuordnungs-Historie</li>
                 <li>Alle zugehörigen Verträge</li>
                 <li>Gibt zugeordnetes iPad frei</li>
@@ -994,7 +994,7 @@ const StudentsManagement = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDeleteStudent} className="bg-red-600 hover:bg-red-700">
-              Schüler löschen
+              Lernende löschen
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1004,11 +1004,11 @@ const StudentsManagement = () => {
       <AlertDialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{selectedStudents.length} Schüler löschen?</AlertDialogTitle>
+            <AlertDialogTitle>{selectedStudents.length} Lernende löschen?</AlertDialogTitle>
             <AlertDialogDescription>
-              Möchten Sie wirklich <strong>{selectedStudents.length} Schüler</strong> löschen?
+              Möchten Sie wirklich <strong>{selectedStudents.length} Lernende</strong> löschen?
               <br /><br />
-              <strong>Für jeden Schüler wird gelöscht:</strong>
+              <strong>Für jede lernende Person wird gelöscht:</strong>
               <ul className="list-disc list-inside mt-2">
                 <li>Alle Zuordnungen</li>
                 <li>Alle Verträge</li>
@@ -1022,7 +1022,7 @@ const StudentsManagement = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>Abbrechen</AlertDialogCancel>
             <AlertDialogAction onClick={confirmBatchDeleteStudents} className="bg-red-600 hover:bg-red-700">
-              {selectedStudents.length} Schüler löschen
+              {selectedStudents.length} Lernende löschen
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1034,7 +1034,7 @@ const StudentsManagement = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>Zuordnungen auflösen?</AlertDialogTitle>
             <AlertDialogDescription>
-              Möchten Sie wirklich alle aktiven iPad-Zuordnungen der <strong>{selectedStudents.length} ausgewählten Schüler</strong> auflösen?
+              Möchten Sie wirklich alle aktiven iPad-Zuordnungen der <strong>{selectedStudents.length} ausgewählten Lernenden</strong> auflösen?
               <br /><br />
               Die betroffenen iPads werden wieder als verfügbar markiert. Diese Aktion kann nicht rückgängig gemacht werden.
             </AlertDialogDescription>
@@ -1053,7 +1053,7 @@ const StudentsManagement = () => {
         open={exportDialogOpen}
         onOpenChange={setExportDialogOpen}
         onConfirm={handleColumnsConfirmed}
-        title="Spalten für Schüler-Export wählen"
+        title="Spalten für den Export der Lernenden wählen"
       />
 
       {/* iPad Search Dialog */}

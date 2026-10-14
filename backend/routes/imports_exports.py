@@ -775,9 +775,9 @@ async def import_inventory(
         if ipads_claimed_from_pool:
             parts.append(f"{ipads_claimed_from_pool} iPads aus dem Pool übernommen")
         if students_created > 0:
-            parts.append(f"{students_created} Schüler erstellt")
+            parts.append(f"{students_created} Lernende erstellt")
         if students_skipped > 0:
-            parts.append(f"{students_skipped} Schüler wiederverwendet")
+            parts.append(f"{students_skipped} Lernende wiederverwendet")
         if assignments_created > 0:
             parts.append(f"{assignments_created} Zuordnungen erstellt")
         if assignments_skipped_limit > 0:

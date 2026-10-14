@@ -54,20 +54,20 @@ test.describe.serial('Kernablauf', () => {
     await expect(eintrag.getByText('1 zuständige Person')).toBeVisible();
   });
 
-  test('Schüler anlegen', async ({ page }) => {
-    await oeffneTab(page, 'Schüler');
-    await page.getByRole('button', { name: 'Neuen Schüler anlegen' }).click();
+  test('Lernende anlegen', async ({ page }) => {
+    await oeffneTab(page, 'Lernende');
+    await page.getByRole('button', { name: 'Lernende anlegen' }).click();
 
-    const dialog = page.getByRole('alertdialog', { name: 'Neuen Schüler anlegen' });
+    const dialog = page.getByRole('alertdialog', { name: 'Lernende anlegen' });
     await dialog.locator('#sus_vorn').fill(SCHUELER.vorname);
     await dialog.locator('#sus_nachn').fill(SCHUELER.nachname);
     await dialog.locator('#sus_kl').fill(SCHUELER.klasse);
     await dialog.locator('#sus_geb').fill('01.02.2008');
     await dialog.locator('#sus_str').fill('Teststraße 1');
     await dialog.locator('#sus_ort').fill('44135 Dortmund');
-    await dialog.getByRole('button', { name: 'Schüler anlegen' }).click();
+    await dialog.getByRole('button', { name: 'Anlegen', exact: true }).click();
 
-    await expect(toast(page, 'Schüler erfolgreich angelegt!')).toBeVisible();
+    await expect(toast(page, 'Lernende erfolgreich angelegt!')).toBeVisible();
     await page.locator('#student-nachname-filter').fill(SCHUELER.nachname);
     const zeile = page.getByRole('row').filter({ hasText: SCHUELER.nachname });
     await expect(zeile).toBeVisible();
@@ -89,8 +89,8 @@ test.describe.serial('Kernablauf', () => {
     await expect(page.getByRole('row').filter({ hasText: ITNR })).toBeVisible();
   });
 
-  test('iPad dem Schüler zuordnen', async ({ page }) => {
-    await oeffneTab(page, 'Schüler');
+  test('iPad einer lernenden Person zuordnen', async ({ page }) => {
+    await oeffneTab(page, 'Lernende');
     await page.locator('#student-nachname-filter').fill(SCHUELER.nachname);
     const zeile = page.getByRole('row').filter({ hasText: SCHUELER.nachname });
     await zeile.getByRole('button', { name: 'iPad zuordnen' }).click();

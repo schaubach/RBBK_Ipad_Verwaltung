@@ -84,7 +84,7 @@ async def create_student(student_data: dict, current_user: dict = Depends(get_cu
         if existing:
             raise HTTPException(
                 status_code=400,
-                detail=f"Schüler {student_data['sus_vorn']} {student_data['sus_nachn']} existiert bereits",
+                detail=f"{student_data['sus_vorn']} {student_data['sus_nachn']} existiert bereits",
             )
 
         # Create Student object. Field names must match models.student.Student exactly -
@@ -263,7 +263,7 @@ async def update_student(
     await validate_resource_ownership("student", student_id, current_user)
     student = await db.students.find_one({"id": student_id})
     if not student:
-        raise HTTPException(status_code=404, detail="Schüler nicht gefunden")
+        raise HTTPException(status_code=404, detail="Lernende Person nicht gefunden")
 
     # Build update dict with only provided fields
     update_data = {}
@@ -310,7 +310,7 @@ async def update_student(
     # Get updated student
     updated_student = await db.students.find_one({"id": student_id})
     return {
-        "message": "Schüler erfolgreich aktualisiert",
+        "message": "Lernende erfolgreich aktualisiert",
         "student": {
             "id": updated_student["id"],
             "sname": updated_student.get("sname"),
@@ -350,7 +350,7 @@ async def set_student_ipad_refused(student_id: str, request: dict, current_user:
 
     student = await db.students.find_one({"id": student_id})
     if not student:
-        raise HTTPException(status_code=404, detail="Schüler nicht gefunden")
+        raise HTTPException(status_code=404, detail="Lernende Person nicht gefunden")
 
     if refused:
         active_assignment = await db.assignments.find_one({"student_id": student_id, "is_active": True})
@@ -423,7 +423,7 @@ async def delete_student(student_id: str, current_user: dict = Depends(get_curre
     await db.students.delete_one({"id": student_id})
 
     return {
-        "message": f"Schüler {student_name} erfolgreich gelöscht",
+        "message": f"{student_name} erfolgreich gelöscht",
         "deleted_assignments": assignments_result.deleted_count,
         "deleted_contracts": contracts_deleted.deleted_count,
     }

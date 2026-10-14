@@ -29,7 +29,7 @@ const SAMMLUNG_NAMEN = {
   users: 'Benutzer',
   bildungsgaenge: 'Bildungsgänge',
   zustaendigkeiten: 'Zuständigkeiten',
-  students: 'Schüler',
+  students: 'Lernende',
   ipads: 'Geräte',
   assignments: 'Zuordnungen',
   contracts: 'Verträge',
@@ -333,7 +333,7 @@ const UserManagement = () => {
     const now = Date.now();
     if (!window._lastCleanupClick || (now - window._lastCleanupClick) > 3000) {
       window._lastCleanupClick = now;
-      toast.info('Datenschutz-Bereinigung starten? WARNUNG: Alle Schüler- und Vertragsdaten älter als 5 Jahre werden gelöscht! Klicken Sie nochmal in 3 Sekunden um zu bestätigen.');
+      toast.info('Datenschutz-Bereinigung starten? WARNUNG: Alle Daten zu Lernenden und Verträgen älter als 5 Jahre werden gelöscht! Klicken Sie nochmal in 3 Sekunden um zu bestätigen.');
       return;
     }
 
@@ -643,7 +643,7 @@ const UserManagement = () => {
     <div className="space-y-6">
       <Card className="shadow-lg border-l-4 border-yellow-500">
         <CardHeader>
-          <div className="flex justify-between items-center">
+          <div className="flex flex-wrap justify-between items-center gap-3">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-5 w-5 text-yellow-600" />
@@ -656,7 +656,7 @@ const UserManagement = () => {
                 Benutzerkonten erstellen, bearbeiten und verwalten
               </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 onClick={() => setShowCreateDialog(true)}
                 className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
@@ -1220,7 +1220,7 @@ const UserManagement = () => {
                   </>
                 ) : (
                   <>
-                    Ohne Backup-Passwort werden <strong>keine</strong> täglichen Server-Backups erstellt (Schülerdaten
+                    Ohne Backup-Passwort werden <strong>keine</strong> täglichen Server-Backups erstellt (Daten von Lernenden
                     dürfen nicht unverschlüsselt gespeichert werden).
                   </>
                 )}
@@ -1479,7 +1479,7 @@ const UserManagement = () => {
           <div className="border-l-4 border-blue-400 bg-blue-50 p-4 rounded">
             <h4 className="font-medium text-blue-800 mb-2">Automatisches Daten-Cleanup</h4>
             <p className="text-sm text-blue-700 mb-4">
-              Löscht automatisch alle Schüler- und Vertragsdaten, die älter als 5 Jahre sind,
+              Löscht automatisch alle Daten zu Lernenden und Verträgen, die älter als 5 Jahre sind,
               um DSGVO-Compliance sicherzustellen.
             </p>
             <Button
@@ -1775,7 +1775,7 @@ const UserManagement = () => {
                         <p>Das Benutzerkonto wird PERMANENT gelöscht</p>
                         <p>Laufende Zuständigkeiten werden beendet — der Zugriff endet sofort</p>
                         <p className="text-green-800 font-medium pt-1">
-                          iPads, Schüler, Zuordnungen und Verträge bleiben erhalten: sie gehören
+                          iPads, Lernende, Zuordnungen und Verträge bleiben erhalten: sie gehören
                           dem Bildungsgang, nicht der Person.
                         </p>
                       </div>

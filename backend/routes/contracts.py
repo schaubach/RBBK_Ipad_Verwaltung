@@ -442,7 +442,7 @@ async def assign_contract_to_assignment(
         if existing_contracts >= MAX_CONTRACTS_PER_STUDENT:
             raise HTTPException(
                 status_code=400,
-                detail=f"Schüler hat bereits {MAX_CONTRACTS_PER_STUDENT} Vertrag/Verträge (Maximum erreicht)",
+                detail=f"Diese lernende Person hat bereits {MAX_CONTRACTS_PER_STUDENT} Vertrag/Verträge (Maximum erreicht)",
             )
 
     # Update contract with all 3 references

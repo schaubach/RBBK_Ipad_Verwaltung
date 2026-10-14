@@ -32,8 +32,8 @@ test.describe('Smoke @smoke', () => {
     const fehler = sammleSeitenfehler(page);
     await page.goto('/');
 
-    await oeffneTab(page, 'Schüler');
-    await expect(page.getByRole('button', { name: 'Neuen Schüler anlegen' })).toBeVisible();
+    await oeffneTab(page, 'Lernende');
+    await expect(page.getByRole('button', { name: 'Lernende anlegen' })).toBeVisible();
 
     await oeffneTab(page, 'iPads');
     await expect(page.getByRole('button', { name: 'Neues iPad anlegen' })).toBeVisible();

@@ -106,7 +106,7 @@ const Settings = ({ isAdmin = false, username }) => {
       if (response.data.ipads_created > 0 || response.data.students_created > 0 || response.data.assignments_created > 0) {
         const details = [];
         if (response.data.ipads_created > 0) details.push(`${response.data.ipads_created} neue iPads`);
-        if (response.data.students_created > 0) details.push(`${response.data.students_created} neue Schüler`);
+        if (response.data.students_created > 0) details.push(`${response.data.students_created} neue Lernende`);
         if (response.data.assignments_created > 0) details.push(`${response.data.assignments_created} neue Zuordnungen`);
         
         toast.info(`Erstellt: ${details.join(', ')}`);
@@ -116,7 +116,7 @@ const Settings = ({ isAdmin = false, username }) => {
       if (response.data.ipads_skipped > 0 || response.data.students_skipped > 0) {
         const skipped = [];
         if (response.data.ipads_skipped > 0) skipped.push(`${response.data.ipads_skipped} iPads übersprungen`);
-        if (response.data.students_skipped > 0) skipped.push(`${response.data.students_skipped} Schüler übersprungen`);
+        if (response.data.students_skipped > 0) skipped.push(`${response.data.students_skipped} Lernende übersprungen`);
 
         toast.info(`Übersprungen: ${skipped.join(', ')}`);
       }
@@ -179,7 +179,7 @@ const Settings = ({ isAdmin = false, username }) => {
             Excel Datensicherung
           </CardTitle>
           <CardDescription>
-            Vollständige Datensicherung aller Schüler und iPads als Excel-Datei
+            Vollständige Datensicherung aller Lernenden und iPads als Excel-Datei
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -188,8 +188,8 @@ const Settings = ({ isAdmin = false, username }) => {
             <div className="border-l-4 border-green-400 bg-green-50 p-4 rounded">
               <h4 className="font-medium text-green-800 mb-2">Datensicherung erstellen</h4>
               <p className="text-sm text-green-700 mb-4">
-                Exportiert eine vollständige Excel-Datei mit allen Daten: Schüler (auch ohne iPad), 
-                iPads (auch ohne Zuordnung) und alle aktiven Zuordnungen. Bei Schülern mit mehreren 
+                Exportiert eine vollständige Excel-Datei mit allen Daten: Lernende (auch ohne iPad), 
+                iPads (auch ohne Zuordnung) und alle aktiven Zuordnungen. Bei Lernenden mit mehreren 
                 iPads wird pro Zuordnung eine Zeile erstellt.
               </p>
               <Button 
@@ -211,12 +211,12 @@ const Settings = ({ isAdmin = false, username }) => {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Upload className="h-5 w-5" />
-            {isAdmin ? 'Daten-Import' : 'Schüler-Import'}
+            {isAdmin ? 'Daten-Import' : 'Import von Lernenden'}
           </CardTitle>
           <CardDescription>
             {isAdmin
-              ? 'Schüler, iPads oder vollständige Datensicherungen importieren'
-              : 'Schüler*innen aus einer Excel-Datei importieren'}
+              ? 'Lernende, iPads oder vollständige Datensicherungen importieren'
+              : 'Lernende aus einer Excel-Datei importieren'}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -224,7 +224,7 @@ const Settings = ({ isAdmin = false, username }) => {
             {!isAdmin && (
               <div className="border-l-4 border-amber-400 bg-amber-50 p-4 rounded">
                 <p className="text-sm text-amber-800">
-                  ℹ️ Sie können hierüber ausschließlich <strong>Schüler*innen</strong> importieren.
+                  ℹ️ Sie können hierüber ausschließlich <strong>Lernende</strong> importieren.
                   Das Importieren von iPads (inkl. Pool-Import) ist Administrator*innen vorbehalten -
                   etwaige ITNr/iPad-Spalten in Ihrer Datei werden beim Import ignoriert.
                 </p>
@@ -236,7 +236,7 @@ const Settings = ({ isAdmin = false, username }) => {
               <p className="text-sm text-purple-700 mb-3">
                 {isAdmin
                   ? 'Laden Sie eine Excel-Vorlage mit allen unterstützten Spalten und Beispieldaten herunter.'
-                  : 'Laden Sie eine Excel-Vorlage mit den Schüler-Spalten und Beispieldaten herunter.'}
+                  : 'Laden Sie eine Excel-Vorlage mit den Spalten für Lernende und Beispieldaten herunter.'}
               </p>
               <Button 
                 onClick={async () => {
@@ -264,15 +264,15 @@ const Settings = ({ isAdmin = false, username }) => {
                     <strong>Flexibler Import:</strong> Sie können verschiedene Datentypen mit einer Datei importieren:
                   </p>
                   <ul className="text-sm text-blue-700 mb-4 list-disc list-inside space-y-1">
-                    <li><strong>Nur Schüler:</strong> Excel mit Schüler-Spalten (SuSVorn, SuSNachn, etc.)</li>
+                    <li><strong>Nur Lernende:</strong> Excel mit Spalten für Lernende (SuSVorn, SuSNachn, etc.)</li>
                     <li><strong>Nur iPads:</strong> Excel mit iPad-Spalten (ITNr, SNr, Status, etc.)</li>
-                    <li><strong>Komplett:</strong> Schüler + iPads + Zuordnungen in einer Datei</li>
-                    <li><strong>1:n Zuordnung:</strong> Schüler mit 2 oder 3 iPads erscheinen mehrfach (eine Zeile pro iPad)</li>
+                    <li><strong>Komplett:</strong> Lernende + iPads + Zuordnungen in einer Datei</li>
+                    <li><strong>1:n Zuordnung:</strong> Lernende mit 2 oder 3 iPads erscheinen mehrfach (eine Zeile pro iPad)</li>
                   </ul>
                 </>
               ) : (
                 <p className="text-sm text-blue-700 mb-4">
-                  Excel-Datei mit Schüler-Spalten (SuSVorn, SuSNachn, etc.) hochladen.
+                  Excel-Datei mit Spalten für Lernende (SuSVorn, SuSNachn, etc.) hochladen.
                 </p>
               )}
               <p className="text-sm text-blue-600 mb-4">

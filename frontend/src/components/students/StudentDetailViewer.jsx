@@ -22,7 +22,7 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
       setStudentData(response.data);
       setEditedStudent(response.data.student);
     } catch (error) {
-      toast.error('Fehler beim Laden der Schülerdetails');
+      toast.error('Fehler beim Laden der Details');
       console.error('Student details error:', error);
     } finally {
       setLoading(false);
@@ -57,7 +57,7 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
     setSaving(true);
     try {
       const response = await api.put(`/students/${studentId}`, editedStudent);
-      toast.success('Schüler erfolgreich aktualisiert');
+      toast.success('Lernende erfolgreich aktualisiert');
       // Zusammenführen statt ersetzen: Die Antwort des PUT enthält nur die bearbeitbaren
       // Felder - created_at und ipad_refused fehlen darin und stünden sonst auf N/A bzw. nein.
       setStudentData(prev => ({ ...prev, student: { ...prev.student, ...response.data.student } }));
@@ -79,7 +79,7 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div className="bg-white p-6 rounded-lg">
-          <div className="text-center">Lade Schülerdetails...</div>
+          <div className="text-center">Lade Details...</div>
         </div>
       </div>
     );
@@ -97,7 +97,7 @@ const StudentDetailViewer = ({ studentId, onClose, onUpdate }) => {
         <div className="p-6">
           <div className="flex justify-between items-start mb-6">
             <h2 className="text-2xl font-bold text-gray-900">
-              Schülerdetails: {student.sus_vorn} {student.sus_nachn}
+              Lernende: {student.sus_vorn} {student.sus_nachn}
             </h2>
             <div className="flex gap-2">
               {!editMode ? (

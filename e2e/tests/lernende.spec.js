@@ -1,4 +1,4 @@
-// Schüler: Detailansicht, Bearbeiten, Zuordnung lösen, Löschen.
+// Lernende: Detailansicht, Bearbeiten, Zuordnung lösen, Löschen.
 const { test, expect } = require('@playwright/test');
 const {
   start,
@@ -15,7 +15,7 @@ let fehler;
 test.beforeEach(async ({ page }) => {
   fehler = sammleSeitenfehler(page);
   await start(page);
-  await oeffneTab(page, 'Schüler');
+  await oeffneTab(page, 'Lernende');
 });
 test.afterEach(() => expect(fehler, 'Fehler in der Browser-Konsole').toEqual([]));
 
@@ -33,12 +33,12 @@ test('Detailansicht zeigt Daten, Zuordnung und Historie', async ({ page, request
   const ipad = await neuesIPad(request);
   await zuordnen(request, s, ipad);
   await page.reload();
-  await oeffneTab(page, 'Schüler');
+  await oeffneTab(page, 'Lernende');
   await filtere(page, s);
 
   await zeile(page, s).getByRole('button', { name: `${s.sus_vorn} ${s.sus_nachn}` }).click();
   const ansicht = page.locator('div.fixed').filter({
-    has: page.getByRole('heading', { name: `Schülerdetails: ${s.sus_vorn} ${s.sus_nachn}` }),
+    has: page.getByRole('heading', { name: `Lernende: ${s.sus_vorn} ${s.sus_nachn}` }),
   });
   await expect(ansicht.getByText('Persönliche Daten')).toBeVisible();
   await expect(ansicht.getByText(`iPad ITNr: ${ipad.itnr}`)).toBeVisible();
@@ -47,10 +47,10 @@ test('Detailansicht zeigt Daten, Zuordnung und Historie', async ({ page, request
   await expect(ansicht).toHaveCount(0);
 });
 
-test('Schüler bearbeiten', async ({ page, request }) => {
+test('Lernende bearbeiten', async ({ page, request }) => {
   const s = await neuerSchueler(request);
   await page.reload();
-  await oeffneTab(page, 'Schüler');
+  await oeffneTab(page, 'Lernende');
   await filtere(page, s);
 
   await zeile(page, s).getByRole('button', { name: `${s.sus_vorn} ${s.sus_nachn}` }).click();
@@ -59,7 +59,7 @@ test('Schüler bearbeiten', async ({ page, request }) => {
   await page.getByTestId('student-ort-input').fill('Dortmund');
   await page.getByRole('button', { name: 'Speichern', exact: true }).click();
 
-  await expect(toast(page, 'Schüler erfolgreich aktualisiert')).toBeVisible();
+  await expect(toast(page, 'Lernende erfolgreich aktualisiert')).toBeVisible();
   await page.getByRole('button', { name: 'Schließen', exact: true }).click();
   await expect(zeile(page, s)).toContainText('E2E2');
 
@@ -71,7 +71,7 @@ test('Schüler bearbeiten', async ({ page, request }) => {
 test('Detailansicht zeigt nach dem Speichern weiter das Anlagedatum', async ({ page, request }) => {
   const s = await neuerSchueler(request);
   await page.reload();
-  await oeffneTab(page, 'Schüler');
+  await oeffneTab(page, 'Lernende');
   await filtere(page, s);
 
   await zeile(page, s).getByRole('button', { name: `${s.sus_vorn} ${s.sus_nachn}` }).click();
@@ -81,16 +81,16 @@ test('Detailansicht zeigt nach dem Speichern weiter das Anlagedatum', async ({ p
   await page.getByTestId('edit-student-btn').click();
   await page.getByTestId('student-klasse-input').fill('E2E3');
   await page.getByRole('button', { name: 'Speichern', exact: true }).click();
-  await expect(toast(page, 'Schüler erfolgreich aktualisiert')).toBeVisible();
+  await expect(toast(page, 'Lernende erfolgreich aktualisiert')).toBeVisible();
   await expect(page.getByText(`Erstellt am: ${heute}`)).toBeVisible({ timeout: 2_000 });
 });
 
-test('Zuordnung über die iPad-Liste des Schülers lösen', async ({ page, request }) => {
+test('Zuordnung über die iPad-Liste der lernenden Person lösen', async ({ page, request }) => {
   const s = await neuerSchueler(request);
   const ipad = await neuesIPad(request);
   await zuordnen(request, s, ipad);
   await page.reload();
-  await oeffneTab(page, 'Schüler');
+  await oeffneTab(page, 'Lernende');
   await filtere(page, s);
 
   await zeile(page, s).getByTitle('Klicken um zugewiesene iPads anzuzeigen').click();
@@ -104,20 +104,20 @@ test('Zuordnung über die iPad-Liste des Schülers lösen', async ({ page, reque
   await expect(zeile(page, s).getByText('Ohne iPad')).toBeVisible();
 });
 
-test('Schüler löschen gibt das iPad frei', async ({ page, request }) => {
+test('Lernende löschen gibt das iPad frei', async ({ page, request }) => {
   const s = await neuerSchueler(request);
   const ipad = await neuesIPad(request);
   await zuordnen(request, s, ipad);
   await page.reload();
-  await oeffneTab(page, 'Schüler');
+  await oeffneTab(page, 'Lernende');
   await filtere(page, s);
 
-  await zeile(page, s).getByTitle(/^Schüler löschen/).click();
-  const dialog = page.getByRole('alertdialog', { name: 'Schüler löschen?' });
+  await zeile(page, s).getByTitle(/^Lernende löschen/).click();
+  const dialog = page.getByRole('alertdialog', { name: 'Lernende löschen?' });
   await expect(dialog).toContainText(`${s.sus_vorn} ${s.sus_nachn}`);
-  await dialog.getByRole('button', { name: 'Schüler löschen' }).click();
+  await dialog.getByRole('button', { name: 'Lernende löschen' }).click();
 
-  await expect(toast(page, `Schüler ${s.sus_vorn} ${s.sus_nachn} erfolgreich gelöscht`)).toBeVisible();
+  await expect(toast(page, `${s.sus_vorn} ${s.sus_nachn} erfolgreich gelöscht`)).toBeVisible();
   await expect(zeile(page, s)).toHaveCount(0);
 
   // Das iPad ist wieder frei und lässt sich löschen.
@@ -134,7 +134,7 @@ test('Pool-iPads stehen im Dialog "iPad zuordnen" nicht zur Wahl', async ({ page
   const imPool = await neuesIPad(request);
   await api(request).post(`/ipads/${imPool.id}/release-to-pool`, {});
   await page.reload();
-  await oeffneTab(page, 'Schüler');
+  await oeffneTab(page, 'Lernende');
   await filtere(page, s);
 
   await zeile(page, s).getByRole('button', { name: 'iPad zuordnen' }).click();

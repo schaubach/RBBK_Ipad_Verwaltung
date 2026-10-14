@@ -82,7 +82,7 @@ test('Leeren Bildungsgang löschen', async ({ page, request }) => {
   await expect(eintrag(page, bg.name)).toHaveCount(0);
 });
 
-test('Bildungsgang mit Schülern lässt sich nicht löschen', async ({ page, request }) => {
+test('Bildungsgang mit Lernenden lässt sich nicht löschen', async ({ page, request }) => {
   const bg = await api(request).post('/bildungsgaenge', { name: eindeutig('E2E BG ') });
   await neuerSchueler(request, { bildungsgang_id: bg.id });
   await neuLaden(page);

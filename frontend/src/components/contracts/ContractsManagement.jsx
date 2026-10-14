@@ -612,7 +612,7 @@ const ContractsManagement = () => {
                         />
                       </TableHead>
                       <TableHead>ITNr</TableHead>
-                      <TableHead>Schüler</TableHead>
+                      <TableHead>Lernende</TableHead>
                       <TableHead>Klasse</TableHead>
                       <TableHead>Verträge</TableHead>
                     </TableRow>
@@ -654,7 +654,7 @@ const ContractsManagement = () => {
           )}
 
           <p className="text-xs text-gray-500">
-            Hinweis: ZIP-Dateien sind mit dem Geburtsdatum des Schülers verschlüsselt (Format: TT.MM.JJJJ).
+            Hinweis: ZIP-Dateien sind mit dem Geburtsdatum der lernenden Person verschlüsselt (Format: TT.MM.JJJJ).
           </p>
         </CardContent>
       </Card>
@@ -693,9 +693,9 @@ const ContractsManagement = () => {
               />
             </div>
             <div>
-              <Label>Schüler</Label>
+              <Label>Lernende</Label>
               <Input
-                placeholder="Schüler filtern..."
+                placeholder="Lernende filtern..."
                 value={studentFilter}
                 onChange={(e) => setStudentFilter(e.target.value)}
               />
@@ -740,7 +740,7 @@ const ContractsManagement = () => {
                       onClick={() => handleSort('student_name')}
                     >
                       <div className="flex items-center">
-                        Schüler {getSortIcon('student_name')}
+                        Lernende {getSortIcon('student_name')}
                       </div>
                     </TableHead>
                     <TableHead
@@ -902,7 +902,7 @@ const ContractsManagement = () => {
 
           <div className="py-4 flex-1 overflow-hidden flex flex-col">
             <div className="mb-4">
-              <Label htmlFor="search">Suche (ITNr oder Schülername)</Label>
+              <Label htmlFor="search">Suche (ITNr oder Name)</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <Input
@@ -925,7 +925,7 @@ const ContractsManagement = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>ITNr</TableHead>
-                      <TableHead>Schüler</TableHead>
+                      <TableHead>Lernende</TableHead>
                       <TableHead>Verträge</TableHead>
                       <TableHead>Aktion</TableHead>
                     </TableRow>

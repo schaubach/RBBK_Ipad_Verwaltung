@@ -84,7 +84,7 @@ test('Zuordnung über die iPad-Liste lösen', async ({ page, request }) => {
   await neuLaden(page);
   await filtere(page, ipad);
 
-  await zeile(page, ipad).getByTitle('Klicken um zugewiesenen Schüler anzuzeigen').click();
+  await zeile(page, ipad).getByTitle('Klicken, um die zugeordnete lernende Person anzuzeigen').click();
   const dialog = page.getByRole('alertdialog', { name: `Zuordnung für iPad ${ipad.itnr}` });
   await expect(dialog).toContainText(s.sus_nachn);
   await dialog.getByRole('button', { name: 'Zuordnung auflösen' }).click();
@@ -128,7 +128,7 @@ test('iPad in den Pool freigeben und per "BG zuordnen" wieder ausgeben', async (
   // Aus dem Pool geht es nur noch mit Bildungsgang UND Übergabe - weder "Übernehmen" noch
   // direkt "Schüler zuordnen"; das macht danach der Bildungsgang.
   await expect(zeile(page, ipad).getByRole('button', { name: /Übernehmen/ })).toHaveCount(0);
-  await expect(zeile(page, ipad).getByRole('button', { name: 'Schüler zuordnen' })).toHaveCount(0);
+  await expect(zeile(page, ipad).getByRole('button', { name: 'Lernende zuordnen' })).toHaveCount(0);
   await zeile(page, ipad).getByRole('button', { name: 'BG zuordnen' }).click();
   const zuordnen = page.getByTestId('assign-to-user-dialog');
   await expect(zuordnen.getByTestId('zuweisung-geraete')).toContainText(ipad.itnr);
@@ -146,7 +146,7 @@ test('iPad in den Pool freigeben und per "BG zuordnen" wieder ausgeben', async (
 
   await expect(toast(page, `1 iPad(s) an ${BILDUNGSGANG} zugewiesen, übergeben an ${ich.username}`)).toBeVisible();
   await expect(page.getByTestId(`release-btn-${ipad.id}`)).toBeVisible();
-  await expect(zeile(page, ipad).getByRole('button', { name: 'Schüler zuordnen' })).toBeVisible();
+  await expect(zeile(page, ipad).getByRole('button', { name: 'Lernende zuordnen' })).toBeVisible();
   expect((await ipadAusApi(request, ipad)).bildungsgang_id).toBe(bg.id);
 });
 

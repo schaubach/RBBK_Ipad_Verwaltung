@@ -59,7 +59,7 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
         if student_assignments >= MAX_IPADS_PER_STUDENT:
             raise HTTPException(
                 status_code=400,
-                detail=f"Schüler hat bereits {MAX_IPADS_PER_STUDENT} iPad(s) zugewiesen (Maximum erreicht)",
+                detail=f"Diese lernende Person hat bereits {MAX_IPADS_PER_STUDENT} iPad(s) zugewiesen (Maximum erreicht)",
             )
 
         # Validate iPad
@@ -75,7 +75,7 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
             raise HTTPException(
                 status_code=400,
                 detail="Dieses iPad liegt im Pool. Bitte zuerst per „BG zuordnen“ einem Bildungsgang "
-                "zuordnen - danach kann es einem Schüler zugeordnet werden.",
+                "zuordnen - danach kann es Lernenden zugeordnet werden.",
             )
 
         # Die Zuordnung erbt den Bildungsgang des Schuelers - ohne einen solchen gibt es nichts
@@ -84,8 +84,8 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
         if not student_bildungsgang_id:
             raise HTTPException(
                 status_code=400,
-                detail="Dieser Schüler ist keinem Bildungsgang zugeordnet. "
-                "Bitte den Schüler zuerst einem Bildungsgang zuordnen.",
+                detail="Diese lernende Person ist keinem Bildungsgang zugeordnet. "
+                "Bitte sie zuerst einem Bildungsgang zuordnen.",
             )
 
         # Schueler und Geraet muessen zum selben Bildungsgang gehoeren. Ein Geraet aus fremdem
@@ -93,8 +93,8 @@ async def manual_assign(request: ManualAssignmentRequest, current_user: dict = D
         if ipad.get("bildungsgang_id") != student_bildungsgang_id:
             raise HTTPException(
                 status_code=400,
-                detail="Dieses iPad gehört zu einem anderen Bildungsgang als der Schüler. "
-                "Bitte ein Gerät aus dem Bildungsgang des Schülers wählen.",
+                detail="Dieses iPad gehört zu einem anderen Bildungsgang als die lernende Person. "
+                "Bitte ein Gerät aus ihrem Bildungsgang wählen.",
             )
 
         now_iso = datetime.now(UTC).isoformat()

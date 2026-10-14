@@ -271,7 +271,7 @@ async def test_beschreibung_aendern_laesst_den_namen_unberuehrt(welt, client):
 
 @pytest.mark.parametrize(
     "sammlung,wort",
-    [("ipads", "iPads"), ("students", "Schüler"), ("assignments", "Zuordnungen"), ("contracts", "Verträge")],
+    [("ipads", "iPads"), ("students", "Lernende"), ("assignments", "Zuordnungen"), ("contracts", "Verträge")],
 )
 async def test_loeschen_verweigert_solange_daten_daran_haengen(welt, client, sammlung, wort):
     """Löschen darf niemals Daten mitreissen oder unerreichbar machen.
@@ -370,7 +370,7 @@ async def test_loeschen_zaehlt_den_gesamten_bestand_auf(welt, client):
     admin = await anmelden(client, "admin")
 
     detail = (await client.delete(f"{PFAD}/bg_gym", headers=admin)).json()["detail"]
-    assert "2 iPads" in detail and "1 Schüler" in detail
+    assert "2 iPads" in detail and "1 Lernende" in detail
     assert "GYM" in detail
 
 

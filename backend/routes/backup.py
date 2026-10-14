@@ -71,7 +71,7 @@ BACKUP_EIGENE_ZUSTAENDE = {"server_backup_state"}
 # ist der Datensatz herrenlos: keine Lehrkraft sieht ihn mehr, nur noch Admins. Der Anzeigename
 # steht daneben, weil die Zahlen in einer Meldung an den Admin landen.
 BILDUNGSGANG_SAMMLUNGEN = {
-    "students": "Schüler",
+    "students": "Lernende",
     "ipads": "Geräte",
     "assignments": "Zuordnungen",
     "contracts": "Verträge",
@@ -88,7 +88,7 @@ PASSWORT_UNLESBAR = "unlesbar"
 PASSWORT_MELDUNG = {
     PASSWORT_BEREIT: "Backup-Passwort gesetzt und lesbar - alle Backups werden damit verschlüsselt.",
     PASSWORT_FEHLT: (
-        "Kein Backup-Passwort hinterlegt. Da Backups Schülerdaten enthalten, ist ein Backup-Passwort "
+        "Kein Backup-Passwort hinterlegt. Da Backups Daten von Lernenden enthalten, ist ein Backup-Passwort "
         "erforderlich (siehe Admin-Tab > Backup-Sicherheit: Backup-Passwort setzen)."
     ),
     PASSWORT_UNLESBAR: (
@@ -479,7 +479,7 @@ def pruefe_backup_inhalt(backup_data: dict) -> dict:
     if vor_dem_umbau:
         warnungen.append(
             "ACHTUNG: Diese Datei stammt aus der Zeit vor der Umstellung auf Bildungsgänge (sie "
-            'enthält "departments" bzw. keine "bildungsgaenge"). Geräte und Schüler gehören '
+            'enthält "departments" bzw. keine "bildungsgaenge"). Geräte und Lernende gehören '
             "danach zu keinem Bildungsgang, und ausser Admins sieht niemand mehr etwas. Bitte "
             "anschließend das Wanderungsskript scripts/migrate-to-bildungsgang.py laufen lassen."
         )
@@ -644,7 +644,7 @@ async def import_backup(file: UploadFile = File(...), current_user: dict = Depen
             status_code=400,
             detail=(
                 "Vor dem Einspielen wird der aktuelle Bestand als Sicherheitsnetz gespeichert, und das "
-                "muss verschlüsselt geschehen - es enthält Schülerdaten. " + PASSWORT_MELDUNG[passwort_zustand]
+                "muss verschlüsselt geschehen - es enthält Daten von Lernenden. " + PASSWORT_MELDUNG[passwort_zustand]
             ),
         )
 

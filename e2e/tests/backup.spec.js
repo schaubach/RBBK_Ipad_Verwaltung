@@ -88,7 +88,7 @@ test.describe.serial('Backup', () => {
     await expect(k).toContainText('Sicherheits-Backup vorher angelegt');
 
     const schueler = await api(request).get('/students');
-    expect(schueler.find((s) => s.id === spaeter.id), 'Schüler nach dem Backup ist weg').toBeUndefined();
+    expect(schueler.find((s) => s.id === spaeter.id), 'Lernende nach dem Backup sind weg').toBeUndefined();
   });
 
   test('Pool-iPads lösen beim Einspielen keine Warnung aus', async ({ page, request }) => {

@@ -43,7 +43,7 @@ test('Import-Vorlage herunterladen', async ({ page }) => {
   expect(kopf).toEqual(IMPORT_KOPF);
 });
 
-test('Excel-Import legt Schüler, iPads und Zuordnung an und hält die Übergabe fest', async ({ page, request }) => {
+test('Excel-Import legt Lernende, iPads und Zuordnung an und hält die Übergabe fest', async ({ page, request }) => {
   const mitIPad = { SuSVorn: 'Ina', SuSNachn: eindeutig('Import'), SuSKl: 'E2E1', SuSGeb: '03.04.2008' };
   const ohneIPad = { SuSVorn: 'Ole', SuSNachn: eindeutig('Import'), SuSKl: 'E2E1' };
   const itnrZugeordnet = eindeutig('IMP-');
@@ -70,8 +70,8 @@ test('Excel-Import legt Schüler, iPads und Zuordnung an und hält die Übergabe
   // Ergebnis in der Datenbank ...
   const schueler = await api(request).get('/students');
   const ina = schueler.find((s) => s.sus_nachn === mitIPad.SuSNachn);
-  expect(ina, 'Schüler mit iPad angelegt').toBeTruthy();
-  expect(schueler.find((s) => s.sus_nachn === ohneIPad.SuSNachn), 'Schüler ohne iPad angelegt').toBeTruthy();
+  expect(ina, 'Lernende mit iPad angelegt').toBeTruthy();
+  expect(schueler.find((s) => s.sus_nachn === ohneIPad.SuSNachn), 'Lernende ohne iPad angelegt').toBeTruthy();
   const ipads = await api(request).get('/ipads');
   expect(ipads.find((i) => i.itnr === itnrFrei)?.status).toBe('defekt');
   expect(ipads.find((i) => i.itnr === itnrZugeordnet)?.current_assignment_id).toBeTruthy();
@@ -85,7 +85,7 @@ test('Excel-Import legt Schüler, iPads und Zuordnung an und hält die Übergabe
   }
 
   // ... und in der Oberfläche.
-  await oeffneTab(page, 'Schüler');
+  await oeffneTab(page, 'Lernende');
   await page.locator('#student-nachname-filter').fill(mitIPad.SuSNachn);
   await expect(page.getByRole('row').filter({ hasText: mitIPad.SuSNachn }).getByText('1 iPad(s)')).toBeVisible();
 });
@@ -106,25 +106,29 @@ test('Datensicherung als Excel exportieren', async ({ page, request }) => {
   expect(daten.map((z) => z[spalte])).toContain(s.sus_nachn);
 });
 
-test('Schüler-Export mit allen Spalten', async ({ page, request }) => {
+test('Export der Lernenden mit allen Spalten', async ({ page, request }) => {
   const s = await neuerSchueler(request);
   const ipad = await neuesIPad(request);
   await zuordnen(request, s, ipad);
   await page.reload();
-  await oeffneTab(page, 'Schüler');
+  await oeffneTab(page, 'Lernende');
   await page.locator('#student-nachname-filter').fill(s.sus_nachn);
 
   await page.getByRole('button', { name: 'Exportieren', exact: true }).click();
   const dialog = page.getByTestId('export-columns-dialog');
-  await expect(dialog.getByTestId('export-columns-count')).toContainText('31 von 31');
+  // Voreingestellt: alle angebotenen Spalten. Die Zahl steht nicht fest im Test - kommt eine
+  // Spalte hinzu, soll der Test sie mitprüfen, statt an der alten Zahl zu scheitern.
+  const zaehler = dialog.getByTestId('export-columns-count');
+  await expect(zaehler).toHaveText(/^(\d+) von \1 Spalten/);
+  const spalten = Number((await zaehler.innerText()).split(' ')[0]);
   const datei = await herunterladen(page, () => dialog.getByTestId('export-columns-confirm-btn').click());
   expect(datei.name).toBe('schueler_export.xlsx');
   await expect(toast(page, 'Export erfolgreich')).toBeVisible();
 
   const { kopf, daten } = await leseExcel(datei.pfad);
-  expect(kopf).toHaveLength(31);
+  expect(kopf).toHaveLength(spalten);
   const zeile = daten.find((z) => z[kopf.indexOf('SuSNachn')] === s.sus_nachn);
-  expect(zeile, 'gefilterter Schüler im Export').toBeTruthy();
+  expect(zeile, 'gefilterte lernende Person im Export').toBeTruthy();
   expect(zeile[kopf.indexOf('ITNr')]).toBe(ipad.itnr);
 });
 

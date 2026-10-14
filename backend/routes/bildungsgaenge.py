@@ -153,7 +153,7 @@ async def delete_bildungsgang(bildungsgang_id: str, current_user: dict = Depends
         if n:
             bestand[coll] = n
     if bestand:
-        lesbar = {"ipads": "iPads", "students": "Schüler", "assignments": "Zuordnungen", "contracts": "Verträge"}
+        lesbar = {"ipads": "iPads", "students": "Lernende", "assignments": "Zuordnungen", "contracts": "Verträge"}
         teile = ", ".join(f"{n} {lesbar[k]}" for k, n in bestand.items())
         raise HTTPException(
             status_code=400,

@@ -98,7 +98,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
   // Pool actions
   const handleRelease = async () => {
     if (ipad.current_assignment_id) {
-      if (!window.confirm(`iPad ${ipad.itnr} ist einem Schüler zugeordnet. Die Zuordnung wird automatisch aufgelöst. Fortfahren?`)) {
+      if (!window.confirm(`iPad ${ipad.itnr} ist einer lernenden Person zugeordnet. Die Zuordnung wird automatisch aufgelöst. Fortfahren?`)) {
         return;
       }
     }
@@ -298,7 +298,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
               <CardContent>
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div><strong>Schüler:</strong> {current_assignment.student_name}</div>
+                    <div><strong>Lernende:</strong> {current_assignment.student_name}</div>
                     <div><strong>Zugewiesen am:</strong> {new Date(current_assignment.assigned_at).toLocaleDateString('de-DE')}</div>
                   </div>
                 </div>
@@ -404,7 +404,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
                     <div key={assignment.id} className={`p-3 rounded-lg text-sm ${assignment.is_active ? 'bg-blue-50 border-l-4 border-blue-400' : 'bg-gray-50 border-l-4 border-gray-400'}`}>
                       <div className="flex justify-between items-start">
                         <div>
-                          <div><strong>Schüler:</strong> {assignment.student_name}</div>
+                          <div><strong>Lernende:</strong> {assignment.student_name}</div>
                           <div><strong>Zugewiesen:</strong> {new Date(assignment.assigned_at).toLocaleDateString('de-DE')}</div>
                           {assignment.unassigned_at && (
                             <div><strong>Aufgelöst:</strong> {new Date(assignment.unassigned_at).toLocaleDateString('de-DE')}</div>
@@ -437,7 +437,7 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
                       <div className="flex justify-between items-center">
                         <div className="flex-1">
                           <div><strong>Datei:</strong> {contract.filename}</div>
-                          <div><strong>Schüler:</strong> {contract.student_name || 'Nicht zugewiesen'}</div>
+                          <div><strong>Lernende:</strong> {contract.student_name || 'Nicht zugewiesen'}</div>
                           <div><strong>Hochgeladen:</strong> {new Date(contract.uploaded_at).toLocaleDateString('de-DE')}</div>
                         </div>
                         <div className="flex items-center gap-2">

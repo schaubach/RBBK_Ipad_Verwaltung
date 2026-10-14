@@ -17,7 +17,7 @@ import api from '../../api';
 const STORAGE_KEY = 'exportColumnsPreferences';
 
 const GROUP_LABELS = {
-  student: 'Schüler & Erziehungsberechtigte',
+  student: 'Lernende & Erziehungsberechtigte',
   ipad: 'iPad',
   contract: 'Vertrag',
   bildungsgang: 'Bildungsgang',

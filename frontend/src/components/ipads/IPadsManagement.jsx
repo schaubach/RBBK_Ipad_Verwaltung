@@ -730,7 +730,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
       toast.success(`${successCount} iPad(s) zugeordnet`);
     }
     if (noStudentCount > 0) {
-      toast.warning(`${noStudentCount} iPad(s) konnten nicht bedient werden (keine freien Schüler mehr)`);
+      toast.warning(`${noStudentCount} iPad(s) konnten nicht bedient werden (keine freien Lernenden mehr)`);
     }
     if (rateLimitedCount > 0) {
       toast.error(`${rateLimitedCount} Zuordnung(en) wegen Server-Auslastung fehlgeschlagen - bitte in kleineren Gruppen erneut versuchen`);
@@ -988,7 +988,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
               <Tablet className="h-5 w-5" />
               iPads verwalten ({ipads.length})
             </CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {isAdmin && (
                 <Button
                   onClick={openBatchImportDialog}
@@ -1032,7 +1032,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 />
               </div>
               <div>
-                <Label htmlFor="ipad-vorname-filter">Schüler-Vorname filtern</Label>
+                <Label htmlFor="ipad-vorname-filter">Vorname (Lernende) filtern</Label>
                 <Input
                   id="ipad-vorname-filter"
                   placeholder="z.B. Max"
@@ -1041,7 +1041,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 />
               </div>
               <div>
-                <Label htmlFor="ipad-nachname-filter">Schüler-Nachname filtern</Label>
+                <Label htmlFor="ipad-nachname-filter">Nachname (Lernende) filtern</Label>
                 <Input
                   id="ipad-nachname-filter"
                   placeholder="z.B. Müller"
@@ -1169,7 +1169,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                   className="bg-gradient-to-r from-ipad-teal to-ipad-blue hover:from-ipad-blue hover:to-ipad-dark-blue"
                 >
                   <Users className="h-4 w-4 mr-2" />
-                  {bulkAssigning ? 'Ordne zu...' : `${selectedIPads.filter(id => istFreiImBildungsgang(ipads.find(i => i.id === id))).length} Schülern zuordnen`}
+                  {bulkAssigning ? 'Ordne zu...' : `${selectedIPads.filter(id => istFreiImBildungsgang(ipads.find(i => i.id === id))).length} Lernenden zuordnen`}
                 </Button>
               )}
               {selectedIPads.some(id => ipads.find(i => i.id === id)?.current_assignment_id) && (
@@ -1347,7 +1347,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                           <Badge
                             className="bg-blue-100 text-blue-800 cursor-pointer hover:bg-blue-200 transition-colors"
                             onClick={() => loadAssignmentInfo(ipad)}
-                            title="Klicken um zugewiesenen Schüler anzuzeigen"
+                            title="Klicken, um die zugeordnete lernende Person anzuzeigen"
                           >
                             Ja
                           </Badge>
@@ -1375,9 +1375,9 @@ const IPadsManagement = ({ isAdmin = false }) => {
                                 setSearchDialogOpen(true);
                                 setStudentSearchQuery('');
                               }}
-                              title="Schüler zuordnen"
+                              title="Lernende zuordnen"
                             >
-                              Schüler zuordnen
+                              Lernende zuordnen
                             </Button>
                           )}
                           {isAdmin && ipad.is_in_pool ? (
@@ -1605,14 +1605,14 @@ const IPadsManagement = ({ isAdmin = false }) => {
       <AlertDialog open={searchDialogOpen} onOpenChange={setSearchDialogOpen}>
         <AlertDialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
           <AlertDialogHeader>
-            <AlertDialogTitle>Schüler zuordnen</AlertDialogTitle>
+            <AlertDialogTitle>Lernende zuordnen</AlertDialogTitle>
             <AlertDialogDescription>
-              Wählen Sie einen Schüler für die Zuordnung aus.
+              Wählen Sie eine lernende Person für die Zuordnung aus.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4 flex-1 overflow-hidden flex flex-col">
             <Input
-              placeholder="Schüler suchen (Name oder Klasse)..."
+              placeholder="Lernende suchen (Name oder Klasse)..."
               value={studentSearchQuery}
               onChange={(e) => setStudentSearchQuery(e.target.value)}
               className="mb-4"
@@ -1645,7 +1645,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 s.klasse.toLowerCase().includes(studentSearchQuery.toLowerCase())
               ).length === 0 && (
                 <div className="px-4 py-8 text-center text-gray-500">
-                  Keine Schüler gefunden
+                  Keine Lernenden gefunden
                 </div>
               )}
             </div>
@@ -1670,7 +1670,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 <div className="space-y-4 mt-4">
                   <div className="bg-gray-50 p-4 rounded-lg space-y-2">
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Schüler:</span>
+                      <span className="text-gray-600">Lernende:</span>
                       <span className="font-medium">{assignmentInfoStudent.sus_vorn} {assignmentInfoStudent.sus_nachn}</span>
                     </div>
                     <div className="flex justify-between">
@@ -1686,7 +1686,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-600">iPads des Schülers:</span>
+                      <span className="text-gray-600">iPads der lernenden Person:</span>
                       <span className="font-medium">{assignmentInfoStudent.assignment_count || 1}</span>
                     </div>
                   </div>
@@ -2031,7 +2031,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
                 <p>iPad <strong>{ipadToRelease?.itnr}</strong> wird in den gemeinsamen Pool gelegt und ist dann für andere Nutzer übernehmbar.</p>
                 {ipadToRelease?.current_assignment_id && (
                   <p className="mt-2 text-amber-700 font-medium">
-                    ⚠️ Die aktive Zuordnung zum Schüler wird dabei automatisch aufgelöst.
+                    ⚠️ Die aktive Zuordnung zur lernenden Person wird dabei automatisch aufgelöst.
                   </p>
                 )}
               </div>

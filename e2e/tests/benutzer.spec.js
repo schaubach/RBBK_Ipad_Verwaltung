@@ -142,7 +142,10 @@ test('Lehrkraft sieht nur ihren Bildungsgang und keinen Admin-Bereich', async ({
   await expect(seite.getByRole('button', { name: 'Abmelden' })).toBeVisible();
   await expect(seite.getByText('ADMIN', { exact: true })).toHaveCount(0);
 
-  await expect(seite.getByRole('tab')).toHaveText(['Schüler', 'iPads', 'Verträge', 'Einstellungen']);
+  // innerText: Jeder Reiter trägt Lang- und Kurznamen, sichtbar ist je nach Breite nur einer.
+  await expect(seite.getByRole('tab')).toHaveText(['Lernende', 'iPads', 'Verträge', 'Einstellungen'], {
+    useInnerText: true,
+  });
   await expect(seite.getByRole('tab', { name: 'Admin' })).toHaveCount(0);
 
   await expect(seite.getByRole('row').filter({ hasText: eigener.sus_nachn })).toHaveCount(1);

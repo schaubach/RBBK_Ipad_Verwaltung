@@ -34,67 +34,75 @@ const Dashboard = ({ onLogout, userRole, currentUsername }) => {
   return (
     <BildungsgangAnsichtProvider username={currentUsername} isAdmin={isAdmin}>
     <div className="min-h-screen bg-gray-50">
+      {/* Auf schmalen Bildschirmen (Handy, iPad hochkant) bricht die Kopfzeile um, statt
+          über den Rand zu ragen - vorher war die ganze Seite breiter als das Display und
+          "Abmelden" abgeschnitten. */}
       <nav className="bg-ipad-dark-gray shadow-sm border-b border-ipad-beige">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-3 min-h-16">
+            <div className="flex items-center min-w-0">
               <div className="flex-shrink-0 flex items-center">
                 <div className="w-8 h-8 bg-gradient-to-br from-ipad-teal to-ipad-blue rounded-lg flex items-center justify-center">
                   <Tablet className="h-5 w-5 text-white" />
                 </div>
-                <span className="ml-3 text-xl font-bold bg-gradient-to-r from-ipad-teal to-ipad-blue bg-clip-text text-transparent">
+                <span className="ml-3 text-lg sm:text-xl font-bold bg-gradient-to-r from-ipad-teal to-ipad-blue bg-clip-text text-transparent whitespace-nowrap">
                   iPad-Verwaltung
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 text-white">
-                <User className="h-4 w-4" />
-                <span className="text-sm font-medium">{currentUsername}</span>
+            <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2 sm:gap-x-4 min-w-0">
+              <div className="flex items-center gap-2 text-white min-w-0">
+                <User className="h-4 w-4 flex-shrink-0" />
+                <span className="text-sm font-medium truncate">{currentUsername}</span>
                 {isAdmin && (
-                  <span className="ml-2 px-2 py-1 bg-gradient-to-r from-yellow-400 to-orange-500 text-white text-xs font-bold rounded-full">
+                  <span className="ml-1 px-2 py-1 bg-gradient-to-r from-yellow-400 to-orange-500 text-white text-xs font-bold rounded-full">
                     ADMIN
                   </span>
                 )}
               </div>
               {/* Die Ansicht ist ein Arbeitszusammenhang, kein Listenfilter: hier
-                  eingestellt, folgen Schüler, Geräte und Verträge gemeinsam. */}
+                  eingestellt, folgen Lernende, Geräte und Verträge gemeinsam. */}
               <BildungsgangUmschalter />
               <SessionTimer onLogout={onLogout} />
-              <Button variant="outline" onClick={onLogout} className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={onLogout}
+                className="flex items-center gap-2"
+                aria-label="Abmelden"
+                title="Abmelden"
+              >
                 <LogOut className="h-4 w-4" />
-                Abmelden
+                <span className="hidden sm:inline">Abmelden</span>
               </Button>
             </div>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto py-4 sm:py-8 px-3 sm:px-6 lg:px-8">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'} mb-8`}>
-            <TabsTrigger value="students" className="flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              Schüler
-            </TabsTrigger>
-            <TabsTrigger value="ipads" className="flex items-center gap-2">
-              <Tablet className="h-4 w-4" />
-              iPads
-            </TabsTrigger>
-            <TabsTrigger value="contracts" className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Verträge
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="flex items-center gap-2">
-              <SettingsIcon className="h-4 w-4" />
-              Einstellungen
-            </TabsTrigger>
-            {isAdmin && (
-              <TabsTrigger value="users" className="flex items-center gap-2 bg-gradient-to-r from-yellow-400/10 to-orange-500/10">
-                <ShieldCheck className="h-4 w-4" />
-                Admin
+          <TabsList className={`grid w-full h-auto ${isAdmin ? 'grid-cols-5' : 'grid-cols-4'} mb-6 sm:mb-8`}>
+            {[
+              { value: 'students', icon: Users, lang: 'Lernende', kurz: 'Lernende' },
+              { value: 'ipads', icon: Tablet, lang: 'iPads', kurz: 'iPads' },
+              { value: 'contracts', icon: FileText, lang: 'Verträge', kurz: 'Verträge' },
+              { value: 'settings', icon: SettingsIcon, lang: 'Einstellungen', kurz: 'Einst.' },
+              ...(isAdmin ? [{ value: 'users', icon: ShieldCheck, lang: 'Admin', kurz: 'Admin', admin: true }] : []),
+            ].map(({ value, icon: Icon, lang, kurz, admin }) => (
+              <TabsTrigger
+                key={value}
+                value={value}
+                aria-label={lang}
+                title={lang}
+                className={`flex flex-col sm:flex-row items-center gap-0.5 sm:gap-2 px-1 sm:px-3 py-1.5 text-[11px] sm:text-sm min-w-0 ${
+                  admin ? 'bg-gradient-to-r from-yellow-400/10 to-orange-500/10' : ''
+                }`}
+              >
+                <Icon className="h-4 w-4 flex-shrink-0" />
+                <span className="sm:hidden truncate max-w-full">{kurz}</span>
+                <span className="hidden sm:inline">{lang}</span>
               </TabsTrigger>
-            )}
+            ))}
           </TabsList>
 
           <TabsContent value="students">

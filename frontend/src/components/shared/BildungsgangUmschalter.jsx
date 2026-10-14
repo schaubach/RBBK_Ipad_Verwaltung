@@ -22,8 +22,8 @@ export function BildungsgangUmschalter() {
   const eingeengt = Boolean(ansichtBildungsgang);
 
   return (
-    <div className="flex items-center gap-2 text-white">
-      <Layers className="h-4 w-4" aria-hidden="true" />
+    <div className="flex items-center gap-2 text-white min-w-0 max-w-full">
+      <Layers className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
       <label htmlFor="bildungsgang-umschalter" className="text-sm whitespace-nowrap">
         Ansicht
       </label>
@@ -32,7 +32,7 @@ export function BildungsgangUmschalter() {
         data-testid="bildungsgang-umschalter"
         value={ansichtBildungsgang}
         onChange={(e) => setAnsichtBildungsgang(e.target.value)}
-        className={`rounded-md border bg-white px-2 py-1 text-sm text-ipad-dark-gray ${
+        className={`min-w-0 max-w-[60vw] sm:max-w-xs truncate rounded-md border bg-white px-2 py-1 text-sm text-ipad-dark-gray ${
           eingeengt ? 'border-amber-400 ring-2 ring-amber-400 font-semibold' : 'border-white/30'
         }`}
       >

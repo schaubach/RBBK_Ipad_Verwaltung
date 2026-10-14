@@ -20,7 +20,7 @@ Produktions-Build des Frontends). Je Bereich eine Datei unter `e2e/tests/`:
 |---|---|
 | `smoke.spec.js` | Backend gesund, Login-Seite, alle Bereiche öffnen ohne Konsolenfehler, Abmelden |
 | `ablauf.spec.js` | Kernablauf über die Oberfläche: Schüler → iPad → Zuordnung → Vertrag |
-| `schueler.spec.js` | Detailansicht, Bearbeiten, Zuordnung lösen, Löschen (iPad wird frei) |
+| `lernende.spec.js` | Detailansicht, Bearbeiten, Zuordnung lösen, Löschen (iPad wird frei) |
 | `ipads.spec.js` | Bearbeiten, Status „defekt“, Zuordnung lösen, Löschen, Pool hin und zurück |
 | `vertraege.spec.js` | Hochladen (automatisch / von Hand zugeordnet), Herunterladen, Löschen, Warnung beim Erstellen |
 | `import-export.spec.js` | Import-Vorlage, Excel-Import, Datensicherung, Schüler- und iPad-Export mit Spaltenwahl |

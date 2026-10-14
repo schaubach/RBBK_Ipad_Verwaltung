@@ -63,8 +63,11 @@ const SessionTimer = ({ onLogout }) => {
   };
 
   return (
-    <div className={`text-sm px-3 py-1 rounded ${timeLeft < 5 * 60 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'}`}>
-      Session: {formatTime(timeLeft)}
+    <div
+      className={`text-sm px-2 sm:px-3 py-1 rounded whitespace-nowrap ${timeLeft < 5 * 60 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-600'}`}
+      title="Verbleibende Zeit bis zur automatischen Abmeldung"
+    >
+      <span className="hidden sm:inline">Session: </span>{formatTime(timeLeft)}
     </div>
   );
 };
