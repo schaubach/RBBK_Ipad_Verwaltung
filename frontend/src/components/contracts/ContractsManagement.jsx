@@ -1064,7 +1064,7 @@ const ContractsManagement = () => {
       )}
 
       {/* iPad Detail Viewer. isAdmin muss mit: ohne die Prop greift der Default false, und
-          dann fehlen einem Admin genau hier "Übernehmen" und "In Pool freigeben" - dasselbe
+          dann fehlt einem Admin genau hier "In Pool freigeben" - dasselbe
           Gerät, über die Verträge geöffnet, böte weniger an als über die iPad-Liste. */}
       {selectedIPadId && (
         <IPadDetailViewer

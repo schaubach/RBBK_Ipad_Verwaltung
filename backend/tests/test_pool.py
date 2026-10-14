@@ -139,76 +139,28 @@ async def test_poolgeraet_taucht_in_keinem_bestand_auf(welt, client):
     assert [i["itnr"] for i in (await client.get("/api/ipads", headers=admin)).json()] == ["IT901"]
 
 
-# --- Claim: aus dem Pool in einen Bildungsgang ----------------------------------------
+# --- Aus dem Pool nur über "BG zuordnen" ---------------------------------------------
 
 
-async def test_claim_holt_das_geraet_in_den_bildungsgang(welt, client):
-    """Nach der Übernahme sieht die zuständige Lehrkraft das Gerät - vorher nicht."""
-    await poolgeraet(welt, "g1")
-    admin = await anmelden(client, "admin")
-    lehrkraft = await anmelden(client, "schaubach")
-
-    assert (await client.get("/api/ipads", headers=lehrkraft)).json() == []
-
-    antwort = await client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_meda"}, headers=admin)
-    assert antwort.status_code == 200, antwort.text
-
-    bestand = (await client.get("/api/ipads", headers=lehrkraft)).json()
-    assert [i["id"] for i in bestand] == ["g1"]
-    assert bestand[0]["is_in_pool"] is False
-    assert bestand[0]["bildungsgang_id"] == "bg_meda"
-
-
-async def test_claim_ohne_zustaendigkeit_verlangt_eine_auswahl(welt, client):
-    """Das admin-Konto betreut selbst keinen Bildungsgang - es darf nichts geraten werden.
-
-    Genau diese stille Vorauswahl hat in der Altanwendung den gesamten Bestand am
-    admin-Konto angehäuft.
-    """
+async def test_uebernehmen_ohne_bildungsgang_und_uebergabe_gibt_es_nicht_mehr(welt, client):
+    """Früher holte "Übernehmen" ein Pool-Gerät in den Bildungsgang des Admins - ohne ihn zu
+    fragen und ohne festzuhalten, wer das Gerät bekommt. Bei einem Admin ohne Zuständigkeit
+    scheiterte es nur noch. Der einzige Weg ist jetzt die Zuweisung mit Bildungsgang und
+    Übergabe (assign-to-bildungsgang)."""
     await poolgeraet(welt, "g1")
     kopf = await anmelden(client, "admin")
 
-    antwort = await client.post("/api/ipads/g1/claim", json={}, headers=kopf)
-    assert antwort.status_code == 400
-    assert "auswählen" in antwort.json()["detail"].lower()
+    einzeln = await client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_meda"}, headers=kopf)
+    sammel = await client.post(
+        "/api/ipads/bulk-claim", json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda"}, headers=kopf
+    )
+    assert einzeln.status_code in (404, 405)
+    assert sammel.status_code in (404, 405)
     assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is True
 
 
-async def test_claim_nutzt_die_einzige_zustaendigkeit_ohne_rueckfrage(welt, client):
-    """Wer genau einen Bildungsgang betreut, muss ihn nicht jedes Mal angeben."""
-    await poolgeraet(welt, "g1")
-    kopf = await anmelden(client, "wieners")
-
-    antwort = await client.post("/api/ipads/g1/claim", headers=kopf)
-    assert antwort.status_code == 200, antwort.text
-    assert (await welt.ipads.find_one({"id": "g1"}))["bildungsgang_id"] == "bg_lehrkräfte"
-
-
-async def test_claim_in_unbekannten_bildungsgang_wird_abgelehnt(welt, client):
-    await poolgeraet(welt, "g1")
-    kopf = await anmelden(client, "admin")
-
-    antwort = await client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_gibtsnicht"}, headers=kopf)
-    assert antwort.status_code == 400
-    assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is True
-
-
-async def test_claim_auf_bereits_uebernommenes_geraet_scheitert(welt, client):
-    """Der zweite Zugriff darf den ersten nicht überschreiben, sonst wandert ein bereits
-    ausgegebenes Gerät unbemerkt in einen anderen Bestand."""
-    await poolgeraet(welt, "g1")
-    admin = await anmelden(client, "admin")
-
-    erster = await client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_meda"}, headers=admin)
-    assert erster.status_code == 200, erster.text
-
-    zweiter = await client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_gym"}, headers=admin)
-    assert zweiter.status_code == 409
-    assert (await welt.ipads.find_one({"id": "g1"}))["bildungsgang_id"] == "bg_meda"
-
-
-async def test_zwei_gleichzeitige_claims_koennen_nicht_beide_gewinnen(welt, client):
-    """Zwei Personen greifen im selben Moment nach demselben Gerät: genau eine bekommt es.
+async def test_zwei_gleichzeitige_zuweisungen_koennen_nicht_beide_gewinnen(welt, client):
+    """Zwei Admins weisen im selben Moment dasselbe Gerät zu: genau einer bekommt es.
 
     Gingen beide durch, läge dasselbe Gerät in zwei Beständen und würde zweimal ausgegeben.
     """
@@ -216,72 +168,35 @@ async def test_zwei_gleichzeitige_claims_koennen_nicht_beide_gewinnen(welt, clie
     einer = await anmelden(client, "admin")
     andere = await anmelden(client, "wieners")
 
-    a, b = await asyncio.gather(
-        client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_meda"}, headers=einer),
-        client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_gym"}, headers=andere),
-    )
-    assert sorted([a.status_code, b.status_code]) == [200, 409]
+    def zuweisung(bildungsgang_id):
+        return {"ipad_ids": ["g1"], "bildungsgang_id": bildungsgang_id, "uebergeben_an_user_id": "u_bakenecker"}
 
-    gewinner = "bg_meda" if a.status_code == 200 else "bg_gym"
+    a, b = await asyncio.gather(
+        client.post("/api/admin/ipads/assign-to-bildungsgang", json=zuweisung("bg_meda"), headers=einer),
+        client.post("/api/admin/ipads/assign-to-bildungsgang", json=zuweisung("bg_gym"), headers=andere),
+    )
+    assert a.status_code == b.status_code == 200, (a.text, b.text)
+    assert sorted([a.json()["success_count"], b.json()["success_count"]]) == [0, 1]
+
+    gewinner = "bg_meda" if a.json()["success_count"] == 1 else "bg_gym"
     gespeichert = await welt.ipads.find_one({"id": "g1"})
     assert gespeichert["bildungsgang_id"] == gewinner
     assert gespeichert["is_in_pool"] is False
 
 
-async def test_claim_auf_unbekanntes_geraet_meldet_404(welt, client):
-    kopf = await anmelden(client, "admin")
-    antwort = await client.post("/api/ipads/gibtsnicht/claim", json={"bildungsgang_id": "bg_meda"}, headers=kopf)
-    assert antwort.status_code == 404
-
-
-async def test_lehrkraft_darf_nicht_aus_dem_pool_holen(welt, client):
-    """Der Pool wird zentral verwaltet - sonst bedient sich jeder selbst."""
+async def test_uebergabe_an_einen_admin_ist_erlaubt(welt, client):
+    """Auch ein Admin nimmt Geräte entgegen - etwa, um sie selbst zu verteilen."""
     await poolgeraet(welt, "g1")
-    kopf = await anmelden(client, "schaubach")
-
-    antwort = await client.post("/api/ipads/g1/claim", json={"bildungsgang_id": "bg_meda"}, headers=kopf)
-    assert antwort.status_code == 403
-    assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is True
-
-
-# --- Bulk-Claim -----------------------------------------------------------------------
-
-
-async def test_bulk_claim_holt_nur_was_noch_im_pool_liegt(welt, client):
-    """Ein fremdes Gerät in der Liste darf den Durchlauf nicht abbrechen und nicht wandern."""
-    await poolgeraet(welt, "g1")
-    await poolgeraet(welt, "g2")
-    await geraet(welt, "fremd", "bg_gym")
     kopf = await anmelden(client, "admin")
 
     antwort = await client.post(
-        "/api/ipads/bulk-claim",
-        json={"ipad_ids": ["g1", "g2", "fremd"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
+        "/api/admin/ipads/assign-to-bildungsgang",
+        json={"ipad_ids": ["g1"], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_admin"},
         headers=kopf,
     )
     assert antwort.status_code == 200, antwort.text
-    assert antwort.json()["success_count"] == 2
-    assert antwort.json()["failed_count"] == 1
-    assert (await welt.ipads.find_one({"id": "fremd"}))["bildungsgang_id"] == "bg_gym"
-
-
-async def test_bulk_claim_ohne_auswahl_wird_abgelehnt(welt, client):
-    kopf = await anmelden(client, "admin")
-    antwort = await client.post(
-        "/api/ipads/bulk-claim",
-        json={"ipad_ids": [], "bildungsgang_id": "bg_meda", "uebergeben_an_user_id": "u_bakenecker"},
-        headers=kopf,
-    )
-    assert antwort.status_code == 400
-
-
-async def test_bulk_claim_ohne_zustaendigkeit_verlangt_eine_auswahl(welt, client):
-    await poolgeraet(welt, "g1")
-    kopf = await anmelden(client, "admin")
-
-    antwort = await client.post("/api/ipads/bulk-claim", json={"ipad_ids": ["g1"]}, headers=kopf)
-    assert antwort.status_code == 400
-    assert (await welt.ipads.find_one({"id": "g1"}))["is_in_pool"] is True
+    assert antwort.json()["uebergeben_an"] == "admin"
+    assert (await welt.ipads.find_one({"id": "g1"}))["bildungsgang_id"] == "bg_meda"
 
 
 # --- Freigabe in den Pool -------------------------------------------------------------

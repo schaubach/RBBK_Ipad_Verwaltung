@@ -1,6 +1,7 @@
 // iPads: Bearbeiten, Status, Zuordnung lösen, Löschen, Pool.
 const { test, expect } = require('@playwright/test');
 const {
+  BILDUNGSGANG,
   start,
   oeffneTab,
   toast,
@@ -8,6 +9,8 @@ const {
   neuerSchueler,
   neuesIPad,
   zuordnen,
+  neuerBenutzer,
+  bildungsgangNamens,
   api,
 } = require('./helpers');
 
@@ -105,8 +108,13 @@ test('iPad löschen', async ({ page, request }) => {
   expect(await ipadAusApi(request, ipad)).toBeUndefined();
 });
 
-test('iPad in den Pool freigeben und wieder übernehmen', async ({ page, request }) => {
+test('iPad in den Pool freigeben und per "BG zuordnen" wieder ausgeben', async ({ page, request }) => {
   const ipad = await neuesIPad(request);
+  const bg = await bildungsgangNamens(request, BILDUNGSGANG);
+  const ich = await api(request).get('/auth/me');
+  const lehrkraft = await neuerBenutzer(request);
+  const ausgeschieden = await neuerBenutzer(request);
+  await api(request).put(`/admin/users/${ausgeschieden.id}`, { is_active: false });
   await neuLaden(page);
   await filtere(page, ipad);
 
@@ -117,10 +125,22 @@ test('iPad in den Pool freigeben und wieder übernehmen', async ({ page, request
   await expect(zeile(page, ipad).getByTitle('Im gemeinsamen Pool')).toBeVisible();
   expect((await ipadAusApi(request, ipad)).bildungsgang_id ?? null).toBeNull();
 
-  await page.getByTestId(`claim-btn-${ipad.id}`).click();
-  await expect(toast(page, `iPad ${ipad.itnr} übernommen`)).toBeVisible();
+  // Aus dem Pool geht es nur noch mit Bildungsgang UND Übergabe - "Übernehmen" gibt es nicht mehr.
+  await expect(zeile(page, ipad).getByRole('button', { name: /Übernehmen/ })).toHaveCount(0);
+  await zeile(page, ipad).getByRole('button', { name: 'BG zuordnen' }).click();
+  const zuordnen = page.getByTestId('assign-to-user-dialog');
+  await zuordnen.getByTestId(`assign-bildungsgang-row-${bg.id}`).click();
+
+  // Empfänger: aktive Konten, Admins eingeschlossen - ausgeschiedene nicht.
+  await expect(zuordnen.getByTestId(`zuweisung-empfaenger-row-${ich.id}`)).toBeVisible();
+  await expect(zuordnen.getByTestId(`zuweisung-empfaenger-row-${lehrkraft.id}`)).toBeVisible();
+  await expect(zuordnen.getByTestId(`zuweisung-empfaenger-row-${ausgeschieden.id}`)).toHaveCount(0);
+  await zuordnen.getByTestId(`zuweisung-empfaenger-row-${ich.id}`).click();
+  await zuordnen.getByRole('button', { name: 'Zuweisen und Übergabe festhalten' }).click();
+
+  await expect(toast(page, `1 iPad(s) an ${BILDUNGSGANG} zugewiesen, übergeben an ${ich.username}`)).toBeVisible();
   await expect(page.getByTestId(`release-btn-${ipad.id}`)).toBeVisible();
-  expect((await ipadAusApi(request, ipad)).bildungsgang_id).toBeTruthy();
+  expect((await ipadAusApi(request, ipad)).bildungsgang_id).toBe(bg.id);
 });
 
 test('Detailansicht zeigt ein Pool-iPad nach dem Speichern weiter als Pool-iPad', async ({ page, request }) => {
@@ -131,10 +151,12 @@ test('Detailansicht zeigt ein Pool-iPad nach dem Speichern weiter als Pool-iPad'
 
   await zeile(page, ipad).getByRole('button', { name: ipad.itnr, exact: true }).click();
   const ansicht = detailansicht(page, ipad);
-  await expect(ansicht.getByTestId('detail-claim-btn')).toBeVisible();
+  await expect(ansicht.getByText('🌐 Im Pool')).toBeVisible();
+  await expect(ansicht.getByTestId('detail-release-btn')).toHaveCount(0);
   await ansicht.getByTestId('edit-ipad-btn').click();
   await ansicht.getByTestId('ipad-karton-input').fill('K-7');
   await ansicht.getByRole('button', { name: 'Speichern', exact: true }).click();
   await expect(toast(page, 'iPad erfolgreich aktualisiert')).toBeVisible();
-  await expect(ansicht.getByTestId('detail-claim-btn')).toBeVisible({ timeout: 2_000 });
+  await expect(ansicht.getByText('🌐 Im Pool')).toBeVisible();
+  await expect(ansicht.getByTestId('detail-release-btn')).toHaveCount(0);
 });

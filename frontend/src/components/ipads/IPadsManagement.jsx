@@ -219,40 +219,6 @@ const IPadsManagement = ({ isAdmin = false }) => {
     }
   };
 
-  // Pool: claim single iPad
-  const handleClaimIPad = async (ipadId, itnr) => {
-    try {
-      await api.post(`/ipads/${ipadId}/claim`);
-      toast.success(`iPad ${itnr} übernommen`);
-      loadIPads();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler beim Übernehmen');
-    }
-  };
-
-  // Pool: claim multiple iPads (bulk)
-  const [bulkClaiming, setBulkClaiming] = useState(false);
-  const handleBulkClaim = async () => {
-    const poolIds = selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool);
-    if (poolIds.length === 0) {
-      toast.error('Keine Pool-iPads ausgewählt');
-      return;
-    }
-    setBulkClaiming(true);
-    try {
-      const response = await api.post('/ipads/bulk-claim', { ipad_ids: poolIds });
-      const { success_count, failed_count } = response.data;
-      if (success_count > 0) toast.success(`${success_count} iPad(s) übernommen`);
-      if (failed_count > 0) toast.warning(`${failed_count} iPad(s) konnten nicht übernommen werden (evtl. schon weg)`);
-      setSelectedIPads([]);
-      loadIPads();
-    } catch (error) {
-      toast.error('Fehler beim Bulk-Übernehmen');
-    } finally {
-      setBulkClaiming(false);
-    }
-  };
-
   // Admin: Open user assignment dialog
   const openAssignToUserDialog = async (ipadIds) => {
     if (!isAdmin) return;
@@ -266,7 +232,8 @@ const IPadsManagement = ({ isAdmin = false }) => {
     if (allUsers.length === 0) {
       try {
         const res = await api.get('/admin/users');
-        setAllUsers(res.data.filter(u => u.role !== 'admin'));
+        // Auch Admins nehmen Geräte entgegen; ausgeschiedene (deaktivierte) Konten nicht.
+        setAllUsers(res.data.filter(u => u.is_active));
       } catch {
         toast.error('Benutzerliste konnte nicht geladen werden');
       }
@@ -310,7 +277,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
     if (batchImportAllUsers.length === 0) {
       try {
         const res = await api.get('/admin/users');
-        setBatchImportAllUsers(res.data);
+        setBatchImportAllUsers(res.data.filter(u => u.is_active));
       } catch {
         toast.error('Benutzerliste konnte nicht geladen werden');
       }
@@ -1186,21 +1153,11 @@ const IPadsManagement = ({ isAdmin = false }) => {
             <div className="mb-4 flex flex-wrap gap-2">
               {isAdmin && selectedIPads.some(id => ipads.find(i => i.id === id)?.is_in_pool) && (
                 <Button
-                  onClick={handleBulkClaim}
-                  disabled={bulkClaiming}
-                  className="bg-violet-600 hover:bg-violet-700"
-                  data-testid="bulk-claim-btn"
-                >
-                  {bulkClaiming ? 'Übernehme...' : `${selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) übernehmen`}
-                </Button>
-              )}
-              {isAdmin && selectedIPads.some(id => ipads.find(i => i.id === id)?.is_in_pool) && (
-                <Button
                   variant="outline"
                   onClick={() => openAssignToUserDialog(selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool))}
                   data-testid="bulk-assign-to-user-btn"
                 >
-                  👤 {selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) an Bildungsgang zuweisen
+                  🏫 {selectedIPads.filter(id => ipads.find(i => i.id === id)?.is_in_pool).length} Pool-iPad(s) BG zuordnen
                 </Button>
               )}
               {selectedIPads.some(id => !ipads.find(i => i.id === id)?.current_assignment_id) && (
@@ -1421,26 +1378,15 @@ const IPadsManagement = ({ isAdmin = false }) => {
                             </Button>
                           )}
                           {isAdmin && ipad.is_in_pool ? (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleClaimIPad(ipad.id, ipad.itnr)}
-                                title="iPad aus Pool übernehmen"
-                                data-testid={`claim-btn-${ipad.id}`}
-                              >
-                                📥 Übernehmen
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openAssignToUserDialog([ipad.id])}
-                                title="An Bildungsgang zuweisen und an eine Person übergeben"
-                                data-testid={`assign-to-user-btn-${ipad.id}`}
-                              >
-                                👤 An Bildungsgang
-                              </Button>
-                            </>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openAssignToUserDialog([ipad.id])}
+                              title="Einem Bildungsgang zuordnen und an eine Person übergeben"
+                              data-testid={`assign-to-user-btn-${ipad.id}`}
+                            >
+                              🏫 BG zuordnen
+                            </Button>
                           ) : isAdmin && !ipad.is_in_pool ? (
                             <Button
                               variant="outline"

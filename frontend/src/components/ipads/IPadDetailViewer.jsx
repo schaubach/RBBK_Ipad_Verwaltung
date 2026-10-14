@@ -96,17 +96,6 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
   };
 
   // Pool actions
-  const handleClaim = async () => {
-    try {
-      await api.post(`/ipads/${ipadId}/claim`);
-      toast.success(`iPad ${ipad.itnr} übernommen`);
-      if (onUpdate) onUpdate();
-      onClose();
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Fehler beim Übernehmen');
-    }
-  };
-
   const handleRelease = async () => {
     if (ipad.current_assignment_id) {
       if (!window.confirm(`iPad ${ipad.itnr} ist einem Schüler zugeordnet. Die Zuordnung wird automatisch aufgelöst. Fortfahren?`)) {
@@ -142,15 +131,6 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
               )}
             </h2>
             <div className="flex gap-2 flex-wrap">
-              {!editMode && isAdmin && ipad.is_in_pool && (
-                <Button
-                  onClick={handleClaim}
-                  className="bg-violet-600 hover:bg-violet-700 text-white"
-                  data-testid="detail-claim-btn"
-                >
-                  📥 Übernehmen
-                </Button>
-              )}
               {!editMode && isAdmin && !ipad.is_in_pool && (
                 <Button
                   onClick={handleRelease}

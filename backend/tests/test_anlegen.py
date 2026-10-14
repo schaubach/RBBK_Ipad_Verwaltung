@@ -348,34 +348,3 @@ async def test_angelegt_von_vergibt_keine_rechte(welt, client):
     kopf_lehrkraft = await anmelden(client, "bakenecker")
     sichtbar = await client.get("/api/students", headers=kopf_lehrkraft)
     assert [s["id"] for s in sichtbar.json()] == [angelegt.json()["id"]]
-
-
-# --- Holen aus dem Pool folgt derselben Regel ------------------------------------------
-
-
-async def test_adminkonto_muss_beim_holen_aus_dem_pool_waehlen(welt, client):
-    """Auch hier entsteht eine Zuordnung - und auch hier darf sie nicht geraten werden."""
-    await poolgeraet(welt, "p1")
-    kopf = await anmelden(client, "admin")
-    antwort = await client.post("/api/ipads/p1/claim", headers=kopf)
-    assert antwort.status_code == 400
-    assert (await welt.ipads.find_one({"id": "p1"}))["is_in_pool"] is True
-
-
-async def test_geholtes_geraet_landet_im_bildungsgang_nicht_beim_konto(welt, client):
-    """Nach dem Holen gehört das Gerät dem Bildungsgang. user_id bleibt, was es war."""
-    await poolgeraet(welt, "p1")
-    kopf = await anmelden(client, "wieners")
-    antwort = await client.post("/api/ipads/p1/claim", headers=kopf)
-    assert antwort.status_code == 200, antwort.text
-
-    danach = await welt.ipads.find_one({"id": "p1"})
-    assert danach["bildungsgang_id"] == "bg_lehrkräfte"
-    assert danach["is_in_pool"] is False
-    assert danach["user_id"] == "u_admin", "Das Holen darf das Angelegt-von nicht umschreiben"
-
-
-async def test_leere_auswahl_beim_sammelholen_wird_abgelehnt(welt, client):
-    kopf = await anmelden(client, "wieners")
-    antwort = await client.post("/api/ipads/bulk-claim", json={"ipad_ids": []}, headers=kopf)
-    assert antwort.status_code == 400

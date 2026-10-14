@@ -52,8 +52,10 @@ async def _claim_pool_ipad_for_bildungsgang(
 
     Only succeeds if the iPad is still in the pool (guards against a double-claim
     race). Returns the pre-update document on success, or None if it was no longer
-    available. `action` unterscheidet Selbstabholung ("claimed") von einer durch einen
-    Admin veranlassten Zuweisung ("assigned_by_admin").
+    available. `action` steht in der pool_history; hier ist es "assigned_by_admin" ("BG
+    zuordnen" und Batch-Datei). "claimed" schreibt nur noch die Zuordnung eines Pool-Geraets an
+    einen Schueler (routes/assignments.py) - und aeltere Eintraege aus der frueheren Uebernahme
+    ohne Uebergabe, die es nicht mehr gibt.
 
     user_id bleibt unberuehrt: es sagt, wer das Geraet angelegt hat, nicht wem es gehoert.
     Wer die Uebernahme ausgeloest hat, steht in der pool_history.
@@ -246,30 +248,6 @@ async def get_ipads(
     ipad_filter = mit_ansicht(ipad_filter, bildungsgang_id)
     ipads = await db.ipads.find(ipad_filter).to_list(length=None)
     return [iPad(**parse_from_mongo(ipad)) for ipad in ipads]
-
-
-@api_router.post("/ipads/{ipad_id}/claim")
-@limiter.limit("60/minute")
-async def claim_ipad_from_pool(
-    ipad_id: str, request: Request, payload: Optional[dict] = None, current_user: dict = Depends(require_admin_user)
-):
-    """Geraet aus dem Pool in den eigenen Bildungsgang holen (atomar). Nur Admin."""
-    bildungsgang_id = await resolve_bildungsgang(current_user, (payload or {}).get("bildungsgang_id"))
-    result = await _claim_pool_ipad_for_bildungsgang(ipad_id, bildungsgang_id, "claimed", current_user["id"])
-
-    if not result:
-        # Either iPad doesn't exist or was already claimed by someone else
-        existing = await db.ipads.find_one({"id": ipad_id})
-        if not existing:
-            raise HTTPException(status_code=404, detail="iPad nicht gefunden")
-        raise HTTPException(status_code=409, detail="iPad ist nicht (mehr) im Pool verfügbar")
-
-    return {"message": f"iPad {result.get('itnr')} erfolgreich übernommen", "itnr": result.get("itnr")}
-
-
-class BulkClaimRequest(BaseModel):
-    ipad_ids: List[str]
-    bildungsgang_id: Optional[str] = None  # noetig, wer fuer mehrere zustaendig ist
 
 
 class AdminAssignToBildungsgangRequest(BaseModel):
@@ -963,29 +941,6 @@ async def download_batch_assign_template(current_user: dict = Depends(require_ad
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename=batch_zuordnung_vorlage.xlsx"},
     )
-
-
-@api_router.post("/ipads/bulk-claim")
-@limiter.limit("30/minute")
-async def bulk_claim_ipads(
-    payload: BulkClaimRequest, request: Request, current_user: dict = Depends(require_admin_user)
-):
-    """Claim multiple iPads from the pool. Reports success and failure counts. Admin-only."""
-    if not payload.ipad_ids:
-        raise HTTPException(status_code=400, detail="Keine iPads ausgewählt")
-
-    success = []
-    failed = []
-
-    bildungsgang_id = await resolve_bildungsgang(current_user, payload.bildungsgang_id)
-    for ipad_id in payload.ipad_ids:
-        result = await _claim_pool_ipad_for_bildungsgang(ipad_id, bildungsgang_id, "claimed", current_user["id"])
-        if result:
-            success.append(result.get("itnr"))
-        else:
-            failed.append(ipad_id)
-
-    return {"success_count": len(success), "failed_count": len(failed), "claimed_itnrs": success}
 
 
 @api_router.post("/ipads/{ipad_id}/release-to-pool")
