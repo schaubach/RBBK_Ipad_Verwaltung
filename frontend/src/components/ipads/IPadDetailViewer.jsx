@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Tablet, FileText, Download, X, User, Pencil, Save, XCircle } from 'lucide-react';
 
 import { downloadBlob } from '../../utils/download';
+import JamfPanel from './JamfPanel';
 const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
   const [ipadData, setIPadData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -285,6 +286,9 @@ const IPadDetailViewer = ({ ipadId, onClose, onUpdate, isAdmin = false }) => {
               )}
             </CardContent>
           </Card>
+
+          {/* Jamf Pro - erscheint nur mit hinterlegtem Jamf-Login */}
+          {!editMode && <JamfPanel ipadId={ipadId} />}
 
           {/* Current Assignment */}
           {current_assignment && (

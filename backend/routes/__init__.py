@@ -17,6 +17,7 @@ from routes import (  # noqa: F401
     data_protection,
     imports_exports,
     ipads,
+    jamf,
     settings,
     students,
 )

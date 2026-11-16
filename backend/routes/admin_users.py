@@ -15,6 +15,7 @@ from core.config import (
     db,
     limiter,
 )
+from core.jamf import zugang_entfernen
 from core.mongo import prepare_for_mongo
 from core.router import api_router
 from core.security import (
@@ -200,6 +201,8 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
     await db.users.update_one(
         {"id": user_id}, {"$set": {"is_active": False, "updated_at": datetime.now(UTC).isoformat()}}
     )
+    # Wer geht, nimmt seinen Jamf-Zugang mit: kein gespeichertes Passwort ohne Besitzer.
+    await zugang_entfernen(user_id)
 
     # Count user's resources
     ipads_count = await db.ipads.count_documents({"user_id": user_id})
@@ -251,6 +254,7 @@ async def delete_user_complete(user_id: str, current_user: dict = Depends(get_cu
     beendet = await db.zustaendigkeiten.update_many({"user_id": user_id, "bis": None}, {"$set": {"bis": jetzt}})
 
     await db.users.delete_one({"id": user_id})
+    await zugang_entfernen(user_id)
 
     return {
         "message": f"Benutzerkonto '{target_user['username']}' wurde gelöscht.",

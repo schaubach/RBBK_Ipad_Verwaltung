@@ -9,6 +9,7 @@ import { Upload, Download, User } from 'lucide-react';
 import { downloadBlob, filenameFromContentDisposition } from '../../utils/download';
 import { BildungsgangSelect } from '../shared/BildungsgangSelect';
 import { useBildungsgaenge } from '../../hooks/useBildungsgaenge';
+import JamfSettings from './JamfSettings';
 
 const Settings = ({ isAdmin = false, username }) => {
   const [exporting, setExporting] = useState(false);
@@ -410,6 +411,8 @@ const Settings = ({ isAdmin = false, username }) => {
           </div>
         </CardContent>
       </Card>
+
+      <JamfSettings isAdmin={isAdmin} />
     </div>
   );
 };
