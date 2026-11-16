@@ -97,7 +97,9 @@ jobs:
         run: yarn build
 
   e2e:
-    runs-on: ubuntu-latest
+    # Fest auf 24.04: ubuntu-latest ist inzwischen 26.04, dafür hat Playwright 1.55 keine
+    # Browser-Abhängigkeiten ("Playwright does not support chromium on ubuntu26.04-x64").
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: e2e
