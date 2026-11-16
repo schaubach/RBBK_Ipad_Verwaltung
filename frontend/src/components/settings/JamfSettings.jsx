@@ -92,8 +92,8 @@ const JamfSettings = ({ isAdmin = false }) => {
           Jamf Pro
         </CardTitle>
         <CardDescription>
-          Mit Ihrem Jamf-Login können Sie iPads direkt aus der Detailansicht sperren, in den
-          Verloren-Modus versetzen und mehr.
+          Mit Ihrem Jamf-Login zeigt die Detailansicht eines iPads seinen Stand in Jamf: Akku,
+          iOS-Version, Aktivierungssperre, Verloren-Modus und mehr.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -118,20 +118,7 @@ const JamfSettings = ({ isAdmin = false }) => {
             <div className="space-y-3">
               {zugang.verknuepft && !zugang.gesperrt && (
                 <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded p-3">
-                  Verbunden als <strong>{zugang.benutzername}</strong>.{' '}
-                  {zugang.befehle.length > 0
-                    ? `Erlaubt: ${zugang.befehle.map((b) => b.titel).join(', ')}.`
-                    : 'Ihr Jamf-Konto darf keinen der angebotenen Befehle senden.'}
-                </div>
-              )}
-              {zugang.verknuepft && !zugang.gesperrt && zugang.fehlende_rechte?.length > 0 && (
-                <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-3">
-                  Einige Befehle nimmt Jamf über die Schnittstelle erst an, wenn Ihr Jamf-Konto zusätzlich
-                  diese Rechte hat:
-                  <ul className="list-disc ml-5 my-1">
-                    {zugang.fehlende_rechte.map((r) => <li key={r}><strong>{r}</strong></li>)}
-                  </ul>
-                  Das vergibt die Jamf-Verwaltung (Systemhaus). Danach hier „Login aktualisieren“.
+                  Verbunden als <strong>{zugang.benutzername}</strong>.
                 </div>
               )}
               {zugang.gesperrt && (

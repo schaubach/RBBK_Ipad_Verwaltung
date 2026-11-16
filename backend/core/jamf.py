@@ -1,8 +1,13 @@
-"""Anbindung an Jamf Pro: Anmeldung, Geräteabfrage und MDM-Befehle.
+"""Anbindung an Jamf Pro: Anmeldung und Gerätestatus (nur lesend).
 
 Jede Person hinterlegt ihren EIGENEN Jamf-Login. Jamf prüft also selbst, was sie darf und
 welche Geräte sie sieht (Site-Beschränkung) - die App fügt nur ihre eigene Grenze hinzu:
-Befehle gehen ausschließlich an iPads, auf die die Person auch in der App Zugriff hat.
+Status gibt es ausschließlich für iPads, auf die die Person auch in der App Zugriff hat.
+
+MDM-Befehle (Sperren, Verloren-Modus, Neustart ...) bietet die App nicht an: Jamf nimmt sie
+über die API nur mit "View MDM command information in Jamf Pro API" an (Jamf Pro API) bzw.
+mit einem Classic-API-Recht, das Site-Konten der Schule nicht haben. Der Code dafür steht in
+der Git-Geschichte (Branch feature/jamf-anbindung, Commit afff881), falls sich das ändert.
 
 Das Passwort liegt verpackt (core.crypto.wrap_secret) in ``jamf_zugaenge``, getrennt von
 ``users``. Damit landet es nicht in den Backups: Nach einer Wiederherstellung trägt jede
@@ -39,44 +44,6 @@ _transport: Optional[httpx.AsyncBaseTransport] = None
 # Zwischengespeicherte Jamf-Tokens je App-Benutzer: user_id -> (jamf_url, token, gültig_bis).
 # Nur im Arbeitsspeicher; nach einem Neustart holt die App sich einfach ein neues.
 _tokens: dict = {}
-
-
-# Ohne dieses Recht nimmt /api/v2/mdm/commands gar keinen Befehl an (403), auch wenn das
-# Recht für den einzelnen Befehl vorhanden ist. Jamf nennt es "View ...", es gilt aber
-# laut Schema (x-required-privileges) auch für das Senden.
-MDM_RECHT = "View MDM command information in Jamf Pro API"
-# Was der Hinweis nennt, wenn die Classic API Befehle ablehnt. Wie Jamf das Recht dort
-# nennt, verrät die API nicht - "Send Inventory Requests ..." allein reicht nicht.
-CLASSIC_RECHT = "Befehle über die Classic API senden (/JSSResource/mobiledevicecommands)"
-
-# Die Befehle, die die App anbietet. "recht" ist der Name des Jamf-Rechts, so wie
-# /api/v1/auth ihn liefert - fehlt es, zeigt die Oberfläche den Knopf nicht an.
-BEFEHLE = {
-    "sperren": {"titel": "Sperren", "recht": "Send Mobile Device Remote Lock Command", "typ": "DEVICE_LOCK"},
-    "verloren_an": {
-        "titel": "Verloren-Modus einschalten",
-        "recht": "Send Mobile Device Lost Mode Command",
-        "typ": "ENABLE_LOST_MODE",
-    },
-    "verloren_aus": {
-        "titel": "Verloren-Modus ausschalten",
-        "recht": "Send Mobile Device Lost Mode Command",
-        "typ": "DISABLE_LOST_MODE",
-    },
-    "verloren_ton": {
-        "titel": "Ton abspielen (Verloren-Modus)",
-        "recht": "Send Mobile Device Lost Mode Command",
-        "typ": "PLAY_LOST_MODE_SOUND",
-    },
-    "code_entfernen": {
-        "titel": "Code-Sperre entfernen",
-        "recht": "Send Mobile Device Remove Passcode Command",
-        "typ": "CLEAR_PASSCODE",
-    },
-    "neustart": {"titel": "Neustart", "recht": "Send Mobile Device Restart Device Command", "typ": "RESTART_DEVICE"},
-    # Die Jamf Pro API kennt dafür keinen MDM-Befehl, nur die Classic API.
-    "inventar": {"titel": "Inventar aktualisieren", "recht": "Send Inventory Requests to Mobile Devices", "typ": None},
-}
 
 
 class JamfFehler(Exception):
@@ -152,54 +119,8 @@ async def _token_holen(basis: str, benutzer: str, passwort: str) -> tuple:
     return daten["token"], _ablaufzeit(daten.get("expires"))
 
 
-def _rechte_aus_auth(daten: dict) -> set:
-    """Alle Rechte der Person, gleich wo Jamf sie ablegt.
-
-    Bei Site-Konten stehen sie je nach Version unter account.privileges,
-    account.privilegesBySite oder accountGroups[].privileges - für die Frage "welche Knöpfe
-    zeigen wir an" ist die Vereinigung richtig. Jamf prüft beim Befehl ohnehin selbst.
-    """
-    konto = daten.get("account") or {}
-    rechte = set(konto.get("privileges") or [])
-    for liste in (konto.get("privilegesBySite") or {}).values():
-        rechte.update(liste or [])
-    for gruppe in daten.get("accountGroups") or []:
-        rechte.update(gruppe.get("privileges") or [])
-    return rechte
-
-
-def erlaubte_befehle(rechte: set) -> list:
-    """Befehle über /api/v2/mdm/commands (typ gesetzt) brauchen zusätzlich MDM_RECHT."""
-    return [name for name, b in BEFEHLE.items() if b["recht"] in rechte and (b["typ"] is None or MDM_RECHT in rechte)]
-
-
-def fehlende_rechte(rechte: set) -> list:
-    """Rechte, ohne die vorhandene Befehlsrechte ins Leere laufen - für den Hinweis in der Oberfläche."""
-    if MDM_RECHT not in rechte and any(b["typ"] and b["recht"] in rechte for b in BEFEHLE.values()):
-        return [MDM_RECHT]
-    return []
-
-
-async def _classic_befehle_erlaubt(basis: str, token: str) -> bool:
-    """Ob die Classic API von diesem Konto Befehle annimmt.
-
-    Gefragt wird mit der Geräte-ID 0, die es nicht gibt - so erreicht nie ein Befehl ein
-    Gerät. Jamf prüft das Recht vor der Gerätesuche: Fehlt es, kommt 401, sonst ein Fehler
-    zum Gerät. Im Zweifel (Jamf nicht erreichbar) bleibt der Knopf stehen.
-    """
-    try:
-        async with _client(basis) as c:
-            antwort = await c.post(
-                "/JSSResource/mobiledevicecommands/command/UpdateInventory/id/0",
-                headers={"Authorization": f"Bearer {token}"},
-            )
-    except httpx.HTTPError:
-        return True
-    return antwort.status_code != 401
-
-
 async def zugang_pruefen_und_speichern(user: dict, benutzer: str, passwort: str) -> dict:
-    """Login bei Jamf ausprobieren, Rechte lesen und erst dann speichern."""
+    """Login bei Jamf ausprobieren und erst dann speichern."""
     basis = await jamf_url()
     if not basis:
         raise JamfFehler("Die Jamf-Anbindung ist noch nicht eingerichtet (Adresse fehlt).", 409)
@@ -208,26 +129,12 @@ async def zugang_pruefen_und_speichern(user: dict, benutzer: str, passwort: str)
     except _AnmeldungAbgelehnt:
         raise JamfFehler("Jamf hat die Anmeldung abgelehnt. Bitte Benutzername und Passwort prüfen.", 400)
 
-    try:
-        async with _client(basis) as c:
-            antwort = await c.get("/api/v1/auth", headers={"Authorization": f"Bearer {token}"})
-    except httpx.HTTPError:
-        raise JamfFehler("Jamf ist gerade nicht erreichbar. Bitte später erneut versuchen.", 502)
-    rechte = _rechte_aus_auth(antwort.json()) if antwort.status_code == 200 else set()
-    befehle = erlaubte_befehle(rechte)
-    fehlend = fehlende_rechte(rechte)
-    if "inventar" in befehle and not await _classic_befehle_erlaubt(basis, token):
-        befehle.remove("inventar")
-        fehlend.append(CLASSIC_RECHT)
-
     jetzt = datetime.now(UTC).isoformat()
     zugang = {
         "user_id": user["id"],
         "benutzer": benutzer,
         "passwort": wrap_secret(passwort),
         "jamf_url": basis,
-        "befehle": befehle,
-        "fehlende_rechte": fehlend,
         "gesperrt": False,
         "gesperrt_grund": None,
         "aktualisiert_am": jetzt,
@@ -281,8 +188,7 @@ async def _token_fuer(user: dict, frisch: bool = False) -> tuple:
 async def _anfrage(user: dict, methode: str, pfad: str, **kwargs) -> httpx.Response:
     """Anfrage mit dem Token der Person; ein abgelaufenes Token wird einmal erneuert.
 
-    Die Classic API (/JSSResource) meldet ein fehlendes Recht nicht mit 403, sondern mit 401.
-    Kommt 401 also auch mit einem gerade frisch ausgestellten Token, fehlt ein Recht.
+    Kommt 401 auch mit einem gerade frisch ausgestellten Token, fehlt ein Recht.
     """
     for versuch in (0, 1):
         basis, token = await _token_fuer(user, frisch=versuch == 1)
@@ -298,8 +204,8 @@ async def _anfrage(user: dict, methode: str, pfad: str, **kwargs) -> httpx.Respo
     raise JamfFehler("Jamf hat das abgelehnt: Ihrem Jamf-Konto fehlt das Recht dafür.", 403)
 
 
-def _pruefe_antwort(antwort: httpx.Response, erwartet=(200, 201, 202, 204)) -> None:
-    if antwort.status_code in erwartet:
+def _pruefe_antwort(antwort: httpx.Response) -> None:
+    if antwort.status_code == 200:
         return
     text = _fehlertext(antwort)
     if text == "Forbidden":  # sagt nichts über "fehlt ein Recht" hinaus
@@ -339,7 +245,7 @@ async def geraet_suchen(user: dict, snr: str) -> Optional[dict]:
             ("filter", f'serialNumber=="{wert}"'),
         ],
     )
-    _pruefe_antwort(antwort, (200,))
+    _pruefe_antwort(antwort)
     treffer = (antwort.json() or {}).get("results") or []
     if not treffer:
         return None
@@ -376,51 +282,3 @@ async def geraet_suchen(user: dict, snr: str) -> Optional[dict]:
         ),
         "jamf_link": f"{basis}/mobileDevices.html?id={jamf_id}&o=r" if basis and jamf_id else None,
     }
-
-
-async def befehl_senden(user: dict, geraet: dict, befehl: str, nachricht: str = "", telefon: str = "") -> None:
-    """Einen der BEFEHLE an das Gerät schicken. Wirft JamfFehler, wenn Jamf ablehnt."""
-    eintrag = BEFEHLE[befehl]
-
-    if befehl == "inventar":
-        antwort = await _anfrage(
-            user, "POST", f"/JSSResource/mobiledevicecommands/command/UpdateInventory/id/{geraet['jamf_id']}"
-        )
-        _pruefe_antwort(antwort)
-        return
-
-    if not geraet.get("management_id"):
-        raise JamfFehler("Jamf liefert für dieses Gerät keine Management-ID; es ist vermutlich nicht verwaltet.", 409)
-
-    daten: dict = {"commandType": eintrag["typ"]}
-    if befehl == "sperren":
-        if nachricht:
-            daten["message"] = nachricht
-        if telefon:
-            daten["phoneNumber"] = telefon
-    elif befehl == "verloren_an":
-        if not nachricht and not telefon:
-            raise JamfFehler("Für den Verloren-Modus bitte eine Nachricht oder Telefonnummer angeben.", 400)
-        if nachricht:
-            daten["lostModeMessage"] = nachricht
-        if telefon:
-            daten["lostModePhone"] = telefon
-    elif befehl == "code_entfernen":
-        # Ohne den Entsperr-Token des Geräts nimmt Jamf den Befehl nicht an.
-        detail = await _anfrage(user, "GET", f"/api/v2/mobile-devices/{geraet['jamf_id']}/detail")
-        _pruefe_antwort(detail, (200,))
-        token = ((detail.json() or {}).get("ios") or {}).get("unlockToken")
-        if not token:
-            raise JamfFehler(
-                "Jamf hat für dieses iPad keinen Entsperr-Token gespeichert; die Code-Sperre lässt sich so nicht entfernen.",
-                409,
-            )
-        daten["unlockToken"] = token
-
-    antwort = await _anfrage(
-        user,
-        "POST",
-        "/api/v2/mdm/commands",
-        json={"clientData": [{"managementId": geraet["management_id"]}], "commandData": daten},
-    )
-    _pruefe_antwort(antwort)

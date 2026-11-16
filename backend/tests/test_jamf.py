@@ -8,7 +8,8 @@ Geprüft wird vor allem, was schiefgehen darf, ohne dass es teuer wird:
 - Ein später abgelehnter Login wird gesperrt statt immer wieder probiert (Jamf sperrt sonst
   das Konto der Person).
 - Kein Jamf-Fehler kommt als 401 an - das hieße für das Frontend "App-Sitzung abgelaufen".
-- Befehle gibt es nur für iPads, die man in der App sehen darf.
+- Status gibt es nur für iPads, die man in der App sehen darf.
+- Die App liest nur: An Jamf geht außer der Anmeldung nie etwas Schreibendes.
 """
 
 import json
@@ -20,13 +21,6 @@ import pytest_asyncio
 from tests.conftest import anmelden
 
 JAMF = "https://schule.jamfcloud.com"
-RECHTE = [
-    "Read Mobile Devices",
-    "Send Mobile Device Remote Lock Command",
-    "Send Mobile Device Lost Mode Command",
-    "Send Inventory Requests to Mobile Devices",
-    "View MDM command information in Jamf Pro API",
-]
 
 
 class FalschesJamf:
@@ -35,9 +29,6 @@ class FalschesJamf:
     def __init__(self):
         self.passwort = "jamf-geheim"
         self.anfragen = []
-        self.befehl_status = 201
-        self.classic_status = 201
-        self.rechte = list(RECHTE)
         self.geraete = {
             "DMPDF2X3NR73": {
                 "mobileDeviceId": "9916",
@@ -63,23 +54,12 @@ class FalschesJamf:
             return httpx.Response(200, json={"token": "tok", "expires": "2999-01-01T00:00:00.000Z"})
         if request.headers.get("Authorization") != "Bearer tok":
             return httpx.Response(401)
-        if pfad == "/api/v1/auth":
-            return httpx.Response(200, json={"account": {"privilegesBySite": {"1": self.rechte}}, "accountGroups": []})
         if pfad == "/api/v2/mobile-devices/detail":
             filter_ = request.url.params.get("filter")
             snr = filter_.split('"')[1]
             treffer = [self.geraete[snr]] if snr in self.geraete else []
             return httpx.Response(200, json={"totalCount": len(treffer), "results": treffer})
-        if pfad == "/api/v2/mdm/commands":
-            return httpx.Response(self.befehl_status, json=[{"id": "1", "href": "x"}])
-        if pfad.startswith("/JSSResource/mobiledevicecommands/command/UpdateInventory/id/"):
-            if pfad.endswith("/id/0") and self.classic_status != 401:
-                return httpx.Response(404)
-            return httpx.Response(self.classic_status)
         return httpx.Response(404)
-
-    def befehle(self):
-        return [json.loads(a.content) for a in self.anfragen if a.url.path == "/api/v2/mdm/commands"]
 
 
 @pytest_asyncio.fixture
@@ -116,13 +96,6 @@ async def test_login_wird_nur_gespeichert_wenn_jamf_ihn_annimmt(client, jamf, we
     assert richtig.status_code == 200, richtig.text
     daten = richtig.json()
     assert daten["verknuepft"] is True
-    assert {b["name"] for b in daten["befehle"]} == {
-        "sperren",
-        "verloren_an",
-        "verloren_aus",
-        "verloren_ton",
-        "inventar",
-    }
 
     gespeichert = await welt.jamf_zugaenge.find_one({"user_id": "u_schaubach"})
     assert "jamf-geheim" not in json.dumps(gespeichert, default=str)
@@ -132,7 +105,7 @@ async def test_login_wird_nur_gespeichert_wenn_jamf_ihn_annimmt(client, jamf, we
 async def test_ohne_login_sieht_man_nichts_von_jamf(client, jamf):
     kopf = await anmelden(client, "schaubach")
     stand = (await client.get("/api/jamf/zugang", headers=kopf)).json()
-    assert stand == {**stand, "eingerichtet": True, "verknuepft": False, "befehle": []}
+    assert stand == {**stand, "eingerichtet": True, "verknuepft": False}
 
     antwort = await client.get("/api/ipads/ip_meda/jamf", headers=kopf)
     assert antwort.status_code == 409
@@ -156,111 +129,19 @@ async def test_fremde_ipads_bleiben_tabu(client, jamf, welt):
     await _verknuepfen(client, kopf)
 
     assert (await client.get("/api/ipads/ip_gym/jamf", headers=kopf)).status_code == 404
-    befehl = await client.post("/api/ipads/ip_gym/jamf/befehl", headers=kopf, json={"befehl": "sperren"})
-    assert befehl.status_code == 404
-    assert jamf.befehle() == []
-    assert await welt.jamf_protokoll.count_documents({}) == 0
+    assert not any(a.url.path == "/api/v2/mobile-devices/detail" for a in jamf.anfragen)
 
 
-async def test_sperren_geht_an_jamf_und_wird_protokolliert(client, jamf, welt):
+async def test_die_app_schickt_jamf_nur_lesende_anfragen(client, jamf):
+    """Befehle sind bewusst ausgebaut - es gibt keinen Weg, ein iPad über die App zu verändern."""
     kopf = await anmelden(client, "schaubach")
     await _verknuepfen(client, kopf)
+    await client.get("/api/ipads/ip_meda/jamf", headers=kopf)
 
-    antwort = await client.post(
-        "/api/ipads/ip_meda/jamf/befehl",
-        headers=kopf,
-        json={"befehl": "sperren", "nachricht": "Bitte im Sekretariat abgeben"},
-    )
-    assert antwort.status_code == 200, antwort.text
-    assert jamf.befehle() == [
-        {
-            "clientData": [{"managementId": "b68d71f7-37c3-4b58-94f5-4cc54670a27d"}],
-            "commandData": {"commandType": "DEVICE_LOCK", "message": "Bitte im Sekretariat abgeben"},
-        }
-    ]
-    eintrag = await welt.jamf_protokoll.find_one({"ipad_id": "ip_meda"})
-    assert eintrag["erfolg"] is True and eintrag["username"] == "schaubach"
-
-
-async def test_befehl_ohne_jamf_recht_wird_nicht_gesendet(client, jamf):
-    kopf = await anmelden(client, "schaubach")
-    await _verknuepfen(client, kopf)
-
-    antwort = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "code_entfernen"})
-    assert antwort.status_code == 403
-    assert jamf.befehle() == []
-
-
-async def test_verloren_modus_braucht_nachricht_oder_telefon(client, jamf):
-    kopf = await anmelden(client, "schaubach")
-    await _verknuepfen(client, kopf)
-
-    leer = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "verloren_an"})
-    assert leer.status_code == 400
-    mit = await client.post(
-        "/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "verloren_an", "telefon": "0231 123"}
-    )
-    assert mit.status_code == 200, mit.text
-    assert jamf.befehle()[-1]["commandData"] == {"commandType": "ENABLE_LOST_MODE", "lostModePhone": "0231 123"}
-
-
-async def test_inventar_laeuft_ueber_die_classic_api(client, jamf):
-    kopf = await anmelden(client, "schaubach")
-    await _verknuepfen(client, kopf)
-
-    antwort = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "inventar"})
-    assert antwort.status_code == 200, antwort.text
-    assert any(a.url.path.endswith("/UpdateInventory/id/9916") for a in jamf.anfragen)
-
-
-async def test_ohne_mdm_recht_gibt_es_nur_inventar_und_einen_hinweis(client, jamf):
-    """Ohne "View MDM command information" lehnt Jamf jeden Befehl über die Jamf Pro API ab."""
-    jamf.rechte = [r for r in RECHTE if not r.startswith("View MDM")]
-    kopf = await anmelden(client, "schaubach")
-
-    daten = (await _verknuepfen(client, kopf)).json()
-    assert [b["name"] for b in daten["befehle"]] == ["inventar"]
-    assert daten["fehlende_rechte"] == ["View MDM command information in Jamf Pro API"]
-
-    antwort = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "sperren"})
-    assert antwort.status_code == 403
-    assert jamf.befehle() == []
-
-
-async def test_classic_api_meldet_fehlendes_recht_als_401(client, jamf):
-    """401 trotz frischem Token heißt "Recht fehlt" - nicht "abgelaufen" und kein Sperren des Logins."""
-    kopf = await anmelden(client, "schaubach")
-    await _verknuepfen(client, kopf)
-    jamf.classic_status = 401
-
-    antwort = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "inventar"})
-    assert antwort.status_code == 403, antwort.text
-    assert "Recht" in antwort.json()["detail"]
-    assert (await client.get("/api/jamf/zugang", headers=kopf)).json()["gesperrt"] is False
-
-
-async def test_ohne_classic_recht_kein_inventar_knopf(client, jamf):
-    """Die Probe beim Verbinden geht an die Geräte-ID 0 - nie an ein echtes iPad."""
-    jamf.classic_status = 401
-    kopf = await anmelden(client, "schaubach")
-
-    daten = (await _verknuepfen(client, kopf)).json()
-    assert "inventar" not in [b["name"] for b in daten["befehle"]]
-    assert "sperren" in [b["name"] for b in daten["befehle"]]
-    assert any("Classic API" in r for r in daten["fehlende_rechte"])
-    proben = [a.url.path for a in jamf.anfragen if a.url.path.startswith("/JSSResource/")]
-    assert proben == ["/JSSResource/mobiledevicecommands/command/UpdateInventory/id/0"]
-
-
-async def test_abgelehnter_befehl_wird_protokolliert_und_ist_kein_401(client, jamf, welt):
-    kopf = await anmelden(client, "schaubach")
-    await _verknuepfen(client, kopf)
-    jamf.befehl_status = 403
-
-    antwort = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "sperren"})
-    assert antwort.status_code == 403
-    eintrag = await welt.jamf_protokoll.find_one({"ipad_id": "ip_meda"})
-    assert eintrag["erfolg"] is False and eintrag["fehler"]
+    befehl = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "sperren"})
+    assert befehl.status_code in (404, 405)
+    schreibend = [a for a in jamf.anfragen if a.method != "GET" and a.url.path != "/api/v1/auth/token"]
+    assert schreibend == []
 
 
 async def test_spaeter_abgelehnter_login_wird_gesperrt_statt_wiederholt(client, jamf):

@@ -3,49 +3,20 @@ import api from '../../api';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '../ui/alert-dialog';
-import { toast } from 'sonner';
 import { ExternalLink, RefreshCw, Smartphone } from 'lucide-react';
-
-// Was vor dem Senden abgefragt wird. Befehle ohne Eintrag gehen ohne Rückfrage raus -
-// das sind die harmlosen (Inventar).
-const RUECKFRAGE = {
-  sperren: { text: 'Das iPad wird sofort gesperrt. Die Nachricht erscheint auf dem Sperrbildschirm.', felder: ['nachricht', 'telefon'] },
-  verloren_an: {
-    text: 'Das iPad wird gesperrt und zeigt die Nachricht, bis der Verloren-Modus wieder ausgeschaltet wird. Nachricht oder Telefonnummer ist Pflicht.',
-    felder: ['nachricht', 'telefon'],
-  },
-  verloren_aus: { text: 'Der Verloren-Modus wird beendet, das iPad ist wieder normal nutzbar.' },
-  verloren_ton: { text: 'Das iPad spielt einen Ton ab (nur im Verloren-Modus möglich).' },
-  code_entfernen: { text: 'Der Code des iPads wird entfernt. Danach ist es ohne Code entsperrbar.' },
-  neustart: { text: 'Das iPad wird neu gestartet. Ungesicherte Eingaben darauf gehen verloren.' },
-};
 
 const janein = (wert) => (wert === true ? 'ja' : wert === false ? 'nein' : '–');
 
 const datum = (wert) =>
   wert ? new Date(wert).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '–';
 
-// Zeigt sich nur, wenn die Person einen Jamf-Login hinterlegt hat.
+// Zeigt sich nur, wenn die Person einen Jamf-Login hinterlegt hat. Nur lesend: Befehle nimmt
+// Jamf von den Konten der Schule über die API nicht an.
 const JamfPanel = ({ ipadId }) => {
   const [zugang, setZugang] = useState(null);
   const [daten, setDaten] = useState(null);
   const [fehler, setFehler] = useState(null);
   const [laedt, setLaedt] = useState(false);
-  const [offen, setOffen] = useState(null);
-  const [eingabe, setEingabe] = useState({ nachricht: '', telefon: '' });
-  const [sendet, setSendet] = useState(false);
 
   const statusLaden = async () => {
     setLaedt(true);
@@ -74,30 +45,7 @@ const JamfPanel = ({ ipadId }) => {
 
   if (!zugang || !zugang.eingerichtet || !zugang.verknuepft) return null;
 
-  const senden = async (befehl) => {
-    setSendet(true);
-    try {
-      const res = await api.post(`/ipads/${ipadId}/jamf/befehl`, { befehl, ...eingabe });
-      toast.success(res.data.message);
-      setDaten((d) => ({ ...(d || {}), protokoll: res.data.protokoll }));
-      setOffen(null);
-      setEingabe({ nachricht: '', telefon: '' });
-    } catch (error) {
-      toast.error(error.response?.data?.detail || 'Befehl konnte nicht gesendet werden');
-    } finally {
-      setSendet(false);
-    }
-  };
-
-  const klick = (befehl) => {
-    if (RUECKFRAGE[befehl]) setOffen(befehl);
-    else senden(befehl);
-  };
-
   const geraet = daten?.geraet;
-  const befehle = zugang.befehle || [];
-  const titel = (name) => befehle.find((b) => b.name === name)?.titel || name;
-  const rueckfrage = offen ? RUECKFRAGE[offen] : null;
 
   return (
     <Card className="mb-6 border-sky-200" data-testid="jamf-panel">
@@ -177,94 +125,9 @@ const JamfPanel = ({ ipadId }) => {
                 „In Jamf öffnen“ → Verwaltung.
               </p>
             )}
-
-            {zugang.fehlende_rechte?.length > 0 && (
-              <p className="text-xs text-gray-500">
-                Einige Befehle fehlen, weil Ihrem Jamf-Konto Rechte fehlen (Details unter Einstellungen).
-                Bis dahin: „In Jamf öffnen“.
-              </p>
-            )}
-            {befehle.length > 0 && (
-              <div className="flex gap-2 flex-wrap pt-2 border-t">
-                {befehle
-                  .filter((b) => (geraet.verloren_modus ? b.name !== 'verloren_an' : !['verloren_aus', 'verloren_ton'].includes(b.name)))
-                  .map((b) => (
-                    <Button
-                      key={b.name}
-                      variant="outline"
-                      size="sm"
-                      disabled={sendet}
-                      onClick={() => klick(b.name)}
-                      data-testid={`jamf-befehl-${b.name}`}
-                      className={['sperren', 'verloren_an', 'code_entfernen'].includes(b.name) ? 'border-red-300 text-red-700 hover:bg-red-50' : ''}
-                    >
-                      {b.titel}
-                    </Button>
-                  ))}
-              </div>
-            )}
           </>
         )}
-
-        {daten?.protokoll?.length > 0 && (
-          <div className="pt-2 border-t">
-            <div className="text-sm font-medium mb-2">Zuletzt gesendet</div>
-            <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
-              {daten.protokoll.map((e, i) => (
-                <div key={i} className={e.erfolg ? 'text-gray-700' : 'text-red-700'}>
-                  {datum(e.at)} · {e.titel} · {e.username}
-                  {e.erfolg ? '' : ` · abgelehnt: ${e.fehler}`}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </CardContent>
-
-      <AlertDialog open={!!offen} onOpenChange={(o) => !o && !sendet && setOffen(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{offen ? titel(offen) : ''}?</AlertDialogTitle>
-            <AlertDialogDescription>{rueckfrage?.text}</AlertDialogDescription>
-          </AlertDialogHeader>
-          {rueckfrage?.felder && (
-            <div className="space-y-3">
-              <div>
-                <Label htmlFor="jamf-nachricht">Nachricht auf dem Bildschirm</Label>
-                <Input
-                  id="jamf-nachricht"
-                  maxLength={500}
-                  placeholder="z. B. Bitte im Sekretariat abgeben"
-                  value={eingabe.nachricht}
-                  onChange={(e) => setEingabe({ ...eingabe, nachricht: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="jamf-telefon">Telefonnummer (optional)</Label>
-                <Input
-                  id="jamf-telefon"
-                  maxLength={50}
-                  value={eingabe.telefon}
-                  onChange={(e) => setEingabe({ ...eingabe, telefon: e.target.value })}
-                />
-              </div>
-            </div>
-          )}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={sendet}>Abbrechen</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={sendet || (offen === 'verloren_an' && !eingabe.nachricht.trim() && !eingabe.telefon.trim())}
-              onClick={(e) => {
-                e.preventDefault();
-                senden(offen);
-              }}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              {sendet ? 'Sendet...' : 'Senden'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Card>
   );
 };
