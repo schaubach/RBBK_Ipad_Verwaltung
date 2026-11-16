@@ -27,16 +27,17 @@ def get_template_path():
     return os.path.join(TEMPLATE_DIR, TEMPLATE_PDF_NAME)
 
 
-def create_single_contract(row_data: dict, template_bytes: bytes) -> tuple:
+def create_single_contract(row_data: dict, template_bytes: bytes, encrypt: bool = True) -> tuple:
     """
     Erstellt einen einzelnen Vertrag als verschlüsseltes ZIP-Archiv.
 
     Args:
         row_data: Dictionary mit den Daten für den Vertrag
         template_bytes: Bytes der PDF-Vorlage
+        encrypt: False liefert das ausgefüllte PDF selbst statt eines ZIP-Archivs
 
     Returns:
-        Tuple von (zip_filename, zip_bytes) oder (None, error_message) bei Fehler
+        Tuple von (dateiname, bytes) oder (None, error_message) bei Fehler
     """
     try:
 
@@ -128,6 +129,9 @@ def create_single_contract(row_data: dict, template_bytes: bytes) -> tuple:
                     field.Ff = 1  # Read-only flag
             final_pdf.save(pdf_final_buffer)
 
+        if not encrypt:
+            return pdf_filename, pdf_final_buffer.getvalue()
+
         # ZIP mit Passwort erstellen (Geburtsdatum als Passwort)
         zip_password = sus_geb
         if not zip_password:
@@ -162,13 +166,15 @@ def create_single_contract(row_data: dict, template_bytes: bytes) -> tuple:
         return None, str(e)
 
 
-def create_contracts_from_assignments(assignments_data: list) -> tuple:
+def create_contracts_from_assignments(assignments_data: list, encrypt: bool = True) -> tuple:
     """
     Erstellt Verträge für eine Liste von Zuordnungen.
 
     Args:
         assignments_data: Liste von Dictionaries mit Zuordnungsdaten
                          (kombinierte Student + iPad Daten)
+        encrypt: True packt jedes PDF in ein eigenes, mit dem Geburtsdatum verschlüsseltes
+                 ZIP; False legt die PDFs unverschlüsselt direkt ins Gesamtarchiv
 
     Returns:
         Tuple von (combined_zip_bytes, success_count, error_count, errors)
@@ -187,7 +193,7 @@ def create_contracts_from_assignments(assignments_data: list) -> tuple:
 
     for idx, assignment in enumerate(assignments_data):
         try:
-            zip_filename, result = create_single_contract(assignment, template_bytes)
+            zip_filename, result = create_single_contract(assignment, template_bytes, encrypt=encrypt)
             if zip_filename:
                 created_zips.append((zip_filename, result))
                 success_count += 1
@@ -200,7 +206,7 @@ def create_contracts_from_assignments(assignments_data: list) -> tuple:
             errors.append(f"Zeile {idx + 1}: {str(e)}")
             logger.error(f"Fehler bei Zeile {idx + 1}: {e}")
 
-    # Alle ZIPs in ein großes ZIP packen
+    # Alle ZIPs (bzw. PDFs) in ein großes ZIP packen
     combined_zip_buffer = io.BytesIO()
     with zipfile.ZipFile(combined_zip_buffer, "w", zipfile.ZIP_DEFLATED) as combined_zip:
         for zip_filename, zip_bytes in created_zips:

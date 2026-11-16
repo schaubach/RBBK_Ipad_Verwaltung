@@ -3,6 +3,7 @@ import api from '../../api';
 import IPadDetailViewer from './IPadDetailViewer';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { anzahl } from '../../utils/anzahl';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
@@ -986,7 +987,7 @@ const IPadsManagement = ({ isAdmin = false }) => {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="flex items-center gap-2">
               <Tablet className="h-5 w-5" />
-              iPads verwalten ({ipads.length})
+              iPads verwalten ({anzahl(filteredIPads.length, ipads.length)})
             </CardTitle>
             <div className="flex flex-wrap items-center gap-2">
               {isAdmin && (

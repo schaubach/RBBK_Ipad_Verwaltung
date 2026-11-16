@@ -3,6 +3,7 @@ import api from '../../api';
 import StudentDetailViewer from './StudentDetailViewer';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { anzahl } from '../../utils/anzahl';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
@@ -574,7 +575,7 @@ const StudentsManagement = () => {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="flex items-center gap-2">
               <Users className="h-5 w-5" />
-              Lernende verwalten ({students.length})
+              Lernende verwalten ({anzahl(filteredStudents.length, students.length)})
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button onClick={() => setCreateDialogOpen(true)} className="flex items-center gap-2">

@@ -10,6 +10,7 @@ Gerätehistorie bei doppelter ITNr. Beide verknüpfen über Felder, die NICHT ei
 """
 
 import io
+import zipfile
 
 import PyPDF2
 from PyPDF2.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject
@@ -603,3 +604,36 @@ async def test_vertragserstellung_fuer_fremde_auswahl_findet_nichts(welt, client
     antwort = await client.post("/api/assignments/generate-contracts", json={"assignment_ids": ["a_gym"]}, headers=kopf)
     assert antwort.status_code == 404
     assert await welt.contracts.count_documents({}) == 0
+
+
+async def test_vertragserstellung_verschluesselt_jeden_vertrag_einzeln(welt, client):
+    await schueler(welt, "s_meda", "bg_meda")
+    await geraet(welt, "g_meda", "bg_meda", "IT-100")
+    await zuordnung(welt, "a_meda", "bg_meda", "s_meda", "g_meda", "IT-100")
+
+    kopf = await anmelden(client, "schaubach")
+    antwort = await client.post(
+        "/api/assignments/generate-contracts", json={"assignment_ids": ["a_meda"]}, headers=kopf
+    )
+    assert antwort.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(antwort.content)) as gesamt:
+        assert gesamt.namelist() == ["M1_Mustermann_Max.zip"]
+        with zipfile.ZipFile(io.BytesIO(gesamt.read("M1_Mustermann_Max.zip"))) as einzeln:
+            assert einzeln.infolist()[0].flag_bits & 0x1  # passwortgeschützt
+
+
+async def test_vertragserstellung_unverschluesselt_legt_pdfs_direkt_ins_zip(welt, client):
+    await schueler(welt, "s_meda", "bg_meda")
+    await geraet(welt, "g_meda", "bg_meda", "IT-100")
+    await zuordnung(welt, "a_meda", "bg_meda", "s_meda", "g_meda", "IT-100")
+
+    kopf = await anmelden(client, "schaubach")
+    antwort = await client.post(
+        "/api/assignments/generate-contracts", json={"assignment_ids": ["a_meda"], "encrypt": False}, headers=kopf
+    )
+    assert antwort.status_code == 200
+    assert "_unverschluesselt" in antwort.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(antwort.content)) as gesamt:
+        assert gesamt.namelist() == ["M1_Mustermann_Max.pdf"]
+        assert not gesamt.infolist()[0].flag_bits & 0x1
+        assert gesamt.read("M1_Mustermann_Max.pdf").startswith(b"%PDF")
