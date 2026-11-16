@@ -178,6 +178,12 @@ const JamfPanel = ({ ipadId }) => {
               </p>
             )}
 
+            {zugang.fehlende_rechte?.length > 0 && (
+              <p className="text-xs text-gray-500">
+                Einige Befehle fehlen, weil Ihrem Jamf-Konto Rechte fehlen (Details unter Einstellungen).
+                Bis dahin: „In Jamf öffnen“.
+              </p>
+            )}
             {befehle.length > 0 && (
               <div className="flex gap-2 flex-wrap pt-2 border-t">
                 {befehle

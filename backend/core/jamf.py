@@ -41,6 +41,14 @@ _transport: Optional[httpx.AsyncBaseTransport] = None
 _tokens: dict = {}
 
 
+# Ohne dieses Recht nimmt /api/v2/mdm/commands gar keinen Befehl an (403), auch wenn das
+# Recht für den einzelnen Befehl vorhanden ist. Jamf nennt es "View ...", es gilt aber
+# laut Schema (x-required-privileges) auch für das Senden.
+MDM_RECHT = "View MDM command information in Jamf Pro API"
+# Was der Hinweis nennt, wenn die Classic API Befehle ablehnt. Wie Jamf das Recht dort
+# nennt, verrät die API nicht - "Send Inventory Requests ..." allein reicht nicht.
+CLASSIC_RECHT = "Befehle über die Classic API senden (/JSSResource/mobiledevicecommands)"
+
 # Die Befehle, die die App anbietet. "recht" ist der Name des Jamf-Rechts, so wie
 # /api/v1/auth ihn liefert - fehlt es, zeigt die Oberfläche den Knopf nicht an.
 BEFEHLE = {
@@ -161,7 +169,33 @@ def _rechte_aus_auth(daten: dict) -> set:
 
 
 def erlaubte_befehle(rechte: set) -> list:
-    return [name for name, b in BEFEHLE.items() if b["recht"] in rechte]
+    """Befehle über /api/v2/mdm/commands (typ gesetzt) brauchen zusätzlich MDM_RECHT."""
+    return [name for name, b in BEFEHLE.items() if b["recht"] in rechte and (b["typ"] is None or MDM_RECHT in rechte)]
+
+
+def fehlende_rechte(rechte: set) -> list:
+    """Rechte, ohne die vorhandene Befehlsrechte ins Leere laufen - für den Hinweis in der Oberfläche."""
+    if MDM_RECHT not in rechte and any(b["typ"] and b["recht"] in rechte for b in BEFEHLE.values()):
+        return [MDM_RECHT]
+    return []
+
+
+async def _classic_befehle_erlaubt(basis: str, token: str) -> bool:
+    """Ob die Classic API von diesem Konto Befehle annimmt.
+
+    Gefragt wird mit der Geräte-ID 0, die es nicht gibt - so erreicht nie ein Befehl ein
+    Gerät. Jamf prüft das Recht vor der Gerätesuche: Fehlt es, kommt 401, sonst ein Fehler
+    zum Gerät. Im Zweifel (Jamf nicht erreichbar) bleibt der Knopf stehen.
+    """
+    try:
+        async with _client(basis) as c:
+            antwort = await c.post(
+                "/JSSResource/mobiledevicecommands/command/UpdateInventory/id/0",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+    except httpx.HTTPError:
+        return True
+    return antwort.status_code != 401
 
 
 async def zugang_pruefen_und_speichern(user: dict, benutzer: str, passwort: str) -> dict:
@@ -180,6 +214,11 @@ async def zugang_pruefen_und_speichern(user: dict, benutzer: str, passwort: str)
     except httpx.HTTPError:
         raise JamfFehler("Jamf ist gerade nicht erreichbar. Bitte später erneut versuchen.", 502)
     rechte = _rechte_aus_auth(antwort.json()) if antwort.status_code == 200 else set()
+    befehle = erlaubte_befehle(rechte)
+    fehlend = fehlende_rechte(rechte)
+    if "inventar" in befehle and not await _classic_befehle_erlaubt(basis, token):
+        befehle.remove("inventar")
+        fehlend.append(CLASSIC_RECHT)
 
     jetzt = datetime.now(UTC).isoformat()
     zugang = {
@@ -187,7 +226,8 @@ async def zugang_pruefen_und_speichern(user: dict, benutzer: str, passwort: str)
         "benutzer": benutzer,
         "passwort": wrap_secret(passwort),
         "jamf_url": basis,
-        "befehle": erlaubte_befehle(rechte),
+        "befehle": befehle,
+        "fehlende_rechte": fehlend,
         "gesperrt": False,
         "gesperrt_grund": None,
         "aktualisiert_am": jetzt,
@@ -239,7 +279,11 @@ async def _token_fuer(user: dict, frisch: bool = False) -> tuple:
 
 
 async def _anfrage(user: dict, methode: str, pfad: str, **kwargs) -> httpx.Response:
-    """Anfrage mit dem Token der Person; ein abgelaufenes Token wird einmal erneuert."""
+    """Anfrage mit dem Token der Person; ein abgelaufenes Token wird einmal erneuert.
+
+    Die Classic API (/JSSResource) meldet ein fehlendes Recht nicht mit 403, sondern mit 401.
+    Kommt 401 also auch mit einem gerade frisch ausgestellten Token, fehlt ein Recht.
+    """
     for versuch in (0, 1):
         basis, token = await _token_fuer(user, frisch=versuch == 1)
         try:
@@ -251,13 +295,15 @@ async def _anfrage(user: dict, methode: str, pfad: str, **kwargs) -> httpx.Respo
         if antwort.status_code != 401:
             return antwort
         _tokens.pop(user["id"], None)
-    raise JamfFehler("Jamf hat die Anfrage nicht angenommen (Anmeldung abgelaufen).", 502)
+    raise JamfFehler("Jamf hat das abgelehnt: Ihrem Jamf-Konto fehlt das Recht dafür.", 403)
 
 
 def _pruefe_antwort(antwort: httpx.Response, erwartet=(200, 201, 202, 204)) -> None:
     if antwort.status_code in erwartet:
         return
     text = _fehlertext(antwort)
+    if text == "Forbidden":  # sagt nichts über "fehlt ein Recht" hinaus
+        text = ""
     if antwort.status_code == 403:
         raise JamfFehler(
             "Jamf hat das abgelehnt: Ihrem Jamf-Konto fehlt das Recht dafür." + (f" ({text})" if text else ""), 403

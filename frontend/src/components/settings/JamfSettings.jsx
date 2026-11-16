@@ -124,6 +124,16 @@ const JamfSettings = ({ isAdmin = false }) => {
                     : 'Ihr Jamf-Konto darf keinen der angebotenen Befehle senden.'}
                 </div>
               )}
+              {zugang.verknuepft && !zugang.gesperrt && zugang.fehlende_rechte?.length > 0 && (
+                <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded p-3">
+                  Einige Befehle nimmt Jamf über die Schnittstelle erst an, wenn Ihr Jamf-Konto zusätzlich
+                  diese Rechte hat:
+                  <ul className="list-disc ml-5 my-1">
+                    {zugang.fehlende_rechte.map((r) => <li key={r}><strong>{r}</strong></li>)}
+                  </ul>
+                  Das vergibt die Jamf-Verwaltung (Systemhaus). Danach hier „Login aktualisieren“.
+                </div>
+              )}
               {zugang.gesperrt && (
                 <div className="text-sm text-red-800 bg-red-50 border border-red-200 rounded p-3">
                   Jamf hat den hinterlegten Login abgelehnt (Passwort geändert?). Bitte neu eintragen.

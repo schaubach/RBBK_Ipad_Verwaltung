@@ -25,6 +25,7 @@ RECHTE = [
     "Send Mobile Device Remote Lock Command",
     "Send Mobile Device Lost Mode Command",
     "Send Inventory Requests to Mobile Devices",
+    "View MDM command information in Jamf Pro API",
 ]
 
 
@@ -35,6 +36,8 @@ class FalschesJamf:
         self.passwort = "jamf-geheim"
         self.anfragen = []
         self.befehl_status = 201
+        self.classic_status = 201
+        self.rechte = list(RECHTE)
         self.geraete = {
             "DMPDF2X3NR73": {
                 "mobileDeviceId": "9916",
@@ -61,7 +64,7 @@ class FalschesJamf:
         if request.headers.get("Authorization") != "Bearer tok":
             return httpx.Response(401)
         if pfad == "/api/v1/auth":
-            return httpx.Response(200, json={"account": {"privilegesBySite": {"1": RECHTE}}, "accountGroups": []})
+            return httpx.Response(200, json={"account": {"privilegesBySite": {"1": self.rechte}}, "accountGroups": []})
         if pfad == "/api/v2/mobile-devices/detail":
             filter_ = request.url.params.get("filter")
             snr = filter_.split('"')[1]
@@ -70,7 +73,9 @@ class FalschesJamf:
         if pfad == "/api/v2/mdm/commands":
             return httpx.Response(self.befehl_status, json=[{"id": "1", "href": "x"}])
         if pfad.startswith("/JSSResource/mobiledevicecommands/command/UpdateInventory/id/"):
-            return httpx.Response(201)
+            if pfad.endswith("/id/0") and self.classic_status != 401:
+                return httpx.Response(404)
+            return httpx.Response(self.classic_status)
         return httpx.Response(404)
 
     def befehle(self):
@@ -206,6 +211,45 @@ async def test_inventar_laeuft_ueber_die_classic_api(client, jamf):
     antwort = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "inventar"})
     assert antwort.status_code == 200, antwort.text
     assert any(a.url.path.endswith("/UpdateInventory/id/9916") for a in jamf.anfragen)
+
+
+async def test_ohne_mdm_recht_gibt_es_nur_inventar_und_einen_hinweis(client, jamf):
+    """Ohne "View MDM command information" lehnt Jamf jeden Befehl über die Jamf Pro API ab."""
+    jamf.rechte = [r for r in RECHTE if not r.startswith("View MDM")]
+    kopf = await anmelden(client, "schaubach")
+
+    daten = (await _verknuepfen(client, kopf)).json()
+    assert [b["name"] for b in daten["befehle"]] == ["inventar"]
+    assert daten["fehlende_rechte"] == ["View MDM command information in Jamf Pro API"]
+
+    antwort = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "sperren"})
+    assert antwort.status_code == 403
+    assert jamf.befehle() == []
+
+
+async def test_classic_api_meldet_fehlendes_recht_als_401(client, jamf):
+    """401 trotz frischem Token heißt "Recht fehlt" - nicht "abgelaufen" und kein Sperren des Logins."""
+    kopf = await anmelden(client, "schaubach")
+    await _verknuepfen(client, kopf)
+    jamf.classic_status = 401
+
+    antwort = await client.post("/api/ipads/ip_meda/jamf/befehl", headers=kopf, json={"befehl": "inventar"})
+    assert antwort.status_code == 403, antwort.text
+    assert "Recht" in antwort.json()["detail"]
+    assert (await client.get("/api/jamf/zugang", headers=kopf)).json()["gesperrt"] is False
+
+
+async def test_ohne_classic_recht_kein_inventar_knopf(client, jamf):
+    """Die Probe beim Verbinden geht an die Geräte-ID 0 - nie an ein echtes iPad."""
+    jamf.classic_status = 401
+    kopf = await anmelden(client, "schaubach")
+
+    daten = (await _verknuepfen(client, kopf)).json()
+    assert "inventar" not in [b["name"] for b in daten["befehle"]]
+    assert "sperren" in [b["name"] for b in daten["befehle"]]
+    assert any("Classic API" in r for r in daten["fehlende_rechte"])
+    proben = [a.url.path for a in jamf.anfragen if a.url.path.startswith("/JSSResource/")]
+    assert proben == ["/JSSResource/mobiledevicecommands/command/UpdateInventory/id/0"]
 
 
 async def test_abgelehnter_befehl_wird_protokolliert_und_ist_kein_401(client, jamf, welt):

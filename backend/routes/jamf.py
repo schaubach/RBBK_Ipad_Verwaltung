@@ -79,6 +79,7 @@ async def jamf_zugang_lesen(current_user: dict = Depends(get_current_user)):
             for n in (zugang or {}).get("befehle", [])
             if n in jamf.BEFEHLE
         ],
+        "fehlende_rechte": (zugang or {}).get("fehlende_rechte", []),
         "aktualisiert_am": (zugang or {}).get("aktualisiert_am"),
     }
 
