@@ -14,6 +14,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Checkbox } from '../ui/checkbox';
 import { toast } from 'sonner';
 import { filenameFromContentDisposition } from '../../utils/download';
+import { anzahl } from '../../utils/anzahl';
 import { Upload, FileText, Download, Trash2, Search, Link, ArrowUpDown, ArrowUp, ArrowDown, RefreshCw, AlertTriangle } from 'lucide-react';
 
 const ContractsManagement = () => {
@@ -680,7 +681,7 @@ const ContractsManagement = () => {
           <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
-              Verträge verwalten ({contracts.length})
+              Verträge verwalten ({anzahl(filteredContracts.length, contracts.length)})
             </CardTitle>
             <div className="flex items-center gap-2">
               {selectedContracts.length > 0 && (
@@ -930,6 +931,9 @@ const ContractsManagement = () => {
               </div>
             </div>
 
+            <p className="mb-2 text-xs text-gray-500" data-testid="assign-dialog-count">
+              {anzahl(filteredAssignments.length, getAssignmentsForDialog().length)} Zuordnungen
+            </p>
             <div className="flex-1 overflow-y-auto border rounded-lg">
               {filteredAssignments.length === 0 ? (
                 <div className="p-4 text-center text-gray-500">
