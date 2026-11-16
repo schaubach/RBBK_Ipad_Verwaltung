@@ -25,6 +25,8 @@ from core.security import (
 # Contract Generation
 class GenerateContractsRequest(BaseModel):
     assignment_ids: List[str] = []
+    # False: ein Gesamt-ZIP mit den PDFs direkt darin, ohne Passwortschutz je Vertrag
+    encrypt: bool = True
 
 
 @api_router.post("/assignments/generate-contracts")
@@ -136,14 +138,17 @@ async def generate_contracts(
             raise HTTPException(status_code=404, detail="Keine gültigen Daten für Vertragserstellung gefunden")
 
         # Generate contracts
-        zip_bytes, success_count, error_count, errors = create_contracts_from_assignments(contract_data)
+        zip_bytes, success_count, error_count, errors = create_contracts_from_assignments(
+            contract_data, encrypt=request.encrypt
+        )
 
         if success_count == 0:
             raise HTTPException(status_code=500, detail=f"Keine Verträge erstellt. Fehler: {'; '.join(errors[:5])}")
 
         # Create filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"Vertraege_{timestamp}.zip"
+        suffix = "" if request.encrypt else "_unverschluesselt"
+        filename = f"Vertraege_{timestamp}{suffix}.zip"
 
         return StreamingResponse(
             io.BytesIO(zip_bytes),

@@ -68,6 +68,7 @@ const ContractsManagement = () => {
   const [createItnrFilter, setCreateItnrFilter] = useState('');
   const [generatingContracts, setGeneratingContracts] = useState(false);
   const [selectedForGeneration, setSelectedForGeneration] = useState([]);
+  const [generateUnencrypted, setGenerateUnencrypted] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -274,7 +275,7 @@ const ContractsManagement = () => {
   const handleGenerateContracts = async () => {
     setGeneratingContracts(true);
     try {
-      const body = { assignment_ids: selectedForGeneration };
+      const body = { assignment_ids: selectedForGeneration, encrypt: !generateUnencrypted };
 
       const response = await api.post('/assignments/generate-contracts', body, {
         responseType: 'blob'
@@ -507,7 +508,7 @@ const ContractsManagement = () => {
             Verträge erstellen
           </CardTitle>
           <CardDescription>
-            PDF-Verträge für Zuordnungen generieren (verschlüsselt als ZIP)
+            PDF-Verträge für Zuordnungen generieren (verschlüsselt als ZIP, optional unverschlüsselt)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -553,6 +554,18 @@ const ContractsManagement = () => {
                 className="h-9"
               />
             </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="generate-unencrypted"
+              checked={generateUnencrypted}
+              onCheckedChange={(checked) => setGenerateUnencrypted(checked === true)}
+              data-testid="generate-unencrypted-checkbox"
+            />
+            <Label htmlFor="generate-unencrypted" className="text-sm font-normal cursor-pointer">
+              Unverschlüsselt exportieren (ein ZIP mit allen PDFs, ohne Passwort)
+            </Label>
           </div>
 
           {/* Buttons */}
@@ -654,7 +667,9 @@ const ContractsManagement = () => {
           )}
 
           <p className="text-xs text-gray-500">
-            Hinweis: ZIP-Dateien sind mit dem Geburtsdatum der lernenden Person verschlüsselt (Format: TT.MM.JJJJ).
+            {generateUnencrypted
+              ? 'Hinweis: Die PDFs liegen ungeschützt im ZIP. Die Datei enthält Anschriften und Geburtsdaten – nicht per Mail weitergeben.'
+              : 'Hinweis: ZIP-Dateien sind mit dem Geburtsdatum der lernenden Person verschlüsselt (Format: TT.MM.JJJJ).'}
           </p>
         </CardContent>
       </Card>
@@ -985,7 +1000,9 @@ const ContractsManagement = () => {
                   <strong>{getIncompleteCount()}</strong> der ausgewählten Zuordnungen haben fehlende Pflichtfelder (Typ, SNr oder Geburtsdatum).
                 </p>
                 <p className="mt-2">
-                  Diese Verträge werden unvollständig generiert und das ZIP-Archiv kann ohne Geburtsdatum nicht korrekt verschlüsselt werden.
+                  {generateUnencrypted
+                    ? 'Diese Verträge werden unvollständig generiert.'
+                    : 'Diese Verträge werden unvollständig generiert und das ZIP-Archiv kann ohne Geburtsdatum nicht korrekt verschlüsselt werden.'}
                 </p>
                 <p className="mt-2 font-medium">Trotzdem fortfahren?</p>
               </div>
